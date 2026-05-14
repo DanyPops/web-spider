@@ -20,20 +20,19 @@ import { spider, crawl, fuzzySearch, SpiderCache, PageGraph, DomainThrottle, Rob
 import type { SpideredPage } from "@dpopsuev/web-spider"
 
 // ---------------------------------------------------------------------------
-// Session-scoped cache, throttle, robots, and corpus
-// ---------------------------------------------------------------------------
-
-const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
-const graph = new PageGraph()
-const corpus: SpideredPage[] = []
-const throttle = new DomainThrottle({ minDelayMs: 500, maxRetries: 3 })
-const robotsCache = new RobotsCache()
-
-// ---------------------------------------------------------------------------
 // Tool
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+  // Session-scoped — created inside the factory so all imports are resolved
+  // before instantiation. Top-level `new X()` can fail under jiti/Bun interop
+  // when class constructors aren't yet initialised at module load time.
+  const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
+  const graph = new PageGraph()
+  const corpus: SpideredPage[] = []
+  const throttle = new DomainThrottle({ minDelayMs: 500, maxRetries: 3 })
+  const robotsCache = new RobotsCache()
+
   pi.registerTool({
     name: "web_fetch",
     label: "Web Fetch",
