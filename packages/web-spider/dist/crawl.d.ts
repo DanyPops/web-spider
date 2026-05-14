@@ -1,6 +1,6 @@
-import { SpiderCache } from "./cache.js";
 import { PageGraph } from "./graph.js";
 import type { SpiderOptions } from "./spider.js";
+import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 export interface CrawlOptions extends SpiderOptions {
     /** How many link hops from the start URL (default 2) */
@@ -18,7 +18,7 @@ export interface CrawlOptions extends SpiderOptions {
      */
     delayMs?: number;
     /** Bring your own cache — already-spidered URLs are skipped */
-    cache?: SpiderCache;
+    cache?: ICache<string, SpideredPage>;
     /** Bring your own graph — nodes/edges added as pages are spidered */
     graph?: PageGraph;
     /** Called with each successfully spidered page */

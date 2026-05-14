@@ -24,7 +24,12 @@ export interface BatchOptions extends SpiderOptions {
  * returned immediately and do not count toward concurrency.
  */
 export async function batchSpider(urls: string[], opts: BatchOptions = {}): Promise<Map<string, SpideredPage | Error>> {
-	const { concurrency = 3, delayMs = 300, cache, onProgress, ...spiderOpts } = opts;
+	// Strip crawl-only options that batchSpider doesn't use so they don't
+	// confuse callers and don't get forwarded to spider() where they'd be
+	// applied per-call rather than shared (use crawl() for that).
+	const { concurrency = 3, delayMs = 300, cache, onProgress,
+		throttle: _throttle, robotsCache: _robotsCache, // consumed here, not forwarded
+		...spiderOpts } = opts;
 
 	const results = new Map<string, SpideredPage | Error>();
 	const unique = [...new Set(urls)];

@@ -110,11 +110,7 @@ export interface LeanPage {
     /** Outbound links — href + anchor text only. */
     links: LeanLink[];
 }
-/**
- * Downgrade a full SpideredPage to a LeanPage.
- * Use when you have already fetched full but only need the outline in context.
- */
-export declare function toLean(page: SpideredPage): LeanPage;
+export { toLean } from "./views.js";
 /**
  * A fully spidered page.
  *

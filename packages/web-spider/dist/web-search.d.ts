@@ -49,4 +49,23 @@ export declare function webSearch(query: string, opts?: {
     engine?: SearchEngine;
     numResults?: number;
 }): Promise<WebSearchResult[]>;
+import type { ISearchEngine, SearchQuery } from "./ports.js";
+/** Brave Search adapter implementing ISearchEngine. */
+export declare class BraveSearchEngine implements ISearchEngine {
+    private readonly apiKey;
+    private readonly country?;
+    constructor(apiKey: string, country?: string | undefined);
+    search(req: SearchQuery): Promise<WebSearchResult[]>;
+}
+/** Tavily adapter implementing ISearchEngine. */
+export declare class TavilySearchEngine implements ISearchEngine {
+    private readonly apiKey;
+    constructor(apiKey: string);
+    search(req: SearchQuery): Promise<WebSearchResult[]>;
+}
+/**
+ * Build an ISearchEngine from environment variables.
+ * Prefers Brave when both keys are present.
+ */
+export declare function defaultSearchEngine(): ISearchEngine;
 //# sourceMappingURL=web-search.d.ts.map

@@ -1,5 +1,4 @@
-import type { RobotsCache } from "./robots.js";
-import type { DomainThrottle } from "./throttle.js";
+import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
 import type { DOMNode, LeanPage, SpideredPage } from "./types.js";
 export interface SpiderOptions {
     /**
@@ -35,12 +34,17 @@ export interface SpiderOptions {
      * Per-domain throttle — shared across spider() calls to enforce rate limits
      * and exponential backoff on 429/503 responses.
      */
-    throttle?: DomainThrottle;
+    throttle?: IThrottle;
     /**
-     * robots.txt cache — when provided, spider() checks robots.txt before
+     * robots.txt checker — when provided, spider() checks robots.txt before
      * fetching and respects Crawl-delay directives.
      */
-    robotsCache?: RobotsCache;
+    robotsCache?: IRobotsChecker;
+    /**
+     * HTTP client — defaults to a global fetch() adapter.
+     * Inject a stub for testing without real network access.
+     */
+    httpClient?: IHttpClient;
 }
 /**
  * Spider a single URL and return a fully structured SpideredPage.

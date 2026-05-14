@@ -93,4 +93,12 @@ export class RobotsCache {
         }
     }
 }
+/**
+ * Factory — avoids jiti/Bun CJS re-export interop where class constructors
+ * accessed through a re-export chain can appear undefined at call site.
+ * Use this in extension code instead of `new RobotsCache()`.
+ */
+export function createRobotsCache(userAgent) {
+    return new RobotsCache(userAgent);
+}
 //# sourceMappingURL=robots.js.map

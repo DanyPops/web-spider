@@ -1,3 +1,4 @@
+import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 export interface SpiderCacheOptions {
     /** Maximum number of pages to hold (default 500) */
@@ -15,7 +16,7 @@ export interface SpiderCacheOptions {
  * moving an entry to the tail on access gives LRU semantics with no
  * secondary data structure needed.
  */
-export declare class SpiderCache {
+export declare class SpiderCache implements ICache<string, SpideredPage> {
     private readonly map;
     private readonly maxSize;
     private readonly ttlMs;
