@@ -13,23 +13,30 @@
  *
  * Install:
  *   pi install git:github.com/dpopsuev/web-spider
+ *
+ * Search API keys (optional):
+ *   BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/ ($5 free/mo)
+ *   TAVILY_API_KEY        — https://tavily.com ($1k free credits)
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
-import { spider, crawl, fuzzySearch, SpiderCache, PageGraph, DomainThrottle, RobotsCache, webSearch } from "@dpopsuev/web-spider"
-import type { SpideredPage } from "@dpopsuev/web-spider"
 
 // ---------------------------------------------------------------------------
 // Tool
 // ---------------------------------------------------------------------------
 
-export default function (pi: ExtensionAPI) {
-  // Session-scoped — created inside the factory so all imports are resolved
-  // before instantiation. Top-level `new X()` can fail under jiti/Bun interop
-  // when class constructors aren't yet initialised at module load time.
+export default async function (pi: ExtensionAPI) {
+  // Dynamic import bypasses jiti/Bun CJS interop, which can silently lose
+  // class constructors when require()-ing ESM packages with "type":"module".
+  // Native import() always uses the "import" condition and returns proper ESM.
+  const lib = await import("@dpopsuev/web-spider")
+  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, DomainThrottle, RobotsCache, webSearch } = lib
+
+  // Session-scoped state — safe to instantiate here since dynamic import
+  // guarantees the classes are fully resolved before this line runs.
   const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
   const graph = new PageGraph()
-  const corpus: SpideredPage[] = []
+  const corpus: lib.SpideredPage[] = []
   const throttle = new DomainThrottle({ minDelayMs: 500, maxRetries: 3 })
   const robotsCache = new RobotsCache()
 
@@ -38,6 +45,13 @@ export default function (pi: ExtensionAPI) {
     label: "Web Fetch",
     description: [
       "Fetch a URL and return its content. Optionally crawl to a given depth.",
+      "Can also search the web when searchQuery is provided instead of a URL.",
+      "",
+      "SEARCH",
+      "  searchQuery       — search the web instead of fetching a URL.",
+      "  searchEngine      — 'brave' or 'tavily'. Auto-detected from env vars.",
+      "  numResults        — number of results (default 10).",
+      "  Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY environment variable.",
       "",
       "DEPTH",
       "  depth=0 (default) — fetch the single URL.",
@@ -60,9 +74,14 @@ export default function (pi: ExtensionAPI) {
       "  rootSelector    — CSS selector to scope to (e.g. \"article\"). Ignores everything else.",
       "  excludeSelectors — comma-separated selectors to strip (e.g. \"nav, footer, .ads\").",
       "  tokenBudget     — max ~tokens returned (~4 chars/token). Truncates at line boundary.",
+      "",
+      "THROTTLING",
+      "  Requests are automatically rate-limited per domain (500ms min delay).",
+      "  On 429/503, backs off exponentially and respects Retry-After headers.",
+      "  robots.txt is checked and respected before each fetch.",
     ].join("\n"),
     promptSnippet:
-      "Fetch a URL (or crawl depth=N): format=markdown/lean/links/highlights, rootSelector, tokenBudget",
+      "Fetch URL or search: format=markdown/lean/links/highlights, searchQuery, depth, rootSelector, tokenBudget",
     parameters: Type.Object({
       url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
 
@@ -70,16 +89,16 @@ export default function (pi: ExtensionAPI) {
         Type.String({
           description:
             "Web search query. When provided, searches the web instead of fetching a URL. " +
-            "Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY env var. Returns a list of results.",
+            "Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY env var.",
         })
       ),
       searchEngine: Type.Optional(
         Type.Union([Type.Literal("brave"), Type.Literal("tavily")], {
-          description: "Search engine to use. Auto-detected from available API keys if omitted.",
+          description: "Search engine. Auto-detected from available API keys if omitted.",
         })
       ),
       numResults: Type.Optional(
-        Type.Number({ description: "Number of search results to return (default 10)." })
+        Type.Number({ description: "Number of search results (default 10)." })
       ),
 
       depth: Type.Optional(
@@ -192,9 +211,7 @@ export default function (pi: ExtensionAPI) {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({
-                    error: "highlights format requires a query.",
-                  }),
+                  text: JSON.stringify({ error: "highlights format requires a query." }),
                 },
               ],
               details: {},
@@ -279,7 +296,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Full fetch — markdown and highlights both need the page body
-      let page: SpideredPage
+      let page: lib.SpideredPage
       const cached = cache.get(params.url)
       if (cached) {
         page = cached
