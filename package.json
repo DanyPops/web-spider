@@ -5,9 +5,14 @@
   "workspaces": [
     "packages/*"
   ],
+  "keywords": ["pi-package"],
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
-    "check": "npm run check --workspaces"
+    "check": "npm run check --workspaces",
+    "postinstall": "npm run build -w packages/web-spider"
+  },
+  "pi": {
+    "extensions": ["packages/pi-extension/src/index.ts"]
   }
 }
