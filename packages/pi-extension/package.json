@@ -1,0 +1,21 @@
+{
+  "name": "@dpopsuev/pi-web-spider",
+  "version": "0.1.0",
+  "description": "Pi extension: web_fetch, web_crawl, web_search — structured scraping for AI agents",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "dependencies": {
+    "@dpopsuev/web-spider": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "typescript": "^5.9.3"
+  }
+}

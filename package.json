@@ -1,0 +1,13 @@
+{
+  "name": "web-spider-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "check": "npm run check --workspaces"
+  }
+}

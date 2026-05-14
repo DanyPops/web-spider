@@ -1,0 +1,40 @@
+{
+  "url": "https://quotes.toscrape.com/",
+  "domain": "quotes.toscrape.com",
+  "fetchedAt": "2026-05-14T00:00:00.000Z",
+  "title": "Quotes to Scrape",
+  "description": "",
+  "author": "Albert Einstein",
+  "publishedAt": "",
+  "lang": "en",
+  "wordCount": 210,
+  "readingTimeMinutes": 2,
+  "headings": [],
+  "chunks": [
+    {
+      "id": "https://quotes.toscrape.com/#chunk-0",
+      "index": 0,
+      "heading": "",
+      "text": "\u201cThe world as we have created it is a process of our thinking. It cannot be changed without changing our thinking.\u201d by [Albert Einstein](https://quotes.toscrape.com/author/Albert-Einstein) [(about)](https://quotes.toscrape.com/author/Albert-Einstein)\n\n\u201cIt is our choices, Harry, that show what we truly are, far more than our abilities.\u201d by J.K. Rowling [(about)](https://quotes.toscrape.com/author/J-K-Rowling)\n\n\u201cThere are only two ways to live your life. One is as though nothing is a miracle. The other is as though everything is a miracle.\u201d by Albert Einstein [(about)](https://quotes.toscrape.com/author/Albert-Einstein)\n\n\u201cThe person, be it gentleman or lady, who has not pleasure in a good novel, must be intolerably stupid.\u201d by Jane Austen [(about)](https://quotes.toscrape.com/author/Jane-Austen)",
+      "wordCount": 114
+    },
+    {
+      "id": "https://quotes.toscrape.com/#chunk-1",
+      "index": 1,
+      "heading": "",
+      "text": "\u201cImperfection is beauty, madness is genius and it\u2019s better to be absolutely ridiculous than absolutely boring.\u201d by Marilyn Monroe [(about)](https://quotes.toscrape.com/author/Marilyn-Monroe)\n\n\u201cTry not to become a man of success. Rather become a man of value.\u201d by Albert Einstein [(about)](https://quotes.toscrape.com/author/Albert-Einstein)\n\n\u201cIt is better to be hated for what you are than to be loved for what you are not.\u201d by Andr\u00e9 Gide [(about)](https://quotes.toscrape.com/author/Andre-Gide)\n\n\u201cI have not failed. I\u2019ve just found 10,000 ways that won\u2019t work.\u201d by Thomas A. Edison [(about)](https://quotes.toscrape.com/author/Thomas-A-Edison)\n\n\u201cA woman is like a tea bag; you never know how strong it is until it\u2019s in hot water.\u201d by Eleanor Roosevelt [(about)](https://quotes.toscrape.com/author/Eleanor-Roosevelt)\n\n\u201cA day without sunshine is like, you know, night.\u201d by Steve Martin [(about)](https://quotes.toscrape.com/author/Steve-Martin)",
+      "wordCount": 127
+    }
+  ],
+  "links": [
+    { "href": "https://quotes.toscrape.com/login", "text": "Login", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/author/Albert-Einstein", "text": "Albert Einstein", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/tag/change/", "text": "change", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/tag/deep-thoughts/", "text": "deep-thoughts", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/tag/thinking/", "text": "thinking", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/tag/world/", "text": "world", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/author/J-K-Rowling", "text": "J.K. Rowling", "isExternal": false },
+    { "href": "https://quotes.toscrape.com/page/2/", "text": "Next", "isExternal": false }
+  ],
+  "markdown": "\u201cThe world as we have created it is a process of our thinking. It cannot be changed without changing our thinking.\u201d by [Albert Einstein](https://quotes.toscrape.com/author/Albert-Einstein)\n\n\u201cIt is our choices, Harry, that show what we truly are, far more than our abilities.\u201d by J.K. Rowling\n\n\u201cThere are only two ways to live your life. One is as though nothing is a miracle. The other is as though everything is a miracle.\u201d by Albert Einstein\n\n\u201cThe person, be it gentleman or lady, who has not pleasure in a good novel, must be intolerably stupid.\u201d by Jane Austen\n\n\u201cImperfection is beauty, madness is genius and it\u2019s better to be absolutely ridiculous than absolutely boring.\u201d by Marilyn Monroe\n\n\u201cTry not to become a man of success. Rather become a man of value.\u201d by Albert Einstein\n\n\u201cIt is better to be hated for what you are than to be loved for what you are not.\u201d by Andr\u00e9 Gide\n\n\u201cI have not failed. I\u2019ve just found 10,000 ways that won\u2019t work.\u201d by Thomas A. Edison\n\n\u201cA woman is like a tea bag; you never know how strong it is until it\u2019s in hot water.\u201d by Eleanor Roosevelt\n\n\u201cA day without sunshine is like, you know, night.\u201d by Steve Martin"
+}

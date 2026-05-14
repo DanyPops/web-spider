@@ -1,0 +1,31 @@
+{
+  "name": "@dpopsuev/web-spider",
+  "version": "0.1.0",
+  "description": "AI-agent-friendly web spider: structured output, RAG-ready chunks, graph-traversable links",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest --run",
+    "check": "tsc --noEmit && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^29.1.1",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.19.19",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
