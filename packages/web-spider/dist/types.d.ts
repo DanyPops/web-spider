@@ -96,9 +96,9 @@ export interface LeanPage {
     /** Canonical URL when it differs from the fetched URL (og:url / link[rel=canonical]). */
     canonicalUrl?: string;
     title: string;
-    description: string;
-    author: string;
-    publishedAt: string;
+    description?: string;
+    author?: string;
+    publishedAt?: string;
     lang: string;
     /** Extracted topic tags — from meta keywords and article:tag. Compact vocabulary for grouping. */
     tags: string[];

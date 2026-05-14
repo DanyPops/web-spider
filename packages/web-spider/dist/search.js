@@ -120,6 +120,9 @@ export function fuzzySearch(pages, query, opts = {}) {
             }
         }
     }
-    return hits.sort((a, b) => b.score - a.score).slice(0, topN);
+    return hits
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topN)
+        .map((h) => ({ ...h, score: Math.round(h.score * 100) / 100 }));
 }
 //# sourceMappingURL=search.js.map

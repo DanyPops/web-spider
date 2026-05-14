@@ -167,5 +167,8 @@ export function fuzzySearch(pages: SpideredPage[], query: string, opts: FuzzySea
 		}
 	}
 
-	return hits.sort((a, b) => b.score - a.score).slice(0, topN);
+	return hits
+		.sort((a, b) => b.score - a.score)
+		.slice(0, topN)
+		.map((h) => ({ ...h, score: Math.round(h.score * 100) / 100 }));
 }

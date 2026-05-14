@@ -122,7 +122,10 @@ function extractLinks(doc: Document, baseUrl: string): Link[] {
 	return Array.from(doc.querySelectorAll("a[href]"))
 		.map((a) => {
 			const href = (a as HTMLAnchorElement).href;
-			const text = (a.textContent ?? "").trim();
+			const text = (a.textContent ?? "")
+				.replace(/\s+/g, " ")
+				.replace(/\b(open_in_new|navigate_next|navigate_before|arrow_drop_down|arrow_drop_up|chevron_right|chevron_left|expand_more|expand_less|menu)\b/g, "")
+				.trim();
 			if (!href || !text || href.startsWith("javascript:")) return null;
 
 			// Classify by nearest chrome ancestor before Readability strips the DOM.

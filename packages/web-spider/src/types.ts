@@ -111,9 +111,9 @@ export interface LeanPage {
 
 	// --- metadata ---
 	title: string;
-	description: string;
-	author: string;
-	publishedAt: string;
+	description?: string;
+	author?: string;
+	publishedAt?: string;
 	lang: string;
 	/** Extracted topic tags — from meta keywords and article:tag. Compact vocabulary for grouping. */
 	tags: string[];
@@ -145,16 +145,19 @@ export function toLean(page: SpideredPage): LeanPage {
 		fetchedAt: page.fetchedAt,
 		...(page.canonicalUrl !== undefined ? { canonicalUrl: page.canonicalUrl } : {}),
 		title: page.title,
-		description: page.description,
-		author: page.author,
-		publishedAt: page.publishedAt,
+		...(page.description ? { description: page.description } : {}),
+		...(page.author ? { author: page.author } : {}),
+		...(page.publishedAt ? { publishedAt: page.publishedAt } : {}),
 		lang: page.lang,
 		tags: page.tags,
 		wordCount: page.wordCount,
 		readingTimeMinutes: page.readingTimeMinutes,
 		chunkCount: page.chunks.length,
 		headings: page.headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
-		links: page.links.map((l) => ({ href: l.href, text: l.text })),
+		links: page.links
+			.filter((l) => l.rel === "body")
+			.slice(0, 10)
+			.map((l) => ({ href: l.href, text: l.text })),
 	};
 }
 
