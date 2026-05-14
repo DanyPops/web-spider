@@ -30,13 +30,15 @@ export default async function (pi: ExtensionAPI) {
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
-  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, createThrottle, createRobotsCache, webSearch } = lib
+  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, webSearch } = lib
 
-  // Use factory functions for DomainThrottle and RobotsCache — their class
-  // constructors can appear undefined under jiti+Bun CJS re-export interop
-  // (the class is defined in a module that crawl.js also imports, causing the
-  // re-export getter to bind to a partial exports object). Factory functions
-  // defined in the same module as the class are always safe.
+  // throttle.js and robots.js are imported by crawl.js, so their exports
+  // come back undefined when loaded through the index.js re-export chain
+  // under jiti tryNative:false (side-effect load order bug). Import them
+  // directly via sub-path exports to bypass the re-export chain entirely.
+  const { createThrottle } = await import("@dpopsuev/web-spider/throttle")
+  const { createRobotsCache } = await import("@dpopsuev/web-spider/robots")
+
   const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
   const graph = new PageGraph()
   const corpus: lib.SpideredPage[] = []
