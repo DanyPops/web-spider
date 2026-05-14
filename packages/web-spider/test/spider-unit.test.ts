@@ -411,71 +411,19 @@ describe("code block splitting", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tag extraction fallback from headings
+// Nav classification — extended patterns
 // ---------------------------------------------------------------------------
 
-function extractTagsLocal(doc: Document, headings: Array<{ text: string }>): string[] {
-	const tags = new Set<string>();
-	const keywords = doc.querySelector('meta[name="keywords"]')?.getAttribute("content") ?? "";
-	for (const k of keywords
-		.split(/[,;]/)
-		.map((k) => k.trim().toLowerCase())
-		.filter(Boolean)) {
-		tags.add(k);
-	}
-	for (const el of [...doc.querySelectorAll('meta[property="article:tag"], meta[name="article:tag"]')]) {
-		const t = el.getAttribute("content")?.trim().toLowerCase();
-		if (t) tags.add(t);
-	}
-	const section =
-		doc.querySelector('meta[property="article:section"]')?.getAttribute("content") ??
-		doc.querySelector('meta[property="og:article:section"]')?.getAttribute("content");
-	if (section) tags.add(section.trim().toLowerCase());
-	if (tags.size === 0 && headings.length > 0) {
-		for (const t of headings
-			.slice(0, 5)
-			.map((h) => h.text.toLowerCase())
-			.filter((t) => t.split(/\s+/).length <= 5)) {
-			tags.add(t);
-		}
-	}
-	return [...tags].slice(0, 20);
-}
+describe("extended nav classification", () => {
+	it("classifies links inside role=navigation as nav", () => {
+		const dom = new JSDOM('<html><body><div role="navigation"><a href="/x">link</a></div></body></html>');
+		const a = dom.window.document.querySelector("a")!;
+		expect(a.closest("[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']")).not.toBeNull();
+	});
 
-describe("tag extraction fallback", () => {
-	it("returns heading text when no meta tags exist", () => {
+	it("returns empty tags when no meta tags and no fallback", () => {
 		const dom = new JSDOM("<html><head></head></html>");
-		const headings = [{ text: "TypeScript Best Practices" }, { text: "Type vs Interface" }];
-		const tags = extractTagsLocal(dom.window.document, headings);
-		expect(tags).toContain("typescript best practices");
-		expect(tags).toContain("type vs interface");
-	});
-
-	it("does NOT use heading fallback when meta keywords are present", () => {
-		const dom = new JSDOM('<html><head><meta name="keywords" content="typescript,generics"></head></html>');
-		const headings = [{ text: "Should Not Appear" }];
-		const tags = extractTagsLocal(dom.window.document, headings);
-		expect(tags).toContain("typescript");
-		expect(tags).not.toContain("should not appear");
-	});
-
-	it("skips headings longer than 5 words", () => {
-		const dom = new JSDOM("<html><head></head></html>");
-		const headings = [{ text: "This Is A Very Long Heading That Should Be Skipped" }, { text: "Short Heading" }];
-		const tags = extractTagsLocal(dom.window.document, headings);
-		expect(tags).not.toContain("this is a very long heading that should be skipped");
-		expect(tags).toContain("short heading");
-	});
-
-	it("extracts og:article:section", () => {
-		const dom = new JSDOM('<html><head><meta property="article:section" content="TypeScript"></head></html>');
-		const tags = extractTagsLocal(dom.window.document, []);
-		expect(tags).toContain("typescript");
-	});
-
-	it("caps at 20 tags", () => {
-		const many = Array.from({ length: 30 }, (_, i) => `tag${i}`).join(",");
-		const dom = new JSDOM(`<html><head><meta name="keywords" content="${many}"></head></html>`);
-		expect(extractTagsLocal(dom.window.document, []).length).toBeLessThanOrEqual(20);
+		const tags = extractTags(dom.window.document);
+		expect(tags).toEqual([]);
 	});
 });

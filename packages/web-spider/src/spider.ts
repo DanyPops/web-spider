@@ -2,6 +2,8 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
 import { buildTree } from "./tree.js";
+import type { RobotsCache } from "./robots.js";
+import type { DomainThrottle } from "./throttle.js";
 import type { Chunk, ChunkType, DOMNode, LeanPage, Link, SpideredPage } from "./types.js";
 import { toLean } from "./types.js";
 
@@ -113,6 +115,47 @@ function chunk(markdown: string, baseUrl: string): Chunk[] {
 	return chunks;
 }
 
+// Common class-name fragments that indicate navigation chrome.
+const NAV_CLASS_RE =
+	/^(nav|navbar|navigation|menu|menubar|header|footer|sidebar|breadcrumb|topbar|toolbar|site-nav|main-nav|primary-nav|global-nav)$/i;
+
+/** True if `el` or any ancestor up to 5 levels looks like navigation chrome. */
+function isNavElement(el: Element): boolean {
+	// Semantic HTML5 + ARIA roles.
+	if (el.closest("nav, header, footer, aside")) return true;
+	if (
+		el.closest(
+			"[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']",
+		)
+	)
+		return true;
+
+	// Class-based detection — walk up 5 ancestors.
+	let node: Element | null = el;
+	for (let i = 0; i < 5; i++) {
+		if (!node) break;
+		for (const cls of node.classList) {
+			if (NAV_CLASS_RE.test(cls)) return true;
+		}
+		node = node.parentElement;
+	}
+	return false;
+}
+
+/**
+ * Extract visible text from an anchor, skipping SVG subtrees.
+ * SVG elements inside <a> bleed CSS/path data into textContent.
+ */
+function anchorText(a: Element): string {
+	if (!a.querySelector("svg")) {
+		return (a.textContent ?? "").replace(/\s+/g, " ").trim();
+	}
+	// Clone, strip SVGs, read remaining text.
+	const clone = a.cloneNode(true) as Element;
+	for (const svg of [...clone.querySelectorAll("svg")]) svg.remove();
+	return (clone.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 /**
  * Extract outbound links from the DOM before Readability strips them.
  * Classifies each link as "body" (article content) or "nav" (chrome).
@@ -122,24 +165,24 @@ function extractLinks(doc: Document, baseUrl: string): Link[] {
 	return Array.from(doc.querySelectorAll("a[href]"))
 		.map((a) => {
 			const href = (a as HTMLAnchorElement).href;
-			const text = (a.textContent ?? "")
+			const text = anchorText(a)
+				.replace(
+					/\b(open_in_new|navigate_next|navigate_before|arrow_drop_down|arrow_drop_up|chevron_right|chevron_left|expand_more|expand_less)\b/g,
+					"",
+				)
 				.replace(/\s+/g, " ")
-				.replace(/\b(open_in_new|navigate_next|navigate_before|arrow_drop_down|arrow_drop_up|chevron_right|chevron_left|expand_more|expand_less|menu)\b/g, "")
 				.trim();
 			if (!href || !text || href.startsWith("javascript:")) return null;
-
-			// Classify by nearest chrome ancestor before Readability strips the DOM.
-			const isNav = a.closest("nav, header, footer, aside") !== null;
 
 			return {
 				href,
 				text,
 				isExternal: !href.startsWith(origin),
-				rel: isNav ? ("nav" as const) : ("body" as const),
+				rel: isNavElement(a) ? ("nav" as const) : ("body" as const),
 			} satisfies Link;
 		})
 		.filter((l): l is Link => l !== null)
-		.slice(0, 200); // cap to avoid noise
+		.slice(0, 200);
 }
 
 /**
@@ -185,17 +228,6 @@ function extractTags(doc: Document, headings: Array<{ text: string }>): string[]
 		doc.querySelector('meta[property="og:article:section"]')?.getAttribute("content");
 	if (section) tags.add(section.trim().toLowerCase());
 
-	// 4. Fallback: derive short tags from h1/h2 headings (top-level topics).
-	//    Only if we have no tags so far — avoids over-tagging rich-meta pages.
-	if (tags.size === 0 && headings.length > 0) {
-		for (const t of headings
-			.slice(0, 5)
-			.map((h) => h.text.toLowerCase())
-			.filter((t) => t.split(/\s+/).length <= 5)) {
-			tags.add(t);
-		}
-	}
-
 	return [...tags].slice(0, 20);
 }
 
@@ -221,7 +253,6 @@ function extractCanonicalUrl(doc: Document, fetchedUrl: string): string | undefi
 export interface SpiderOptions {
 	/**
 	 * ms before aborting the fetch (default 10 000).
-	 * Example: `{ timeoutMs: 5000 }` for aggressive timeouts on known-fast sites.
 	 */
 	timeoutMs?: number;
 	/**
@@ -232,7 +263,6 @@ export interface SpiderOptions {
 	/**
 	 * CSS selector that scopes content extraction to a specific element.
 	 * Everything outside the matched element is discarded before Readability runs.
-	 * Equivalent to Jina Reader's X-Target-Selector.
 	 * Example: "article", ".main-content", "#post-body"
 	 */
 	rootSelector?: string;
@@ -240,7 +270,6 @@ export interface SpiderOptions {
 	 * Comma-separated CSS selectors whose matched elements are removed before
 	 * extraction. Applied before Readability, so excluded content never reaches
 	 * the chunks or markdown.
-	 * Equivalent to Jina Reader's X-Remove-Selector.
 	 * Example: "nav, footer, .sidebar, #ads"
 	 */
 	excludeSelectors?: string;
@@ -251,6 +280,16 @@ export interface SpiderOptions {
 	 * Default: unlimited.
 	 */
 	tokenBudget?: number;
+	/**
+	 * Per-domain throttle — shared across spider() calls to enforce rate limits
+	 * and exponential backoff on 429/503 responses.
+	 */
+	throttle?: DomainThrottle;
+	/**
+	 * robots.txt cache — when provided, spider() checks robots.txt before
+	 * fetching and respects Crawl-delay directives.
+	 */
+	robotsCache?: RobotsCache;
 }
 
 /**
@@ -295,6 +334,8 @@ export async function spider(
 		rootSelector,
 		excludeSelectors,
 		tokenBudget,
+		throttle,
+		robotsCache,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -308,25 +349,58 @@ export async function spider(
 		throw new Error(`Unsupported protocol "${parsedUrl.protocol}" — only http and https are supported`);
 	}
 
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-	let html: string;
-	try {
-		const res = await fetch(url, {
-			signal: controller.signal,
-			headers: { "User-Agent": userAgent, Accept: "text/html" },
-		});
-		if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
-		html = await res.text();
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new Error(`Timeout after ${timeoutMs}ms — ${url}`);
+	// Check robots.txt before fetching.
+	if (robotsCache) {
+		const { allowed, crawlDelayMs } = await robotsCache.check(url);
+		if (!allowed) throw new Error(`Blocked by robots.txt: ${url}`);
+		if (crawlDelayMs && throttle) {
+			throttle.setDomainDelay(parsedUrl.hostname, crawlDelayMs);
 		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
 	}
+
+	// Fetch with optional throttle + retry on 429/503.
+	const maxRetries = throttle?.maxRetries ?? 0;
+	let html = "";
+	let fetchError: Error | null = null;
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		if (throttle) await throttle.wait(url);
+
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				signal: controller.signal,
+				headers: { "User-Agent": userAgent, Accept: "text/html" },
+			});
+		} catch (err) {
+			clearTimeout(timer);
+			if (err instanceof Error && err.name === "AbortError") {
+				throw new Error(`Timeout after ${timeoutMs}ms — ${url}`);
+			}
+			throw err;
+		}
+		clearTimeout(timer);
+
+		if (res.status === 429 || res.status === 503) {
+			if (throttle && attempt < maxRetries) {
+				throttle.rateLimit(url, res.headers.get("Retry-After"));
+				fetchError = new Error(`HTTP ${res.status} — retrying (attempt ${attempt + 1}/${maxRetries})`);
+				continue;
+			}
+			throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
+		}
+
+		if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
+
+		throttle?.success(url);
+		html = await res.text();
+		fetchError = null;
+		break;
+	}
+
+	if (fetchError) throw fetchError;
 
 	// Parse DOM — keep it for link/meta extraction before Readability mutates it.
 	const dom = new JSDOM(html, { url });

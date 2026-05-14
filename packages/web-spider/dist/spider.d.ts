@@ -1,8 +1,9 @@
+import type { RobotsCache } from "./robots.js";
+import type { DomainThrottle } from "./throttle.js";
 import type { DOMNode, LeanPage, SpideredPage } from "./types.js";
 export interface SpiderOptions {
     /**
      * ms before aborting the fetch (default 10 000).
-     * Example: `{ timeoutMs: 5000 }` for aggressive timeouts on known-fast sites.
      */
     timeoutMs?: number;
     /**
@@ -13,7 +14,6 @@ export interface SpiderOptions {
     /**
      * CSS selector that scopes content extraction to a specific element.
      * Everything outside the matched element is discarded before Readability runs.
-     * Equivalent to Jina Reader's X-Target-Selector.
      * Example: "article", ".main-content", "#post-body"
      */
     rootSelector?: string;
@@ -21,7 +21,6 @@ export interface SpiderOptions {
      * Comma-separated CSS selectors whose matched elements are removed before
      * extraction. Applied before Readability, so excluded content never reaches
      * the chunks or markdown.
-     * Equivalent to Jina Reader's X-Remove-Selector.
      * Example: "nav, footer, .sidebar, #ads"
      */
     excludeSelectors?: string;
@@ -32,6 +31,16 @@ export interface SpiderOptions {
      * Default: unlimited.
      */
     tokenBudget?: number;
+    /**
+     * Per-domain throttle — shared across spider() calls to enforce rate limits
+     * and exponential backoff on 429/503 responses.
+     */
+    throttle?: DomainThrottle;
+    /**
+     * robots.txt cache — when provided, spider() checks robots.txt before
+     * fetching and respects Crawl-delay directives.
+     */
+    robotsCache?: RobotsCache;
 }
 /**
  * Spider a single URL and return a fully structured SpideredPage.

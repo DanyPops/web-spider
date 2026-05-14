@@ -9,9 +9,13 @@ export interface CrawlOptions extends SpiderOptions {
     maxPages?: number;
     /** Only follow links on the same domain as the start URL (default true) */
     sameDomainOnly?: boolean;
-    /** Max concurrent fetches per depth level (default 3) */
+    /** Max concurrent fetches (default 3) */
     concurrency?: number;
-    /** Delay between fetches in ms (default 400) */
+    /**
+     * Minimum delay between requests to the same domain (ms).
+     * When a throttle is provided this sets its minDelayMs.
+     * Default 500.
+     */
     delayMs?: number;
     /** Bring your own cache — already-spidered URLs are skipped */
     cache?: SpiderCache;
@@ -21,6 +25,11 @@ export interface CrawlOptions extends SpiderOptions {
     onPage?: (page: SpideredPage, depth: number) => void;
     /** Return false to skip a URL before fetching it */
     urlFilter?: (url: string) => boolean;
+    /**
+     * Whether to check and respect robots.txt for each domain (default true).
+     * Automatically creates a RobotsCache if not provided via SpiderOptions.
+     */
+    respectRobots?: boolean;
 }
 export interface CrawlResult {
     pages: Map<string, SpideredPage>;

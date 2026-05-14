@@ -27,16 +27,16 @@ describe("toLean", () => {
 		expect(lean.view).toBe("lean");
 	});
 
-	it("preserves all identity and metadata fields", () => {
+	it("preserves identity and metadata fields", () => {
 		lean = toLean(guide);
 		expect(lean.url).toBe(guide.url);
 		expect(lean.domain).toBe(guide.domain);
 		expect(lean.title).toBe(guide.title);
-		expect(lean.description).toBe(guide.description);
-		expect(lean.author).toBe(guide.author);
 		expect(lean.lang).toBe(guide.lang);
 		expect(lean.wordCount).toBe(guide.wordCount);
 		expect(lean.readingTimeMinutes).toBe(guide.readingTimeMinutes);
+		// fetchedAt is intentionally excluded from lean (noise in agent context)
+		expect(lean).not.toHaveProperty("fetchedAt");
 	});
 
 	it("converts headings to flat markdown strings", () => {

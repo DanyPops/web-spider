@@ -16,16 +16,18 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
-import { spider, crawl, fuzzySearch, SpiderCache, PageGraph } from "@dpopsuev/web-spider"
+import { spider, crawl, fuzzySearch, SpiderCache, PageGraph, DomainThrottle, RobotsCache, webSearch } from "@dpopsuev/web-spider"
 import type { SpideredPage } from "@dpopsuev/web-spider"
 
 // ---------------------------------------------------------------------------
-// Session-scoped cache and corpus
+// Session-scoped cache, throttle, robots, and corpus
 // ---------------------------------------------------------------------------
 
 const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
 const graph = new PageGraph()
 const corpus: SpideredPage[] = []
+const throttle = new DomainThrottle({ minDelayMs: 500, maxRetries: 3 })
+const robotsCache = new RobotsCache()
 
 // ---------------------------------------------------------------------------
 // Tool
@@ -63,7 +65,23 @@ export default function (pi: ExtensionAPI) {
     promptSnippet:
       "Fetch a URL (or crawl depth=N): format=markdown/lean/links/highlights, rootSelector, tokenBudget",
     parameters: Type.Object({
-      url: Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" }),
+      url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
+
+      searchQuery: Type.Optional(
+        Type.String({
+          description:
+            "Web search query. When provided, searches the web instead of fetching a URL. " +
+            "Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY env var. Returns a list of results.",
+        })
+      ),
+      searchEngine: Type.Optional(
+        Type.Union([Type.Literal("brave"), Type.Literal("tavily")], {
+          description: "Search engine to use. Auto-detected from available API keys if omitted.",
+        })
+      ),
+      numResults: Type.Optional(
+        Type.Number({ description: "Number of search results to return (default 10)." })
+      ),
 
       depth: Type.Optional(
         Type.Number({
@@ -129,6 +147,29 @@ export default function (pi: ExtensionAPI) {
         rootSelector: params.rootSelector,
         excludeSelectors: params.excludeSelectors,
         tokenBudget: params.tokenBudget,
+        throttle,
+        robotsCache,
+      }
+
+      // -----------------------------------------------------------------------
+      // Search path
+      // -----------------------------------------------------------------------
+      if (params.searchQuery) {
+        const results = await webSearch(params.searchQuery, {
+          engine: params.searchEngine,
+          numResults: params.numResults ?? 10,
+        })
+        return {
+          content: [{ type: "text", text: JSON.stringify({ query: params.searchQuery, results }) }],
+          details: { engine: params.searchEngine ?? "auto", count: results.length },
+        }
+      }
+
+      if (!params.url) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "Provide either url or searchQuery." }) }],
+          details: {},
+        }
       }
 
       // -----------------------------------------------------------------------

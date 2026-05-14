@@ -105,7 +105,6 @@ export interface LeanPage {
 	// --- identity ---
 	url: string;
 	domain: string;
-	fetchedAt: string; // ISO-8601
 	/** Canonical URL when it differs from the fetched URL (og:url / link[rel=canonical]). */
 	canonicalUrl?: string;
 
@@ -142,7 +141,6 @@ export function toLean(page: SpideredPage): LeanPage {
 		view: "lean",
 		url: page.url,
 		domain: page.domain,
-		fetchedAt: page.fetchedAt,
 		...(page.canonicalUrl !== undefined ? { canonicalUrl: page.canonicalUrl } : {}),
 		title: page.title,
 		...(page.description ? { description: page.description } : {}),

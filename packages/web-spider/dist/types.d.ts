@@ -92,7 +92,6 @@ export interface LeanPage {
     readonly view: "lean";
     url: string;
     domain: string;
-    fetchedAt: string;
     /** Canonical URL when it differs from the fetched URL (og:url / link[rel=canonical]). */
     canonicalUrl?: string;
     title: string;

@@ -1,7 +1,9 @@
 import { SpiderCache } from "./cache.js";
 import { PageGraph } from "./graph.js";
+import { RobotsCache } from "./robots.js";
 import type { SpiderOptions } from "./spider.js";
 import { spider } from "./spider.js";
+import { DomainThrottle } from "./throttle.js";
 import type { SpideredPage } from "./types.js";
 
 export interface CrawlOptions extends SpiderOptions {
@@ -11,9 +13,13 @@ export interface CrawlOptions extends SpiderOptions {
 	maxPages?: number;
 	/** Only follow links on the same domain as the start URL (default true) */
 	sameDomainOnly?: boolean;
-	/** Max concurrent fetches per depth level (default 3) */
+	/** Max concurrent fetches (default 3) */
 	concurrency?: number;
-	/** Delay between fetches in ms (default 400) */
+	/**
+	 * Minimum delay between requests to the same domain (ms).
+	 * When a throttle is provided this sets its minDelayMs.
+	 * Default 500.
+	 */
 	delayMs?: number;
 	/** Bring your own cache — already-spidered URLs are skipped */
 	cache?: SpiderCache;
@@ -23,6 +29,11 @@ export interface CrawlOptions extends SpiderOptions {
 	onPage?: (page: SpideredPage, depth: number) => void;
 	/** Return false to skip a URL before fetching it */
 	urlFilter?: (url: string) => boolean;
+	/**
+	 * Whether to check and respect robots.txt for each domain (default true).
+	 * Automatically creates a RobotsCache if not provided via SpiderOptions.
+	 */
+	respectRobots?: boolean;
 }
 
 export interface CrawlResult {
@@ -48,13 +59,18 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		maxPages = 50,
 		sameDomainOnly = true,
 		concurrency = 3,
-		delayMs = 400,
+		delayMs = 500,
 		cache = new SpiderCache(),
 		graph = new PageGraph(),
 		onPage,
 		urlFilter,
+		respectRobots = true,
 		...spiderOpts
 	} = opts;
+
+	// Build shared throttle and robots cache for the whole crawl.
+	const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
+	const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
 
 	const startDomain = new URL(startUrl).hostname;
 	const pages = new Map<string, SpideredPage>();
@@ -75,7 +91,8 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		return true;
 	};
 
-	// Fetch a batch of URLs with concurrency limit and polite delay
+	// Fetch a batch of URLs with concurrency limit.
+	// Throttle and robots.txt are handled inside spider() via shared instances.
 	const fetchBatch = async (urls: string[], depth: number): Promise<void> => {
 		let index = 0;
 		let inFlight = 0;
@@ -87,12 +104,9 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 					const url = urls[index++];
 					inFlight++;
 
-					const delay =
-						delayMs > 0 ? new Promise<void>((r) => setTimeout(r, delayMs * (index - 1))) : Promise.resolve();
-
 					const fetch_ = cache.has(url)
 						? Promise.resolve(cache.get(url)!)
-						: delay.then(() => spider(url, spiderOpts));
+						: spider(url, { ...spiderOpts, throttle, robotsCache });
 
 					fetch_
 						.then((page) => {

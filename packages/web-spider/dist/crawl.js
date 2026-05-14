@@ -1,6 +1,8 @@
 import { SpiderCache } from "./cache.js";
 import { PageGraph } from "./graph.js";
+import { RobotsCache } from "./robots.js";
 import { spider } from "./spider.js";
+import { DomainThrottle } from "./throttle.js";
 /**
  * Recursive BFS crawler.
  *
@@ -13,7 +15,10 @@ import { spider } from "./spider.js";
  * before proceeding, giving BFS ordering and predictable memory use.
  */
 export async function crawl(startUrl, opts = {}) {
-    const { maxDepth = 2, maxPages = 50, sameDomainOnly = true, concurrency = 3, delayMs = 400, cache = new SpiderCache(), graph = new PageGraph(), onPage, urlFilter, ...spiderOpts } = opts;
+    const { maxDepth = 2, maxPages = 50, sameDomainOnly = true, concurrency = 3, delayMs = 500, cache = new SpiderCache(), graph = new PageGraph(), onPage, urlFilter, respectRobots = true, ...spiderOpts } = opts;
+    // Build shared throttle and robots cache for the whole crawl.
+    const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
+    const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
     const startDomain = new URL(startUrl).hostname;
     const pages = new Map();
     const errors = new Map();
@@ -37,7 +42,8 @@ export async function crawl(startUrl, opts = {}) {
             return false;
         return true;
     };
-    // Fetch a batch of URLs with concurrency limit and polite delay
+    // Fetch a batch of URLs with concurrency limit.
+    // Throttle and robots.txt are handled inside spider() via shared instances.
     const fetchBatch = async (urls, depth) => {
         let index = 0;
         let inFlight = 0;
@@ -47,10 +53,9 @@ export async function crawl(startUrl, opts = {}) {
                 while (inFlight < concurrency && index < urls.length) {
                     const url = urls[index++];
                     inFlight++;
-                    const delay = delayMs > 0 ? new Promise((r) => setTimeout(r, delayMs * (index - 1))) : Promise.resolve();
                     const fetch_ = cache.has(url)
                         ? Promise.resolve(cache.get(url))
-                        : delay.then(() => spider(url, spiderOpts));
+                        : spider(url, { ...spiderOpts, throttle, robotsCache });
                     fetch_
                         .then((page) => {
                         pages.set(url, page);

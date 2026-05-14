@@ -7,7 +7,6 @@ export function toLean(page) {
         view: "lean",
         url: page.url,
         domain: page.domain,
-        fetchedAt: page.fetchedAt,
         ...(page.canonicalUrl !== undefined ? { canonicalUrl: page.canonicalUrl } : {}),
         title: page.title,
         ...(page.description ? { description: page.description } : {}),
