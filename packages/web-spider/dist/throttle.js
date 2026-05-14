@@ -74,4 +74,12 @@ export class DomainThrottle {
         this.state(host).minDelayMs = ms;
     }
 }
+/**
+ * Factory — avoids jiti/Bun CJS re-export interop where class constructors
+ * accessed through a re-export chain can appear undefined at call site.
+ * Use this in extension code instead of `new DomainThrottle()`.
+ */
+export function createThrottle(opts) {
+    return new DomainThrottle(opts);
+}
 //# sourceMappingURL=throttle.js.map

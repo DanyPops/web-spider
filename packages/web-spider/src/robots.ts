@@ -58,9 +58,11 @@ function isAllowed(robots: ParsedRobots, path: string): boolean {
 	return best?.allow ?? true; // default: allow
 }
 
+import type { IRobotsChecker, RobotsResult } from "./ports.js";
+
 const TTL_MS = 60 * 60 * 1_000; // 1 hour
 
-export class RobotsCache {
+export class RobotsCache implements IRobotsChecker {
 	private readonly cache = new Map<string, { robots: ParsedRobots; expiresAt: number }>();
 	private readonly userAgent: string;
 
@@ -72,7 +74,7 @@ export class RobotsCache {
 	 * Returns whether the URL is allowed and the crawl-delay if specified.
 	 * Caches per origin for 1 hour. Fails open on any error.
 	 */
-	async check(url: string): Promise<{ allowed: boolean; crawlDelayMs?: number }> {
+	async check(url: string): Promise<RobotsResult> {
 		const { origin, pathname } = new URL(url);
 		let entry = this.cache.get(origin);
 
@@ -107,4 +109,13 @@ export class RobotsCache {
 			return { directives: [] }; // network error → fail open
 		}
 	}
+}
+
+/**
+ * Factory — avoids jiti/Bun CJS re-export interop where class constructors
+ * accessed through a re-export chain can appear undefined at call site.
+ * Use this in extension code instead of `new RobotsCache()`.
+ */
+export function createRobotsCache(userAgent?: string): RobotsCache {
+	return new RobotsCache(userAgent);
 }

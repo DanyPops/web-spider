@@ -7,6 +7,8 @@
  * all requests to a domain coordinate through one rate limiter.
  */
 
+import type { IThrottle } from "./ports.js";
+
 export interface ThrottleOptions {
 	/** Minimum gap between requests to the same domain (ms). Default 500. */
 	minDelayMs?: number;
@@ -39,7 +41,7 @@ function parseRetryAfter(header: string | null): number {
 	return 0;
 }
 
-export class DomainThrottle {
+export class DomainThrottle implements IThrottle {
 	private readonly states = new Map<string, DomainState>();
 	readonly minDelayMs: number;
 	readonly backoffBaseMs: number;
@@ -104,4 +106,13 @@ export class DomainThrottle {
 	setDomainDelay(host: string, ms: number): void {
 		this.state(host).minDelayMs = ms;
 	}
+}
+
+/**
+ * Factory — avoids jiti/Bun CJS re-export interop where class constructors
+ * accessed through a re-export chain can appear undefined at call site.
+ * Use this in extension code instead of `new DomainThrottle()`.
+ */
+export function createThrottle(opts?: ThrottleOptions): DomainThrottle {
+	return new DomainThrottle(opts);
 }

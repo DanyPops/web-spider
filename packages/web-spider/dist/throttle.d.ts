@@ -6,6 +6,7 @@
  * Shared instances should be passed into spider() and crawl() so that
  * all requests to a domain coordinate through one rate limiter.
  */
+import type { IThrottle } from "./ports.js";
 export interface ThrottleOptions {
     /** Minimum gap between requests to the same domain (ms). Default 500. */
     minDelayMs?: number;
@@ -16,7 +17,7 @@ export interface ThrottleOptions {
     /** Maximum retry attempts on 429/503 before giving up. Default 3. */
     maxRetries?: number;
 }
-export declare class DomainThrottle {
+export declare class DomainThrottle implements IThrottle {
     private readonly states;
     readonly minDelayMs: number;
     readonly backoffBaseMs: number;
@@ -39,4 +40,10 @@ export declare class DomainThrottle {
      */
     setDomainDelay(host: string, ms: number): void;
 }
+/**
+ * Factory — avoids jiti/Bun CJS re-export interop where class constructors
+ * accessed through a re-export chain can appear undefined at call site.
+ * Use this in extension code instead of `new DomainThrottle()`.
+ */
+export declare function createThrottle(opts?: ThrottleOptions): DomainThrottle;
 //# sourceMappingURL=throttle.d.ts.map

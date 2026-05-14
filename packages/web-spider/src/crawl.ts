@@ -4,6 +4,7 @@ import { RobotsCache } from "./robots.js";
 import type { SpiderOptions } from "./spider.js";
 import { spider } from "./spider.js";
 import { DomainThrottle } from "./throttle.js";
+import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 
 export interface CrawlOptions extends SpiderOptions {
@@ -22,7 +23,7 @@ export interface CrawlOptions extends SpiderOptions {
 	 */
 	delayMs?: number;
 	/** Bring your own cache — already-spidered URLs are skipped */
-	cache?: SpiderCache;
+	cache?: ICache<string, SpideredPage>;
 	/** Bring your own graph — nodes/edges added as pages are spidered */
 	graph?: PageGraph;
 	/** Called with each successfully spidered page */
@@ -60,7 +61,7 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		sameDomainOnly = true,
 		concurrency = 3,
 		delayMs = 500,
-		cache = new SpiderCache(),
+		cache = new SpiderCache() as ICache<string, SpideredPage>,
 		graph = new PageGraph(),
 		onPage,
 		urlFilter,

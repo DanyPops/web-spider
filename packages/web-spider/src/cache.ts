@@ -1,3 +1,4 @@
+import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 
 interface CacheEntry {
@@ -22,7 +23,7 @@ export interface SpiderCacheOptions {
  * moving an entry to the tail on access gives LRU semantics with no
  * secondary data structure needed.
  */
-export class SpiderCache {
+export class SpiderCache implements ICache<string, SpideredPage> {
 	private readonly map = new Map<string, CacheEntry>();
 	private readonly maxSize: number;
 	private readonly ttlMs: number;

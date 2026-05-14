@@ -9,7 +9,11 @@ import { spider } from "./spider.js";
  * returned immediately and do not count toward concurrency.
  */
 export async function batchSpider(urls, opts = {}) {
-    const { concurrency = 3, delayMs = 300, cache, onProgress, ...spiderOpts } = opts;
+    // Strip crawl-only options that batchSpider doesn't use so they don't
+    // confuse callers and don't get forwarded to spider() where they'd be
+    // applied per-call rather than shared (use crawl() for that).
+    const { concurrency = 3, delayMs = 300, cache, onProgress, throttle: _throttle, robotsCache: _robotsCache, // consumed here, not forwarded
+    ...spiderOpts } = opts;
     const results = new Map();
     const unique = [...new Set(urls)];
     let done = 0;

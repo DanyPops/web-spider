@@ -156,3 +156,39 @@ export async function webSearch(
 		? braveSearch(query, { numResults: opts.numResults })
 		: tavilySearch(query, { numResults: opts.numResults });
 }
+
+// ---------------------------------------------------------------------------
+// ISearchEngine adapters
+// ---------------------------------------------------------------------------
+
+import type { ISearchEngine, SearchQuery } from "./ports.js";
+
+/** Brave Search adapter implementing ISearchEngine. */
+export class BraveSearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string, private readonly country?: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return braveSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, country: this.country });
+	}
+}
+
+/** Tavily adapter implementing ISearchEngine. */
+export class TavilySearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return tavilySearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+	}
+}
+
+/**
+ * Build an ISearchEngine from environment variables.
+ * Prefers Brave when both keys are present.
+ */
+export function defaultSearchEngine(): ISearchEngine {
+	const brave = process.env["BRAVE_SEARCH_API_KEY"];
+	if (brave) return new BraveSearchEngine(brave);
+	const tavily = process.env["TAVILY_API_KEY"];
+	if (tavily) return new TavilySearchEngine(tavily);
+	throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY.");
+}
