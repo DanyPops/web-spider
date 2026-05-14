@@ -14,8 +14,13 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
+  "scripts": {
+    "test": "vitest --run"
+  },
   "devDependencies": {
     "@types/node": "^22.19.19",
-    "typescript": "^5.9.3"
+    "jiti": "^2.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
   }
 }
