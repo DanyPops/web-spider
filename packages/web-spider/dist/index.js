@@ -11,6 +11,7 @@ export { buildTree, navigateTree, queryTree } from "./tree.js";
 export { toLean } from "./views.js";
 export { braveSearch, tavilySearch, webSearch } from "./web-search.js";
 export { DiskCache } from "./disk-cache.js";
+export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
