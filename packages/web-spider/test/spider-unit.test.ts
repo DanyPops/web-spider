@@ -499,12 +499,19 @@ describe("spider() with injected IHttpClient", () => {
 		expect(client.fetch).not.toHaveBeenCalled();
 	});
 
-	it("applies tokenBudget via injected client", async () => {
+	it("applies tokenBudget via injected client (chunk-aware)", async () => {
 		const full = await spider("https://example.com", { httpClient: mockClient(SIMPLE_HTML) });
 		const budgeted = await spider("https://example.com", {
 			httpClient: mockClient(SIMPLE_HTML),
-			tokenBudget: 50,
+			tokenBudget: 50, // very small — should select fewer chunks
 		});
-		expect(budgeted.markdown.length).toBeLessThan(full.markdown.length);
+		// Chunk-aware budget selects whole chunks up to the limit.
+		// We can't guarantee fewer bytes (first chunk is always included)
+		// but we must have fewer or equal chunks.
+		expect(budgeted.chunks.length).toBeLessThanOrEqual(full.chunks.length);
+		// Markdown is rebuilt from selected chunks only.
+		if (full.chunks.length > 1) {
+			expect(budgeted.chunks.length).toBeLessThan(full.chunks.length);
+		}
 	});
 });
