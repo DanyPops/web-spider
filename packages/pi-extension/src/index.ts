@@ -35,7 +35,8 @@ export default async function (pi: ExtensionAPI) {
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
-  const { spider, crawl, searchPages, SpiderCache, PageGraph, webSearch, PlaywrightHttpClient } = lib
+  const { spider, crawl, searchPages, SpiderCache, PageGraph, webSearch, PlaywrightHttpClient,
+          buildTree, queryTree, navigateTree } = lib
 
   // Shared Playwright browser — launched lazily on first use, reused across
   // all requests. Stealth plugin is applied automatically (patches ~15
@@ -432,6 +433,157 @@ export default async function (pi: ExtensionAPI) {
       if ((params.depth ?? 0) > 0) return handleCrawl(params)
 
       return handleSinglePage(params, fetchPage)
+    },
+  })
+
+  // ---------------------------------------------------------------------------
+  // Tree tools — web_tree, web_query, web_navigate
+  // ---------------------------------------------------------------------------
+
+  // Separate in-memory tree cache. Trees are large but not persisted —
+  // they’re rebuilt on demand and held for the session.
+  const treeCache = new Map<string, lib.DOMNode>()
+
+  /** Fetch tree for a URL, using the tree cache when available. */
+  async function fetchTree(url: string, timeoutMs?: number): Promise<lib.DOMNode> {
+    const hit = treeCache.get(url)
+    if (hit) return hit
+    const page = await spider(url, { view: "tree", timeoutMs })
+    treeCache.set(url, page.tree)
+    return page.tree
+  }
+
+  // ── web_tree ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "web_tree",
+    label: "Web Tree",
+    description: [
+      "Fetch a URL and return its collapsed semantic DOM tree.",
+      "Use when you need to understand page structure before navigating it.",
+      "",
+      "The tree contains only semantically meaningful tags: h1-h6, p, pre, code,",
+      "ul/ol/li, table/tr/td/th, blockquote, section, article, a.",
+      "Presentational wrappers (div, span) are collapsed away.",
+      "",
+      "Each node has: tag, path (dot-bracket, e.g. article.section[1].pre[0].code),",
+      "text (leaf nodes), attrs (href on links, lang on code blocks), children.",
+      "",
+      "Use web_navigate(url, path) to retrieve one node by path.",
+      "Use web_query(url, query) to search for content without reading the full tree.",
+      "Trees are cached for the session — web_tree then web_navigate is free.",
+    ].join("\n"),
+    promptSnippet: "Fetch semantic DOM tree: url, timeoutMs",
+    parameters: Type.Object({
+      url: Type.String({ description: "Fully-qualified http(s) URL to fetch" }),
+      timeoutMs: Type.Optional(Type.Number({ description: "Fetch timeout in ms (default 10 000)" })),
+    }),
+    async execute(_id, params) {
+      try {
+        const tree = await fetchTree(params.url, params.timeoutMs)
+        return {
+          content: [{ type: "text", text: JSON.stringify(tree) }],
+          details: { url: params.url, tag: tree.tag },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+          details: {},
+        }
+      }
+    },
+  })
+
+  // ── web_query ────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "web_query",
+    label: "Web Query",
+    description: [
+      "Search a page's DOM tree for content matching a query.",
+      "Returns ranked hits with the path, tag, score, snippet, and full node text.",
+      "",
+      "Unlike format=highlights (BM25F over text chunks), web_query returns",
+      "structurally atomic results: code blocks and tables are always whole,",
+      "never word-count windows. Each hit is the nearest semantic ancestor",
+      "(section, pre, p, li, tr) that contains the match.",
+      "",
+      "Use web_navigate(url, hit.path) to retrieve a specific node.",
+      "Trees are cached — repeated web_query calls on the same URL are cheap.",
+    ].join("\n"),
+    promptSnippet: "Search page DOM tree: url, query, topN",
+    parameters: Type.Object({
+      url: Type.String({ description: "Fully-qualified http(s) URL to search" }),
+      query: Type.String({ description: "Search phrase" }),
+      topN: Type.Optional(Type.Number({ description: "Max hits to return (default 5)" })),
+      timeoutMs: Type.Optional(Type.Number({ description: "Fetch timeout in ms (default 10 000)" })),
+    }),
+    async execute(_id, params) {
+      try {
+        const tree = await fetchTree(params.url, params.timeoutMs)
+        const hits = queryTree(tree, params.query, { topN: params.topN ?? 5 })
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            url: params.url,
+            query: params.query,
+            hits: hits.map((h) => omitEmpty({
+              path: h.path,
+              tag: h.node.tag,
+              score: Math.round(h.score * 100) / 100,
+              snippet: h.snippet,
+              text: h.node.text,
+              childCount: h.node.children?.length,
+            })),
+          }) }],
+          details: { hits: hits.length },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+          details: {},
+        }
+      }
+    },
+  })
+
+  // ── web_navigate ───────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "web_navigate",
+    label: "Web Navigate",
+    description: [
+      "Retrieve one specific node from a page's DOM tree by its path.",
+      "Path format: dot-bracket notation, e.g. article.section[1].pre[0].code",
+      "",
+      "Use web_tree(url) or web_query(url, query) to discover paths first.",
+      "Trees are cached — web_navigate after web_tree or web_query is free.",
+    ].join("\n"),
+    promptSnippet: "Navigate to DOM node: url, path",
+    parameters: Type.Object({
+      url: Type.String({ description: "Fully-qualified http(s) URL" }),
+      path: Type.String({ description: "Dot-bracket path, e.g. article.section[1].pre[0].code" }),
+      timeoutMs: Type.Optional(Type.Number({ description: "Fetch timeout in ms (default 10 000)" })),
+    }),
+    async execute(_id, params) {
+      try {
+        const tree = await fetchTree(params.url, params.timeoutMs)
+        const node = navigateTree(tree, params.path)
+        if (!node) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: `Path not found: ${params.path}` }) }],
+            details: {},
+          }
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify(node) }],
+          details: { tag: node.tag, path: node.path },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+          details: {},
+        }
+      }
     },
   })
 }

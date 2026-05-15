@@ -88,28 +88,28 @@ function makeFetchMock(pageHtml = FIXTURE_HTML) {
   })
 }
 
-/** Load a fresh extension instance and return its execute() function. */
-async function loadExecute(): Promise<ExecuteFn> {
+/** Load a fresh extension and return the execute() for a specific tool name. */
+async function loadExecute(toolName = "web_fetch"): Promise<ExecuteFn> {
   const { createJiti: cj } = await import(jitiPath)
   const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false })
   const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void>
 
-  let capturedExecute: ExecuteFn | null = null
+  const tools = new Map<string, ExecuteFn>()
   const api = {
     registerTool: vi.fn((tool: { name: string; execute: ExecuteFn }) => {
-      capturedExecute = tool.execute
+      tools.set(tool.name, tool.execute)
     }),
     on: vi.fn(), registerCommand: vi.fn(), registerShortcut: vi.fn(),
     registerFlag: vi.fn(), appendEntry: vi.fn(),
   }
 
-  // Use a temp path so disk-cache tests don't pollute the real cache
   process.env["WEB_SPIDER_CACHE_PATH"] = "/tmp/web-spider-test-cache.json"
   await factory(api)
   delete process.env["WEB_SPIDER_CACHE_PATH"]
 
-  if (!capturedExecute) throw new Error("execute() was not captured — registerTool not called")
-  return capturedExecute
+  const fn = tools.get(toolName)
+  if (!fn) throw new Error(`Tool '${toolName}' not registered — got: ${[...tools.keys()].join(", ")}`)
+  return fn
 }
 
 // ---------------------------------------------------------------------------
@@ -343,5 +343,116 @@ describe("crawl path — depth=1", () => {
     const body = JSON.parse(result.content[0].text)
     expect(Array.isArray(body.hits)).toBe(true)
     expect(typeof body.pagesSearched).toBe("number")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tree tool paths — web_tree, web_query, web_navigate
+// ---------------------------------------------------------------------------
+
+describe("web_tree", () => {
+  let execute: ExecuteFn
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    execute = await loadExecute("web_tree")
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
+  })
+  afterEach(() => fetchSpy.mockRestore())
+
+  it("returns a tree with tag=article at root", async () => {
+    const result = await execute("1", { url: MOCK_URL })
+    const tree = JSON.parse(result.content[0].text)
+    expect(tree.tag).toBe("article")
+    expect(tree.path).toBe("article")
+  })
+
+  it("tree has children", async () => {
+    const result = await execute("1", { url: MOCK_URL })
+    const tree = JSON.parse(result.content[0].text)
+    expect(Array.isArray(tree.children)).toBe(true)
+    expect(tree.children.length).toBeGreaterThan(0)
+  })
+
+  it("returns error for network failure", async () => {
+    fetchSpy.mockImplementation(async () => { throw new Error("ECONNREFUSED") })
+    const result = await execute("1", { url: MOCK_URL })
+    const body = JSON.parse(result.content[0].text)
+    expect(body.error).toBeDefined()
+  })
+})
+
+describe("web_query", () => {
+  let execute: ExecuteFn
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    execute = await loadExecute("web_query")
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
+  })
+  afterEach(() => fetchSpy.mockRestore())
+
+  it("returns hits array", async () => {
+    const result = await execute("1", { url: MOCK_URL, query: "spider fixture" })
+    const body = JSON.parse(result.content[0].text)
+    expect(Array.isArray(body.hits)).toBe(true)
+    expect(body.url).toBe(MOCK_URL)
+    expect(body.query).toBe("spider fixture")
+  })
+
+  it("each hit has path, tag, score, snippet", async () => {
+    const result = await execute("1", { url: MOCK_URL, query: "section" })
+    const body = JSON.parse(result.content[0].text)
+    for (const hit of body.hits) {
+      expect(typeof hit.path).toBe("string")
+      expect(typeof hit.tag).toBe("string")
+      expect(typeof hit.score).toBe("number")
+      expect(typeof hit.snippet).toBe("string")
+    }
+  })
+
+  it("respects topN", async () => {
+    const result = await execute("1", { url: MOCK_URL, query: "the", topN: 2 })
+    const body = JSON.parse(result.content[0].text)
+    expect(body.hits.length).toBeLessThanOrEqual(2)
+  })
+
+  it("details includes hit count", async () => {
+    const result = await execute("1", { url: MOCK_URL, query: "spider" })
+    expect(typeof result.details.hits).toBe("number")
+  })
+})
+
+describe("web_navigate", () => {
+  let executeTree: ExecuteFn
+  let executeNav: ExecuteFn
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    // Load both tools from same factory instance isn't straightforward,
+    // so load tree first to prime the cache, then navigate
+    executeTree = await loadExecute("web_tree")
+    executeNav = await loadExecute("web_navigate")
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
+  })
+  afterEach(() => fetchSpy.mockRestore())
+
+  it("returns error for unknown path", async () => {
+    const result = await executeNav("1", { url: MOCK_URL, path: "article.nonexistent[99].deep" })
+    const body = JSON.parse(result.content[0].text)
+    expect(body.error).toBeDefined()
+  })
+
+  it("returns article root node for path=article", async () => {
+    const result = await executeNav("1", { url: MOCK_URL, path: "article" })
+    const body = JSON.parse(result.content[0].text)
+    expect(body.tag).toBe("article")
+    expect(body.path).toBe("article")
+  })
+
+  it("details includes tag and path", async () => {
+    const result = await executeNav("1", { url: MOCK_URL, path: "article" })
+    expect(result.details.tag).toBe("article")
+    expect(result.details.path).toBe("article")
   })
 })
