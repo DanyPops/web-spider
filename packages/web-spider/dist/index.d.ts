@@ -19,6 +19,8 @@ export { braveSearch, tavilySearch, webSearch } from "./web-search.js";
 export type { HttpRequest, HttpResponse, ICache, IHttpClient, IRobotsChecker, ISearchEngine, IThrottle, RobotsResult, SearchQuery } from "./ports.js";
 export type { DiskCacheOptions } from "./disk-cache.js";
 export { DiskCache } from "./disk-cache.js";
+export type { PlaywrightClientOptions } from "./playwright.js";
+export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
