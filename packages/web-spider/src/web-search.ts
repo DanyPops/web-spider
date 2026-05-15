@@ -30,7 +30,74 @@ export interface TavilySearchOptions {
 	depth?: "basic" | "advanced";
 }
 
-export type SearchEngine = "brave" | "tavily";
+export type SearchEngine = "brave" | "tavily" | "exa";
+
+export interface ExaSearchOptions {
+	/** API key. Defaults to process.env.EXA_API_KEY. */
+	apiKey?: string;
+	/** Number of results. Default 10. */
+	numResults?: number;
+	/**
+	 * Search type.
+	 * "auto"   — Exa decides keyword vs neural (default).
+	 * "neural" — embedding-based semantic search.
+	 * "keyword" — traditional keyword search.
+	 */
+	type?: "auto" | "neural" | "keyword";
+}
+
+/**
+ * Search the web via the Exa Search API (neural/semantic retrieval).
+ * https://exa.ai/docs/reference/search
+ *
+ * Returns highlights inline per result — richer snippets without extra round-trips.
+ */
+export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Promise<WebSearchResult[]> {
+	const apiKey = opts.apiKey ?? process.env["EXA_API_KEY"];
+	if (!apiKey) throw new Error("Exa API key required — set EXA_API_KEY or pass opts.apiKey");
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 15_000);
+	let res: Response;
+	try {
+		res = await fetch("https://api.exa.ai/search", {
+			method: "POST",
+			signal: controller.signal,
+			headers: {
+				"Content-Type": "application/json",
+				"x-api-key": apiKey,
+			},
+			body: JSON.stringify({
+				query,
+				numResults: opts.numResults ?? 10,
+				type: opts.type ?? "auto",
+				contents: {
+					highlights: { numSentences: 2, highlightsPerUrl: 3 },
+				},
+			}),
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`Exa API error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		results?: Array<{
+			url: string;
+			title: string;
+			publishedDate?: string;
+			highlights?: string[];
+		}>;
+	};
+
+	return (data.results ?? []).map((r) => ({
+		url: r.url,
+		title: r.title,
+		snippet: r.highlights?.join(" … ") ?? "",
+		...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
+	}));
+}
 
 /**
  * Search the web via the Brave Search API.
@@ -140,17 +207,23 @@ export async function webSearch(
 ): Promise<WebSearchResult[]> {
 	const engine =
 		opts.engine ??
-		(process.env["BRAVE_SEARCH_API_KEY"] ? "brave" : process.env["TAVILY_API_KEY"] ? "tavily" : null);
+		(process.env["BRAVE_SEARCH_API_KEY"]
+			? "brave"
+			: process.env["TAVILY_API_KEY"]
+				? "tavily"
+				: process.env["EXA_API_KEY"]
+					? "exa"
+					: null);
 
 	if (!engine) {
 		throw new Error(
-			"No search API key found. Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY.",
+			"No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
 		);
 	}
 
-	return engine === "brave"
-		? braveSearch(query, { numResults: opts.numResults })
-		: tavilySearch(query, { numResults: opts.numResults });
+	if (engine === "brave") return braveSearch(query, { numResults: opts.numResults });
+	if (engine === "tavily") return tavilySearch(query, { numResults: opts.numResults });
+	return exaSearch(query, { numResults: opts.numResults });
 }
 
 // ---------------------------------------------------------------------------
@@ -175,14 +248,25 @@ export class TavilySearchEngine implements ISearchEngine {
 	}
 }
 
+/** Exa adapter implementing ISearchEngine. */
+export class ExaSearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+	}
+}
+
 /**
  * Build an ISearchEngine from environment variables.
- * Prefers Brave when both keys are present.
+ * Priority: Brave → Tavily → Exa.
  */
 export function defaultSearchEngine(): ISearchEngine {
 	const brave = process.env["BRAVE_SEARCH_API_KEY"];
 	if (brave) return new BraveSearchEngine(brave);
 	const tavily = process.env["TAVILY_API_KEY"];
 	if (tavily) return new TavilySearchEngine(tavily);
-	throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY.");
+	const exa = process.env["EXA_API_KEY"];
+	if (exa) return new ExaSearchEngine(exa);
+	throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.");
 }

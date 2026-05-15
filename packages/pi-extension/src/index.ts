@@ -64,7 +64,7 @@ export default async function (pi: ExtensionAPI) {
       "",
       "SEARCH",
       "  searchQuery       — search the web instead of fetching a URL.",
-      "  searchEngine      — 'brave' or 'tavily'. Auto-detected from env vars.",
+      "  searchEngine      — 'brave', 'tavily', or 'exa'. Auto-detected from env vars.",
       "  numResults        — number of results (default 10).",
       "  Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY environment variable.",
       "",
@@ -114,7 +114,7 @@ export default async function (pi: ExtensionAPI) {
         })
       ),
       searchEngine: Type.Optional(
-        Type.Union([Type.Literal("brave"), Type.Literal("tavily")], {
+        Type.Union([Type.Literal("brave"), Type.Literal("tavily"), Type.Literal("exa")], {
           description: "Search engine. Auto-detected from available API keys if omitted.",
         })
       ),
