@@ -14,8 +14,8 @@ export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveSearchOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, tavilySearch, webSearch } from "./web-search.js";
+export type { BraveSearchOptions, ExaSearchOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
+export { braveSearch, exaSearch, tavilySearch, webSearch } from "./web-search.js";
 export type { HttpRequest, HttpResponse, ICache, IHttpClient, IRobotsChecker, ISearchEngine, IThrottle, RobotsResult, SearchQuery } from "./ports.js";
 export type { DiskCacheOptions } from "./disk-cache.js";
 export { DiskCache } from "./disk-cache.js";
@@ -25,5 +25,5 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, ExaSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 //# sourceMappingURL=index.d.ts.map
