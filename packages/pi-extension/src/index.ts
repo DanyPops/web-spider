@@ -47,7 +47,7 @@ export default async function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "web_fetch",
-    label: "Web Fetch (@dpopsuev/web-spider v0.2.0)",
+    label: "Web Fetch",
     description: [
       "Fetch a URL and return its content. Optionally crawl to a given depth.",
       "Can also search the web when searchQuery is provided instead of a URL.",
