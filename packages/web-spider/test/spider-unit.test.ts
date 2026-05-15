@@ -515,3 +515,95 @@ describe("spider() with injected IHttpClient", () => {
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// WBS-TSK-2: Table-aware chunking — tables must be atomic
+// ---------------------------------------------------------------------------
+
+import { chunk } from "../src/convert.js";
+
+describe("WBS-TSK-2: table-aware chunking", () => {
+  const URL = "https://example.com/page";
+
+  it("keeps a table in a single chunk", () => {
+    const md = [
+      "| Col A | Col B | Col C |",
+      "| ----- | ----- | ----- |",
+      "| one   | two   | three |",
+      "| four  | five  | six   |",
+      "| seven | eight | nine  |",
+    ].join("\n");
+    const chunks = chunk(md, URL);
+    const tableChunks = chunks.filter((c) => c.contentType === "table");
+    expect(tableChunks).toHaveLength(1);
+    expect(tableChunks[0].text).toContain("| Col A");
+    expect(tableChunks[0].text).toContain("| seven");
+  });
+
+  it("does not split a large table across chunk boundaries", () => {
+    // Build a table with enough rows to exceed the 150-word target
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      `| row${i} | description of row ${i} which is quite verbose | value-${i} | extra-${i} |`
+    );
+    const md = [
+      "| Name | Description | Value | Extra |",
+      "| ---- | ----------- | ----- | ----- |",
+      ...rows,
+    ].join("\n");
+    const chunks = chunk(md, URL);
+    const tableChunks = chunks.filter((c) => c.contentType === "table");
+    expect(tableChunks).toHaveLength(1);
+  });
+
+  it("flushes prose before a table so they are in separate chunks", () => {
+    const prose = Array.from({ length: 20 }, (_, i) =>
+      `Word${i} `.repeat(8).trim()
+    ).join(" ");
+    const table = [
+      "| A | B |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "| 3 | 4 |",
+    ].join("\n");
+    const md = prose + "\n\n" + table;
+    const chunks = chunk(md, URL);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    const tableChunks = chunks.filter((c) => c.contentType === "table");
+    const textChunks = chunks.filter((c) => c.contentType === "text");
+    expect(tableChunks).toHaveLength(1);
+    expect(textChunks.length).toBeGreaterThanOrEqual(1);
+    // The table chunk must not contain the prose
+    expect(tableChunks[0].text).not.toContain("Word0");
+  });
+
+  it("prose after a table goes into a separate chunk", () => {
+    const table = [
+      "| A | B |",
+      "| - | - |",
+      "| 1 | 2 |",
+    ].join("\n");
+    const after = Array.from({ length: 20 }, (_, i) => `After${i} `.repeat(8).trim()).join(" ");
+    const md = table + "\n\n" + after;
+    const chunks = chunk(md, URL);
+    const tableChunks = chunks.filter((c) => c.contentType === "table");
+    expect(tableChunks).toHaveLength(1);
+    expect(tableChunks[0].text).not.toContain("After0");
+  });
+
+  it("pipe characters inside code blocks are not treated as table rows", () => {
+    const md = [
+      "```python",
+      "| fake | table | inside | code | block | row | here |",
+      "| another | row | in | code |",
+      "x = 1  # not a table row",
+      "```",
+    ].join("\n");
+    const chunks = chunk(md, URL);
+    // The | lines inside the code block must not produce a table chunk
+    const tableChunks = chunks.filter((c) => c.contentType === "table");
+    expect(tableChunks).toHaveLength(0);
+    // The pipe content must still exist in the output (inside a code chunk)
+    const allText = chunks.map((c) => c.text).join("\n");
+    expect(allText).toContain("| fake | table");
+  });
+});
