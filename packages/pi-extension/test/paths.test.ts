@@ -347,53 +347,59 @@ describe("crawl path — depth=1", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tree tool paths — web_tree, web_query, web_navigate
+// format=tree paths — full tree, query, navigate — all via web_fetch
 // ---------------------------------------------------------------------------
 
-describe("web_tree", () => {
+describe("single-page path — tree (full)", () => {
   let execute: ExecuteFn
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    execute = await loadExecute("web_tree")
+    execute = await loadExecute("web_fetch")
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
   afterEach(() => fetchSpy.mockRestore())
 
   it("returns a tree with tag=article at root", async () => {
-    const result = await execute("1", { url: MOCK_URL })
+    const result = await execute("1", { url: MOCK_URL, format: "tree" })
     const tree = JSON.parse(result.content[0].text)
     expect(tree.tag).toBe("article")
     expect(tree.path).toBe("article")
   })
 
   it("tree has children", async () => {
-    const result = await execute("1", { url: MOCK_URL })
+    const result = await execute("1", { url: MOCK_URL, format: "tree" })
     const tree = JSON.parse(result.content[0].text)
     expect(Array.isArray(tree.children)).toBe(true)
     expect(tree.children.length).toBeGreaterThan(0)
   })
 
+  it("details includes format=tree mode=full", async () => {
+    const result = await execute("1", { url: MOCK_URL, format: "tree" })
+    expect(result.details.format).toBe("tree")
+    expect(result.details.mode).toBe("full")
+  })
+
   it("returns error for network failure", async () => {
     fetchSpy.mockImplementation(async () => { throw new Error("ECONNREFUSED") })
-    const result = await execute("1", { url: MOCK_URL })
+    const result = await execute("1", { url: MOCK_URL, format: "tree" })
     const body = JSON.parse(result.content[0].text)
     expect(body.error).toBeDefined()
   })
 })
 
-describe("web_query", () => {
+describe("single-page path — tree + query", () => {
   let execute: ExecuteFn
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    execute = await loadExecute("web_query")
+    execute = await loadExecute("web_fetch")
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
   afterEach(() => fetchSpy.mockRestore())
 
-  it("returns hits array", async () => {
-    const result = await execute("1", { url: MOCK_URL, query: "spider fixture" })
+  it("returns hits array with url and query", async () => {
+    const result = await execute("1", { url: MOCK_URL, format: "tree", query: "spider fixture" })
     const body = JSON.parse(result.content[0].text)
     expect(Array.isArray(body.hits)).toBe(true)
     expect(body.url).toBe(MOCK_URL)
@@ -401,7 +407,7 @@ describe("web_query", () => {
   })
 
   it("each hit has path, tag, score, snippet", async () => {
-    const result = await execute("1", { url: MOCK_URL, query: "section" })
+    const result = await execute("1", { url: MOCK_URL, format: "tree", query: "section" })
     const body = JSON.parse(result.content[0].text)
     for (const hit of body.hits) {
       expect(typeof hit.path).toBe("string")
@@ -412,46 +418,44 @@ describe("web_query", () => {
   })
 
   it("respects topN", async () => {
-    const result = await execute("1", { url: MOCK_URL, query: "the", topN: 2 })
+    const result = await execute("1", { url: MOCK_URL, format: "tree", query: "the", topN: 2 })
     const body = JSON.parse(result.content[0].text)
     expect(body.hits.length).toBeLessThanOrEqual(2)
   })
 
-  it("details includes hit count", async () => {
-    const result = await execute("1", { url: MOCK_URL, query: "spider" })
+  it("details includes mode=query and hit count", async () => {
+    const result = await execute("1", { url: MOCK_URL, format: "tree", query: "spider" })
+    expect(result.details.mode).toBe("query")
     expect(typeof result.details.hits).toBe("number")
   })
 })
 
-describe("web_navigate", () => {
-  let executeTree: ExecuteFn
-  let executeNav: ExecuteFn
+describe("single-page path — tree + path (navigate)", () => {
+  let execute: ExecuteFn
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    // Load both tools from same factory instance isn't straightforward,
-    // so load tree first to prime the cache, then navigate
-    executeTree = await loadExecute("web_tree")
-    executeNav = await loadExecute("web_navigate")
+    execute = await loadExecute("web_fetch")
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
   afterEach(() => fetchSpy.mockRestore())
 
   it("returns error for unknown path", async () => {
-    const result = await executeNav("1", { url: MOCK_URL, path: "article.nonexistent[99].deep" })
+    const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article.nonexistent[99]" })
     const body = JSON.parse(result.content[0].text)
     expect(body.error).toBeDefined()
   })
 
   it("returns article root node for path=article", async () => {
-    const result = await executeNav("1", { url: MOCK_URL, path: "article" })
+    const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article" })
     const body = JSON.parse(result.content[0].text)
     expect(body.tag).toBe("article")
     expect(body.path).toBe("article")
   })
 
-  it("details includes tag and path", async () => {
-    const result = await executeNav("1", { url: MOCK_URL, path: "article" })
+  it("details includes mode=navigate, tag, path", async () => {
+    const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article" })
+    expect(result.details.mode).toBe("navigate")
     expect(result.details.tag).toBe("article")
     expect(result.details.path).toBe("article")
   })
