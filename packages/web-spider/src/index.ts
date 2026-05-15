@@ -20,8 +20,8 @@ export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveSearchOptions, ExaSearchOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, exaSearch, tavilySearch, webSearch } from "./web-search.js";
+export type { BraveSearchOptions, DdgSearchOptions, ExaSearchOptions, FallbackSearchEngineOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, tavilySearch, webSearch } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // Extension / DI — port interfaces and their concrete adapters.
@@ -37,7 +37,7 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, ExaSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // parse.ts, convert.ts, views.ts are internal implementation modules.
