@@ -1,10 +1,11 @@
 import { SpiderCache } from "./cache.js";
 import { PageGraph } from "./graph.js";
+import type { ICache } from "./ports.js";
 import { RobotsCache } from "./robots.js";
+import { fetchSitemapUrls } from "./sitemap.js";
 import type { SpiderOptions } from "./spider.js";
 import { spider } from "./spider.js";
 import { DomainThrottle } from "./throttle.js";
-import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 
 export interface CrawlOptions extends SpiderOptions {
@@ -35,6 +36,11 @@ export interface CrawlOptions extends SpiderOptions {
 	 * Automatically creates a RobotsCache if not provided via SpiderOptions.
 	 */
 	respectRobots?: boolean;
+	/**
+	 * Attempt to fetch /sitemap.xml before BFS to seed the frontier with
+	 * all known URLs. Falls back to normal BFS on any error (default true).
+	 */
+	useSitemap?: boolean;
 }
 
 export interface CrawlResult {
@@ -66,12 +72,14 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		onPage,
 		urlFilter,
 		respectRobots = true,
+		useSitemap = true,
 		...spiderOpts
 	} = opts;
 
 	// Build shared throttle and robots cache for the whole crawl.
 	const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
 	const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
+	const httpClient = spiderOpts.httpClient;
 
 	const startDomain = new URL(startUrl).hostname;
 	const pages = new Map<string, SpideredPage>();
@@ -131,9 +139,26 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		});
 	};
 
-	// BFS level by level
+	// Optionally seed frontier from sitemap before BFS.
 	let frontier = [startUrl];
 	seen.add(startUrl);
+
+	if (useSitemap) {
+		const origin = new URL(startUrl).origin;
+		// Use a minimal default httpClient if none was injected
+		const client = httpClient ?? {
+			async fetch(req: { url: string; headers?: Record<string, string> }) {
+				return globalThis.fetch(req.url, { headers: req.headers });
+			},
+		};
+		const sitemapUrls = await fetchSitemapUrls(origin, client);
+		for (const u of sitemapUrls) {
+			if (shouldVisit(u)) {
+				seen.add(u);
+				frontier.push(u);
+			}
+		}
+	}
 
 	for (let depth = 0; depth <= maxDepth; depth++) {
 		if (frontier.length === 0) break;

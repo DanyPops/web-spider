@@ -30,7 +30,7 @@ export default async function (pi: ExtensionAPI) {
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
-  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, webSearch } = lib
+  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, webSearch, toLean } = lib
 
   // throttle.js and robots.js are loaded as side-effects of crawl.js before
   // index.js processes its own re-exports for them. Under jiti tryNative:false
@@ -104,6 +104,13 @@ export default async function (pi: ExtensionAPI) {
       ),
       numResults: Type.Optional(
         Type.Number({ description: "Number of search results (default 10)." })
+      ),
+      searchEnrich: Type.Optional(
+        Type.Boolean({
+          description:
+            "When true, auto-fetch each search result in lean format and return lean pages " +
+            "alongside search results. Saves a round-trip for search-then-triage workflows.",
+        })
       ),
 
       depth: Type.Optional(
@@ -182,6 +189,25 @@ export default async function (pi: ExtensionAPI) {
           engine: params.searchEngine,
           numResults: params.numResults ?? 10,
         })
+
+        if (params.searchEnrich) {
+          // Fetch each result in lean format concurrently (up to 5 at once)
+          const enriched = await Promise.allSettled(
+            results.slice(0, params.numResults ?? 10).map((r) =>
+              spider(r.url, { ...spiderOpts, view: "lean" })
+                .then((page) => ({ ...r, page }))
+                .catch(() => ({ ...r, page: null }))
+            )
+          )
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              query: params.searchQuery,
+              results: enriched.map((r) => r.status === "fulfilled" ? r.value : null).filter(Boolean),
+            }) }],
+            details: { engine: params.searchEngine ?? "auto", count: results.length, enriched: true },
+          }
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify({ query: params.searchQuery, results }) }],
           details: { engine: params.searchEngine ?? "auto", count: results.length },
@@ -252,20 +278,28 @@ export default async function (pi: ExtensionAPI) {
           }
         }
 
-        // Default crawl response: summary of all pages found
-        const summary = {
-          pagesFound: result.pages.size,
-          errors: result.errors.size,
-          errorUrls: [...result.errors.keys()],
-          note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
-          pages: [...result.pages.values()].map((p) => ({
-            url: p.url,
-            title: p.title,
-            description: p.description,
-            wordCount: p.wordCount,
-            tags: p.tags,
-          })),
-        }
+        // Default crawl response
+        const pageList = [...result.pages.values()]
+        const summary = fmt === "lean"
+          ? {
+              pagesFound: result.pages.size,
+              errors: result.errors.size,
+              errorUrls: [...result.errors.keys()],
+              pages: pageList.map((p) => toLean(p)),
+            }
+          : {
+              pagesFound: result.pages.size,
+              errors: result.errors.size,
+              errorUrls: [...result.errors.keys()],
+              note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
+              pages: pageList.map((p) => ({
+                url: p.url,
+                title: p.title,
+                description: p.description,
+                wordCount: p.wordCount,
+                tags: p.tags,
+              })),
+            }
 
         return {
           content: [{ type: "text", text: JSON.stringify(summary) }],
