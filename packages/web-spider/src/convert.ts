@@ -59,7 +59,11 @@ export function detectContentType(lines: string[]): ChunkType {
 
 /**
  * Split markdown into RAG-ready chunks at heading boundaries.
- * Tables and fenced code blocks are never split mid-block.
+ *
+ * Atomicity guarantees:
+ *   - Fenced code blocks (``` ... ```) are never split.
+ *   - Markdown tables (lines starting with |) are always flushed as a single
+ *     chunk. Prose before the table is flushed first so the table is isolated.
  */
 export function chunk(markdown: string, baseUrl: string): Chunk[] {
 	const chunks: Chunk[] = [];
@@ -68,8 +72,8 @@ export function chunk(markdown: string, baseUrl: string): Chunk[] {
 	let heading = "";
 	let buffer: string[] = [];
 	let index = 0;
-	let inTable = false;
 	let inCode = false;
+	let inTable = false;
 
 	const flush = (): void => {
 		const text = buffer.join("\n").trim();
@@ -80,31 +84,58 @@ export function chunk(markdown: string, baseUrl: string): Chunk[] {
 		chunks.push({ id: `${baseUrl}#chunk-${index}`, index, heading, text, wordCount, contentType });
 		index++;
 		buffer = [];
-		inTable = false;
 	};
 
 	for (const line of lines) {
-		if (line.trim().startsWith("```")) inCode = !inCode;
+		const trimmed = line.trim();
 
-		const isTableRow = line.trim().startsWith("|");
-
+		// ── Fenced code block toggle ──────────────────────────────────────────
+		if (trimmed.startsWith("```")) {
+			inCode = !inCode;
+			buffer.push(line);
+			continue;
+		}
 		if (inCode) {
 			buffer.push(line);
-		} else {
-			if (isTableRow) inTable = true;
-			else if (inTable && !isTableRow) inTable = false;
+			continue;
+		}
 
-			const headingMatch = /^#{1,3} (.+)/.exec(line);
-			if (headingMatch && !inTable) {
-				const currentWords = buffer.join(" ").split(/\s+/).filter(Boolean).length;
-				if (currentWords >= CHUNK_TARGET_WORDS) flush();
-				heading = headingMatch[1];
-				buffer.push(line);
-			} else {
-				buffer.push(line);
-				const currentWords = buffer.join(" ").split(/\s+/).filter(Boolean).length;
-				if (currentWords >= CHUNK_TARGET_WORDS && !inTable) flush();
+		// ── Table rows ────────────────────────────────────────────────────────
+		const isTableRow = trimmed.startsWith("|");
+
+		if (isTableRow) {
+			if (!inTable) {
+				// Table is starting — flush any preceding prose so the table
+				// gets its own isolated chunk.
+				flush();
+				inTable = true;
 			}
+			buffer.push(line);
+			continue;
+		}
+
+		if (inTable) {
+			// Table just ended — flush it before processing the next line.
+			flush();
+			inTable = false;
+		}
+
+		// ── Normal prose / headings ───────────────────────────────────────────
+		if (!trimmed) {
+			buffer.push(line);
+			continue;
+		}
+
+		const headingMatch = /^#{1,3} (.+)/.exec(trimmed);
+		if (headingMatch) {
+			const currentWords = buffer.join(" ").split(/\s+/).filter(Boolean).length;
+			if (currentWords >= CHUNK_TARGET_WORDS) flush();
+			heading = headingMatch[1];
+			buffer.push(line);
+		} else {
+			buffer.push(line);
+			const currentWords = buffer.join(" ").split(/\s+/).filter(Boolean).length;
+			if (currentWords >= CHUNK_TARGET_WORDS) flush();
 		}
 	}
 	flush();
