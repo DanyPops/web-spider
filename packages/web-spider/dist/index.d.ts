@@ -7,7 +7,9 @@ export { crawl } from "./crawl.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./graph.js";
 export { PageGraph } from "./graph.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
-export { fuzzySearch } from "./search.js";
+export { searchPages } from "./search.js";
+/** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
+export { searchPages as fuzzySearch } from "./search.js";
 export type { SpiderOptions, TreePage } from "./spider.js";
 export { spider } from "./spider.js";
 export type { QueryTreeOptions } from "./tree.js";
