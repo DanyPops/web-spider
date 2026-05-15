@@ -13,12 +13,14 @@ import { describe, expect, it } from "vitest";
 import {
 	DomainThrottle,
 	PageGraph,
+	PlaywrightHttpClient,
 	RobotsCache,
 	SpiderCache,
 	batchSpider,
 	braveSearch,
 	buildTree,
 	crawl,
+	createPlaywrightClient,
 	fuzzySearch,
 	navigateTree,
 	queryTree,
@@ -71,6 +73,20 @@ describe("functions", () => {
 		["tavilySearch", tavilySearch],
 	])("%s is a function", (_name, fn) => {
 		expect(typeof fn).toBe("function");
+	});
+});
+
+describe("PlaywrightHttpClient", () => {
+	it("is constructable", () => {
+		expect(typeof PlaywrightHttpClient).toBe("function");
+		const client = new PlaywrightHttpClient();
+		expect(typeof client.fetch).toBe("function");
+		expect(typeof client.close).toBe("function");
+	});
+
+	it("createPlaywrightClient returns an instance", () => {
+		const client = createPlaywrightClient();
+		expect(client).toBeInstanceOf(PlaywrightHttpClient);
 	});
 });
 
