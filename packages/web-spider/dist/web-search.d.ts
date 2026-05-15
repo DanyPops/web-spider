@@ -24,7 +24,27 @@ export interface TavilySearchOptions {
     /** "basic" (1 credit) or "advanced" (2 credits). Default "basic". */
     depth?: "basic" | "advanced";
 }
-export type SearchEngine = "brave" | "tavily";
+export type SearchEngine = "brave" | "tavily" | "exa";
+export interface ExaSearchOptions {
+    /** API key. Defaults to process.env.EXA_API_KEY. */
+    apiKey?: string;
+    /** Number of results. Default 10. */
+    numResults?: number;
+    /**
+     * Search type.
+     * "auto"   — Exa decides keyword vs neural (default).
+     * "neural" — embedding-based semantic search.
+     * "keyword" — traditional keyword search.
+     */
+    type?: "auto" | "neural" | "keyword";
+}
+/**
+ * Search the web via the Exa Search API (neural/semantic retrieval).
+ * https://exa.ai/docs/reference/search
+ *
+ * Returns highlights inline per result — richer snippets without extra round-trips.
+ */
+export declare function exaSearch(query: string, opts?: ExaSearchOptions): Promise<WebSearchResult[]>;
 /**
  * Search the web via the Brave Search API.
  * https://api.search.brave.com/app/documentation/web-search
@@ -56,9 +76,15 @@ export declare class TavilySearchEngine implements ISearchEngine {
     constructor(apiKey: string);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
+/** Exa adapter implementing ISearchEngine. */
+export declare class ExaSearchEngine implements ISearchEngine {
+    private readonly apiKey;
+    constructor(apiKey: string);
+    search(req: SearchQuery): Promise<WebSearchResult[]>;
+}
 /**
  * Build an ISearchEngine from environment variables.
- * Prefers Brave when both keys are present.
+ * Priority: Brave → Tavily → Exa.
  */
 export declare function defaultSearchEngine(): ISearchEngine;
 //# sourceMappingURL=web-search.d.ts.map
