@@ -28,10 +28,11 @@ export interface FuzzySearchOptions {
     snippetRadius?: number;
 }
 /**
- * Fuzzy-search across a set of already-spidered pages.
+ * Full-text search across a set of already-spidered pages using MiniSearch
+ * (BM25F ranking, fuzzy matching, prefix search, heading field boost).
  *
  * Searches both body chunks and page metadata (title, description, headings).
- * Returns results ranked by score descending, deduplicated per chunk/field.
+ * Returns results ranked by score descending, normalised to 0–1.
  *
  * Designed for agent use: call after fetching pages to locate a specific
  * fact, term, or section without dumping all content into context.
