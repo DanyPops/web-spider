@@ -1,12 +1,16 @@
 /**
- * Extension load test — verifies the extension factory loads and registers
- * its tool without error under jiti (the loader pi uses for extensions).
+ * Extension E2E load test.
  *
- * This catches "not a constructor" and similar interop failures that only
- * surface when jiti's Babel transform runs, not in plain Node ESM tests.
+ * Simulates how pi loads extensions: via jiti with tryNative:false (the
+ * setting pi uses in its compiled Bun binary). This is the mode that causes
+ * class constructors and factory functions from re-exported modules to appear
+ * undefined — a failure class that plain ESM import() tests never catch.
+ *
+ * Run this test whenever the extension or library changes.
  */
 
 import { createJiti } from "jiti"
+import { createRequire } from "node:module"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
@@ -14,7 +18,12 @@ import { describe, expect, it, vi } from "vitest"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const EXTENSION_PATH = join(__dirname, "../src/index.ts")
 
-/** Minimal ExtensionAPI mock — just captures registerTool calls. */
+// Resolve jiti from the extension's own node_modules so module resolution
+// starts from the right directory — not from vitest's cwd (pi-mono).
+const require = createRequire(import.meta.url)
+const jitiPath = require.resolve("jiti")
+
+/** Minimal ExtensionAPI mock — captures registerTool calls. */
 function makeMockApi() {
   const tools: string[] = []
   const api = {
@@ -28,16 +37,22 @@ function makeMockApi() {
   return { api, tools }
 }
 
-describe("extension load via jiti", () => {
+// Use the extension directory as the jiti base — this ensures @dpopsuev/web-spider
+// resolves from the extension's node_modules, not from the test runner's cwd.
+const JITI_BASE = `file://${join(__dirname, "../src/index.ts")}`
+
+describe("extension load — tryNative:false (Bun binary simulation)", () => {
   it("loads without throwing", async () => {
-    const jiti = createJiti(import.meta.url, { moduleCache: false })
+    const { createJiti: cj } = await import(jitiPath)
+    const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false })
     const mod = await jiti.import(EXTENSION_PATH, { default: true })
     expect(typeof mod).toBe("function")
   })
 
-  it("registers web_fetch tool when factory is called", async () => {
-    const jiti = createJiti(import.meta.url, { moduleCache: false })
-    const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void> | void
+  it("registers web_fetch when factory is called", async () => {
+    const { createJiti: cj } = await import(jitiPath)
+    const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false })
+    const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void>
     const { api, tools } = makeMockApi()
     await factory(api)
     expect(tools).toContain("web_fetch")
@@ -45,10 +60,21 @@ describe("extension load via jiti", () => {
   })
 
   it("registers exactly one tool", async () => {
-    const jiti = createJiti(import.meta.url, { moduleCache: false })
-    const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void> | void
+    const { createJiti: cj } = await import(jitiPath)
+    const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false })
+    const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void>
     const { api, tools } = makeMockApi()
     await factory(api)
     expect(tools).toHaveLength(1)
+  })
+})
+
+describe("extension load — tryNative:true (Node ESM baseline)", () => {
+  it("registers web_fetch", async () => {
+    const jiti = createJiti(JITI_BASE, { moduleCache: false, tryNative: true })
+    const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void>
+    const { api, tools } = makeMockApi()
+    await factory(api)
+    expect(tools).toContain("web_fetch")
   })
 })

@@ -32,18 +32,18 @@ export default async function (pi: ExtensionAPI) {
   const lib = await import("@dpopsuev/web-spider")
   const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, webSearch } = lib
 
-  // throttle.js and robots.js are imported by crawl.js, so their exports
-  // come back undefined when loaded through the index.js re-export chain
-  // under jiti tryNative:false (side-effect load order bug). Import them
-  // directly via sub-path exports to bypass the re-export chain entirely.
-  const { createThrottle } = await import("@dpopsuev/web-spider/throttle")
-  const { createRobotsCache } = await import("@dpopsuev/web-spider/robots")
-
+  // throttle.js and robots.js are loaded as side-effects of crawl.js before
+  // index.js processes its own re-exports for them. Under jiti tryNative:false
+  // (Bun binary mode) this causes their exports to be undefined via the barrel.
+  // Sub-path imports don't work either — jiti resolves the package name from
+  // the process cwd, which may find a different node_modules.
+  // Solution: don't import those modules in the extension at all. crawl()
+  // creates its own DomainThrottle and RobotsCache internally when none are
+  // passed (respectRobots:true is the default). Single-page spider() calls
+  // are one request and don't need session-level throttling.
   const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
   const graph = new PageGraph()
   const corpus: lib.SpideredPage[] = []
-  const throttle = createThrottle({ minDelayMs: 500, maxRetries: 3 })
-  const robotsCache = createRobotsCache()
 
   pi.registerTool({
     name: "web_fetch",
@@ -170,8 +170,8 @@ export default async function (pi: ExtensionAPI) {
         rootSelector: params.rootSelector,
         excludeSelectors: params.excludeSelectors,
         tokenBudget: params.tokenBudget,
-        throttle,
-        robotsCache,
+        // throttle and robotsCache omitted — crawl() creates them internally;
+        // spider() single-page calls don't need session-level throttling.
       }
 
       // -----------------------------------------------------------------------

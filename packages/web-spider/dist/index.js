@@ -1,15 +1,22 @@
+// ---------------------------------------------------------------------------
+// Public API — what most consumers need
+// ---------------------------------------------------------------------------
 export { batchSpider } from "./batch.js";
 export { SpiderCache } from "./cache.js";
-export { chunk, detectContentType, toMarkdown } from "./convert.js";
 export { crawl } from "./crawl.js";
 export { PageGraph } from "./graph.js";
-export { anchorText, extractCanonicalUrl, extractHeadings, extractLinks, extractTags, isNavElement } from "./parse.js";
-export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fuzzySearch } from "./search.js";
 export { spider } from "./spider.js";
-export { DomainThrottle, createThrottle } from "./throttle.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
-export { toLean } from "./types.js";
-export { toLean as toLeanView } from "./views.js";
-export { BraveSearchEngine, TavilySearchEngine, braveSearch, defaultSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+export { toLean } from "./views.js";
+export { braveSearch, tavilySearch, webSearch } from "./web-search.js";
+export { RobotsCache, createRobotsCache } from "./robots.js";
+export { DomainThrottle, createThrottle } from "./throttle.js";
+export { BraveSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+// ---------------------------------------------------------------------------
+// parse.ts, convert.ts, views.ts are internal implementation modules.
+// They are NOT exported here — they are consumed only by spider.ts.
+// If you need lower-level DOM or markdown utilities, import from the
+// sub-modules directly (not covered by semver stability guarantees).
+// ---------------------------------------------------------------------------
 //# sourceMappingURL=index.js.map

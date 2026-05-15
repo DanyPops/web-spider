@@ -132,8 +132,7 @@ export interface LeanPage {
 	links: LeanLink[];
 }
 
-// toLean() lives in views.ts — re-exported here for backward compatibility.
-export { toLean } from "./views.js";
+// toLean() moved to views.ts. Import from there or from the package root.
 
 /**
  * A fully spidered page.
