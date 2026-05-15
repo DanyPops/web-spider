@@ -215,8 +215,23 @@ export async function spider(
 	const canonicalUrl = extractCanonicalUrl(doc, url);
 
 	// Readability content extraction (Firefox Reader View engine).
-	const article = new Readability(doc).parse();
-	if (!article) throw new Error(`Readability could not extract content from ${url} — the page may require JavaScript`);
+	const readabilityResult = new Readability(doc).parse();
+	const jsRendered = !readabilityResult;
+	// Graceful degradation: if Readability finds nothing, return a partial page
+	// with jsRendered:true rather than throwing. The agent can decide what to do.
+	const article = readabilityResult ?? {
+		title: (doc.querySelector("title")?.textContent ?? "").trim(),
+		content: "",
+		textContent: "",
+		length: 0,
+		excerpt: "",
+		byline: "",
+		dir: "",
+		site_name: "",
+		lang: "",
+		publishedTime: null,
+		readingTimeMinutes: 0,
+	};
 
 	const domain = new URL(url).hostname.replace(/^www\./, "");
 	const fetchedAt = new Date().toISOString();
@@ -241,14 +256,6 @@ export async function spider(
 		const wordCount = textContent.split(/\s+/).filter(Boolean).length;
 		const chunkCount = Math.max(0, Math.floor(wordCount / 150));
 
-		// Hint when the page appears JS-rendered (empty body).
-		if (wordCount === 0) {
-			throw new Error(
-				`No content extracted from ${url} — the page may require JavaScript rendering. ` +
-					`Consider using a headless browser tool instead.`,
-			);
-		}
-
 		const full = {
 			url,
 			domain,
@@ -268,7 +275,7 @@ export async function spider(
 			markdown: "",
 		} satisfies SpideredPage;
 		const lean = toLean(full);
-		return { ...lean, chunkCount };
+		return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}) };
 	}
 
 	// ---------------------------------------------------------------------------
@@ -278,12 +285,6 @@ export async function spider(
 		const tree = buildTree(article.content ?? "", url);
 		const markdown = toMarkdown(article.content ?? "");
 		const wordCount = markdown.split(/\s+/).filter(Boolean).length;
-		if (wordCount === 0) {
-			throw new Error(
-				`No content extracted from ${url} — the page may require JavaScript rendering. ` +
-					`Consider using a headless browser tool instead.`,
-			);
-		}
 		const chunks = chunk(markdown, url);
 		return {
 			view: "tree",
@@ -310,28 +311,31 @@ export async function spider(
 	// ---------------------------------------------------------------------------
 	// Full path — turndown + chunk
 	// ---------------------------------------------------------------------------
-	let markdown = toMarkdown(article.content ?? "");
+	const markdown = toMarkdown(article.content ?? "");
 	const wordCount = markdown.split(/\s+/).filter(Boolean).length;
 
-	// Hint when the page appears JS-rendered.
-	if (wordCount === 0) {
-		throw new Error(
-			`No content extracted from ${url} — the page may require JavaScript rendering. ` +
-				`Consider using a headless browser tool instead.`,
-		);
-	}
-
-	// Apply token budget: truncate markdown to ~budget*4 chars, preserving
-	// whole lines and appending a truncation notice.
+	// Chunk-aware tokenBudget: select whole chunks up to the budget rather
+	// than slicing markdown mid-sentence. Preserves chunk boundaries and
+	// returns the richest complete content that fits.
+	let allChunks = chunk(markdown, url);
 	if (tokenBudget !== undefined) {
-		const charLimit = tokenBudget * 4;
-		if (markdown.length > charLimit) {
-			const cut = markdown.lastIndexOf("\n", charLimit);
-			markdown = `${markdown.slice(0, cut > 0 ? cut : charLimit)}\n\n… *[truncated to ~${tokenBudget} token budget]*`;
-		}
+		const charBudget = tokenBudget * 4;
+		let remaining = charBudget;
+		let first = true;
+		allChunks = allChunks.filter((c) => {
+			// Always include at least the first chunk — agents need something
+			// even if it exceeds the budget.
+			if (!first && remaining <= 0) return false;
+			first = false;
+			remaining -= c.text.length;
+			return true;
+		});
 	}
 
-	const chunks = chunk(markdown, url);
+	// Reconstruct markdown from selected chunks for full-page consumers.
+	const finalMarkdown = tokenBudget !== undefined
+		? allChunks.map((c) => c.text).join("\n\n")
+		: markdown;
 
 	return {
 		url,
@@ -347,8 +351,9 @@ export async function spider(
 		wordCount,
 		readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
 		headings,
-		chunks,
+		chunks: allChunks,
 		links,
-		markdown,
+		markdown: finalMarkdown,
+		...(jsRendered ? { jsRendered: true } : {}),
 	};
 }

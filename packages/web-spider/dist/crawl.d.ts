@@ -1,6 +1,6 @@
 import { PageGraph } from "./graph.js";
-import type { SpiderOptions } from "./spider.js";
 import type { ICache } from "./ports.js";
+import type { SpiderOptions } from "./spider.js";
 import type { SpideredPage } from "./types.js";
 export interface CrawlOptions extends SpiderOptions {
     /** How many link hops from the start URL (default 2) */
@@ -30,6 +30,11 @@ export interface CrawlOptions extends SpiderOptions {
      * Automatically creates a RobotsCache if not provided via SpiderOptions.
      */
     respectRobots?: boolean;
+    /**
+     * Attempt to fetch /sitemap.xml before BFS to seed the frontier with
+     * all known URLs. Falls back to normal BFS on any error (default true).
+     */
+    useSitemap?: boolean;
 }
 export interface CrawlResult {
     pages: Map<string, SpideredPage>;
