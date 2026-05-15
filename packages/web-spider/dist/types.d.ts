@@ -110,7 +110,6 @@ export interface LeanPage {
     /** Outbound links — href + anchor text only. */
     links: LeanLink[];
 }
-export { toLean } from "./views.js";
 /**
  * A fully spidered page.
  *
