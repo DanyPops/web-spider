@@ -37,7 +37,7 @@ function tokenise(s) {
 // ---------------------------------------------------------------------------
 /**
  * Full-text search across a set of already-spidered pages using MiniSearch
- * (BM25F ranking, fuzzy matching, prefix search, heading field boost).
+ * (BM25F ranking, fuzzy edit-distance, prefix search, heading field boost ×2).
  *
  * Searches both body chunks and page metadata (title, description, headings).
  * Returns results ranked by score descending, normalised to 0–1.
@@ -46,10 +46,10 @@ function tokenise(s) {
  * fact, term, or section without dumping all content into context.
  *
  * @example
- * const hits = fuzzySearch(pages, "cost optimization selectors", { topN: 5 })
+ * const hits = searchPages(pages, "cost optimization selectors", { topN: 5 })
  * // hits[0].snippet → "…LLM extraction vs Selectors…"
  */
-export function fuzzySearch(pages, query, opts = {}) {
+export function searchPages(pages, query, opts = {}) {
     const { topN = 10, snippetRadius = 100 } = opts;
     if (!query.trim())
         return [];
@@ -107,4 +107,6 @@ export function fuzzySearch(pages, query, opts = {}) {
         snippet: buildSnippet(r["text"], fullQuery, queryTokens, snippetRadius),
     }));
 }
+/** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */
+export const fuzzySearch = searchPages;
 //# sourceMappingURL=search.js.map
