@@ -9,7 +9,7 @@
  *   format=markdown    — full markdown body + metadata
  *   format=lean        — headings + links only, no body (~10-20x fewer tokens)
  *   format=links       — outbound links only
- *   format=highlights  — fuzzy-search the page(s), return matching text blocks
+ *   format=highlights  — BM25F search the page(s), return matching text blocks
  *
  * Install:
  *   pi install git:github.com/dpopsuev/web-spider
@@ -17,6 +17,7 @@
  * Search API keys (optional):
  *   BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/ ($5 free/mo)
  *   TAVILY_API_KEY        — https://tavily.com ($1k free credits)
+ *   EXA_API_KEY           — https://exa.ai (neural/semantic search)
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
@@ -31,7 +32,7 @@ export default async function (pi: ExtensionAPI) {
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
-  const { spider, crawl, fuzzySearch, SpiderCache, PageGraph, webSearch, PlaywrightHttpClient } = lib
+  const { spider, crawl, searchPages, SpiderCache, PageGraph, webSearch, PlaywrightHttpClient } = lib
 
   // Shared Playwright browser — launched lazily on first use, reused across
   // all requests. Stealth plugin is applied automatically (patches ~15
@@ -55,6 +56,191 @@ export default async function (pi: ExtensionAPI) {
   const graph = new PageGraph()
   const corpus: lib.SpideredPage[] = []
 
+  // ---------------------------------------------------------------------------
+  // Per-request helpers
+  // ---------------------------------------------------------------------------
+
+  type Params = Parameters<Parameters<typeof pi.registerTool>[0]["execute"]>[1]
+
+  /** Build spider options from tool params. */
+  function buildSpiderOpts(params: Params) {
+    return {
+      rootSelector: params.rootSelector,
+      excludeSelectors: params.excludeSelectors,
+      tokenBudget: params.tokenBudget,
+      timeoutMs: params.timeoutMs,
+      httpClient: params.enhanced ? getPlaywrightClient() : undefined,
+    }
+  }
+
+  /** Return a fetchPage function bound to session state and request params. */
+  function buildFetchPage(params: Params) {
+    const spiderOpts = buildSpiderOpts(params)
+    return async (url: string): Promise<lib.SpideredPage> => {
+      const hit = cache.get(url)
+      if (hit) return hit
+      let page = await spider(url, spiderOpts)
+      if (page.jsRendered && !params.enhanced) {
+        page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
+      }
+      cache.set(url, page)
+      corpus.push(page)
+      graph.addPage(page)
+      return page
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Path handlers — each owns one execution branch. SRP: one reason to change.
+  // ---------------------------------------------------------------------------
+
+  /** Search path: params.searchQuery is set. */
+  async function handleSearch(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
+    const results = await webSearch(params.searchQuery!, {
+      engine: params.searchEngine,
+      numResults: params.numResults ?? 10,
+    })
+
+    if (params.searchEnrich) {
+      const enriched = await Promise.allSettled(
+        results.slice(0, params.numResults ?? 10).map((r) =>
+          fetchPage(r.url)
+            .then((page) => omitEmpty({
+              url: r.url,
+              title: r.title,
+              snippet: r.snippet,
+              publishedAt: r.publishedAt,
+              wordCount: page.wordCount,
+              headings: page.headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
+            }))
+            .catch(() => ({ url: r.url, title: r.title, snippet: r.snippet }))
+        )
+      )
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          query: params.searchQuery,
+          results: enriched.map((r) => r.status === "fulfilled" ? r.value : null).filter(Boolean),
+        }) }],
+        details: { engine: params.searchEngine ?? "auto", count: results.length, enriched: true },
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: JSON.stringify({ query: params.searchQuery, results }) }],
+      details: { engine: params.searchEngine ?? "auto", count: results.length },
+    }
+  }
+
+  /** Crawl path: depth > 0. */
+  async function handleCrawl(params: Params) {
+    const spiderOpts = buildSpiderOpts(params)
+    const fmt = params.format ?? "markdown"
+    const depth = params.depth!
+
+    const result = await crawl(params.url!, {
+      maxDepth: depth,
+      maxPages: params.maxPages ?? 10,
+      sameDomainOnly: params.sameDomain ?? true,
+      cache,
+      graph,
+      onPage: (page) => corpus.push(page),
+      ...spiderOpts,
+    })
+
+    const pages = [...result.pages.values()]
+    const errorsObj = result.errors.size
+      ? { errors: result.errors.size, errorUrls: [...result.errors.keys()] }
+      : {}
+
+    if (fmt === "highlights") {
+      if (!params.query?.trim()) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "highlights format requires a query." }) }],
+          details: {},
+        }
+      }
+      const hits = searchPages(pages, params.query, { topN: 8, snippetRadius: 150 })
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          query: params.query,
+          pagesSearched: pages.length,
+          hits: hits.map((h) => ({
+            url: h.url,
+            ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
+          })),
+        }) }],
+        details: { format: "highlights", pagesSearched: pages.length, hits: hits.length },
+      }
+    }
+
+    const summary = fmt === "lean"
+      ? { pagesFound: result.pages.size, ...errorsObj, pages: pages.map(leanOutput) }
+      : {
+          pagesFound: result.pages.size,
+          ...errorsObj,
+          note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
+          pages: pages.map((p) => omitEmpty({ url: p.url, title: p.title, description: p.description, wordCount: p.wordCount, tags: p.tags })),
+        }
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(summary) }],
+      details: { depth, pagesFound: result.pages.size },
+    }
+  }
+
+  /** Single-page path: depth === 0, url provided. */
+  async function handleSinglePage(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
+    const fmt = params.format ?? "markdown"
+    const page = await fetchPage(params.url!)
+
+    if (fmt === "lean") {
+      return {
+        content: [{ type: "text", text: JSON.stringify(leanOutput(page)) }],
+        details: { format: "lean", wordCount: page.wordCount },
+      }
+    }
+
+    if (fmt === "links") {
+      return {
+        content: [{ type: "text", text: JSON.stringify(linksOutput(page)) }],
+        details: { format: "links", bodyLinks: bodyLinks(page).length, navLinksCount: navLinksCount(page) },
+      }
+    }
+
+    if (fmt === "highlights") {
+      if (!params.query?.trim()) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            error: "highlights format requires a query.",
+            hint: "Pass query='what you are looking for', or use format=markdown to read the full page.",
+          }) }],
+          details: {},
+        }
+      }
+      const hits = searchPages([page], params.query, { topN: 5, snippetRadius: 150 })
+      return {
+        content: [{ type: "text", text: JSON.stringify(omitEmpty({
+          url: page.url,
+          title: page.title,
+          query: params.query,
+          hits: hits.map((h) => highlightHit(h, page.chunks)),
+          hint: hits.length === 0 ? "No matches. Try broader terms or use format=markdown." : undefined,
+        })) }],
+        details: { format: "highlights", hits: hits.length },
+      }
+    }
+
+    // markdown (default)
+    return {
+      content: [{ type: "text", text: JSON.stringify(markdownOutput(page)) }],
+      details: { format: "markdown", wordCount: page.wordCount },
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool registration
+  // ---------------------------------------------------------------------------
+
   pi.registerTool({
     name: "web_fetch",
     label: "Web Fetch",
@@ -66,7 +252,7 @@ export default async function (pi: ExtensionAPI) {
       "  searchQuery       — search the web instead of fetching a URL.",
       "  searchEngine      — 'brave', 'tavily', or 'exa'. Auto-detected from env vars.",
       "  numResults        — number of results (default 10).",
-      "  Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY environment variable.",
+      "  Requires BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
       "",
       "DEPTH",
       "  depth=0 (default) — fetch the single URL.",
@@ -80,7 +266,7 @@ export default async function (pi: ExtensionAPI) {
       "  lean       — metadata + headings + links, no body text. ~10-20x fewer tokens.",
       "               Best for deciding whether to read a page, or crawl triage.",
       "  links      — outbound links only (href + anchor text + rel).",
-      "  highlights — fuzzy-search the page and return matching text blocks.",
+      "  highlights — BM25F search the page and return matching text blocks.",
       "               Requires `query`. Returns up to 5 scored chunks with context.",
       "               Use instead of reading full markdown when you know what to find.",
       "               Works across all cached pages when depth>0.",
@@ -110,7 +296,7 @@ export default async function (pi: ExtensionAPI) {
         Type.String({
           description:
             "Web search query. When provided, searches the web instead of fetching a URL. " +
-            "Requires BRAVE_SEARCH_API_KEY or TAVILY_API_KEY env var.",
+            "Requires BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY env var.",
         })
       ),
       searchEngine: Type.Optional(
@@ -193,76 +379,23 @@ export default async function (pi: ExtensionAPI) {
             "Approximate max tokens to return (~4 chars/token). Truncated at a line boundary.",
         })
       ),
+      timeoutMs: Type.Optional(
+        Type.Number({
+          description:
+            "Per-request fetch timeout in milliseconds (default 10 000). " +
+            "Increase for slow sites; decrease to fail fast in latency-sensitive loops.",
+        })
+      ),
     }),
 
+    // -------------------------------------------------------------------------
+    // Router — routes to the correct path handler. One reason to change: routing
+    // logic. Business logic lives in the handlers above.
+    // -------------------------------------------------------------------------
     async execute(_id, params) {
-      const fmt = params.format ?? "markdown"
-      const depth = params.depth ?? 0
+      const fetchPage = buildFetchPage(params)
 
-      // enhanced=true  → always use headless Playwright (stealth mode)
-      // enhanced=false → direct fetch(); Playwright auto-fallback if jsRendered
-      const httpClient = params.enhanced ? getPlaywrightClient() : undefined
-
-      const spiderOpts = {
-        rootSelector: params.rootSelector,
-        excludeSelectors: params.excludeSelectors,
-        tokenBudget: params.tokenBudget,
-        httpClient,
-      }
-
-      // Fetch, apply Playwright fallback on jsRendered, and cache.
-      // All single-page formats go through here so the cache is shared.
-      const fetchPage = async (url: string): Promise<lib.SpideredPage> => {
-        const hit = cache.get(url)
-        if (hit) return hit
-        let page = await spider(url, spiderOpts)
-        if (page.jsRendered && !params.enhanced) {
-          page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
-        }
-        cache.set(url, page)
-        corpus.push(page)
-        graph.addPage(page)
-        return page
-      }
-
-      // -----------------------------------------------------------------------
-      // Search path
-      // -----------------------------------------------------------------------
-      if (params.searchQuery) {
-        const results = await webSearch(params.searchQuery, {
-          engine: params.searchEngine,
-          numResults: params.numResults ?? 10,
-        })
-
-        if (params.searchEnrich) {
-          const enriched = await Promise.allSettled(
-            results.slice(0, params.numResults ?? 10).map((r) =>
-              fetchPage(r.url)
-                .then((page) => omitEmpty({
-                  url: r.url,
-                  title: r.title,
-                  snippet: r.snippet,
-                  publishedAt: r.publishedAt,
-                  wordCount: page.wordCount,
-                  headings: page.headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
-                }))
-                .catch(() => ({ url: r.url, title: r.title, snippet: r.snippet }))
-            )
-          )
-          return {
-            content: [{ type: "text", text: JSON.stringify({
-              query: params.searchQuery,
-              results: enriched.map((r) => r.status === "fulfilled" ? r.value : null).filter(Boolean),
-            }) }],
-            details: { engine: params.searchEngine ?? "auto", count: results.length, enriched: true },
-          }
-        }
-
-        return {
-          content: [{ type: "text", text: JSON.stringify({ query: params.searchQuery, results }) }],
-          details: { engine: params.searchEngine ?? "auto", count: results.length },
-        }
-      }
+      if (params.searchQuery) return handleSearch(params, fetchPage)
 
       if (!params.url) {
         return {
@@ -271,108 +404,9 @@ export default async function (pi: ExtensionAPI) {
         }
       }
 
-      // -----------------------------------------------------------------------
-      // Crawl path (depth > 0)
-      // -----------------------------------------------------------------------
-      if (depth > 0) {
-        const result = await crawl(params.url, {
-          maxDepth: depth,
-          maxPages: params.maxPages ?? 10,
-          sameDomainOnly: params.sameDomain ?? true,
-          cache,
-          graph,
-          onPage: (page) => corpus.push(page),
-          ...spiderOpts,
-        })
+      if ((params.depth ?? 0) > 0) return handleCrawl(params)
 
-        const pages = [...result.pages.values()]
-        const errorsObj = result.errors.size
-          ? { errors: result.errors.size, errorUrls: [...result.errors.keys()] }
-          : {}
-
-        if (fmt === "highlights") {
-          if (!params.query?.trim()) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ error: "highlights format requires a query." }) }],
-              details: {},
-            }
-          }
-          const hits = fuzzySearch(pages, params.query, { topN: 8, snippetRadius: 150 })
-          return {
-            content: [{ type: "text", text: JSON.stringify({
-              query: params.query,
-              pagesSearched: pages.length,
-              hits: hits.map((h) => ({
-                url: h.url,
-                ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
-              })),
-            }) }],
-            details: { format: "highlights", pagesSearched: pages.length, hits: hits.length },
-          }
-        }
-
-        const summary = fmt === "lean"
-          ? { pagesFound: result.pages.size, ...errorsObj, pages: pages.map(leanOutput) }
-          : {
-              pagesFound: result.pages.size,
-              ...errorsObj,
-              note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
-              pages: pages.map((p) => omitEmpty({ url: p.url, title: p.title, description: p.description, wordCount: p.wordCount, tags: p.tags })),
-            }
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(summary) }],
-          details: { depth, pagesFound: result.pages.size },
-        }
-      }
-
-      // -----------------------------------------------------------------------
-      // Single-page path (depth = 0)
-      // -----------------------------------------------------------------------
-      const page = await fetchPage(params.url)
-
-      if (fmt === "lean") {
-        return {
-          content: [{ type: "text", text: JSON.stringify(leanOutput(page)) }],
-          details: { format: "lean", wordCount: page.wordCount },
-        }
-      }
-
-      if (fmt === "links") {
-        return {
-          content: [{ type: "text", text: JSON.stringify(linksOutput(page)) }],
-          details: { format: "links", bodyLinks: bodyLinks(page).length, navLinksCount: navLinksCount(page) },
-        }
-      }
-
-      if (fmt === "highlights") {
-        if (!params.query?.trim()) {
-          return {
-            content: [{ type: "text", text: JSON.stringify({
-              error: "highlights format requires a query.",
-              hint: "Pass query='what you are looking for', or use format=markdown to read the full page.",
-            }) }],
-            details: {},
-          }
-        }
-        const hits = fuzzySearch([page], params.query, { topN: 5, snippetRadius: 150 })
-        return {
-          content: [{ type: "text", text: JSON.stringify(omitEmpty({
-            url: page.url,
-            title: page.title,
-            query: params.query,
-            hits: hits.map((h) => highlightHit(h, page.chunks)),
-            hint: hits.length === 0 ? "No matches. Try broader terms or use format=markdown." : undefined,
-          })) }],
-          details: { format: "highlights", hits: hits.length },
-        }
-      }
-
-      // markdown (default)
-      return {
-        content: [{ type: "text", text: JSON.stringify(markdownOutput(page)) }],
-        details: { format: "markdown", wordCount: page.wordCount },
-      }
+      return handleSinglePage(params, fetchPage)
     },
   })
 }
