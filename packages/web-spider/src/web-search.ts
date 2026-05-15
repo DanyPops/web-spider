@@ -234,7 +234,12 @@ export async function ddgSearch(query: string, opts: DdgSearchOptions = {}): Pro
 	try {
 		res = await fetch(`https://api.duckduckgo.com/?${params}`, {
 			signal: controller.signal,
-			headers: { Accept: "application/json" },
+			headers: {
+				Accept: "application/json",
+				// DDG silently returns an empty 200 body for browser-like or
+				// missing User-Agents. A curl/bot-style UA gets a real 202.
+				"User-Agent": "web-spider/0.8",
+			},
 		});
 	} finally {
 		clearTimeout(timer);
