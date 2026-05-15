@@ -11,13 +11,16 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	DdgSearchEngine,
 	DomainThrottle,
+	FallbackSearchEngine,
 	PageGraph,
 	PlaywrightHttpClient,
 	RobotsCache,
 	SpiderCache,
 	batchSpider,
 	braveSearch,
+	ddgSearch,
 	buildTree,
 	crawl,
 	createPlaywrightClient,
@@ -73,6 +76,7 @@ describe("functions", () => {
 		["webSearch", webSearch],
 		["braveSearch", braveSearch],
 		["tavilySearch", tavilySearch],
+		["ddgSearch", ddgSearch],
 	])("%s is a function", (_name, fn) => {
 		expect(typeof fn).toBe("function");
 	});
@@ -89,6 +93,19 @@ describe("PlaywrightHttpClient", () => {
 	it("createPlaywrightClient returns an instance", () => {
 		const client = createPlaywrightClient();
 		expect(client).toBeInstanceOf(PlaywrightHttpClient);
+	});
+});
+
+describe("FallbackSearchEngine", () => {
+	it("is constructable with at least one engine", () => {
+		const stub = { search: async () => [] };
+		const fb = new FallbackSearchEngine([stub]);
+		expect(typeof fb.search).toBe("function");
+	});
+
+	it("DdgSearchEngine is constructable", () => {
+		const ddg = new DdgSearchEngine();
+		expect(typeof ddg.search).toBe("function");
 	});
 });
 
