@@ -29,7 +29,7 @@ export interface FuzzySearchOptions {
 }
 /**
  * Full-text search across a set of already-spidered pages using MiniSearch
- * (BM25F ranking, fuzzy matching, prefix search, heading field boost).
+ * (BM25F ranking, fuzzy edit-distance, prefix search, heading field boost ×2).
  *
  * Searches both body chunks and page metadata (title, description, headings).
  * Returns results ranked by score descending, normalised to 0–1.
@@ -38,8 +38,10 @@ export interface FuzzySearchOptions {
  * fact, term, or section without dumping all content into context.
  *
  * @example
- * const hits = fuzzySearch(pages, "cost optimization selectors", { topN: 5 })
+ * const hits = searchPages(pages, "cost optimization selectors", { topN: 5 })
  * // hits[0].snippet → "…LLM extraction vs Selectors…"
  */
-export declare function fuzzySearch(pages: SpideredPage[], query: string, opts?: FuzzySearchOptions): SearchHit[];
+export declare function searchPages(pages: SpideredPage[], query: string, opts?: FuzzySearchOptions): SearchHit[];
+/** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */
+export declare const fuzzySearch: typeof searchPages;
 //# sourceMappingURL=search.d.ts.map
