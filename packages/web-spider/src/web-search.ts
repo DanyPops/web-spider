@@ -7,14 +7,10 @@
  *   TAVILY_API_KEY
  */
 
-export interface WebSearchResult {
-	url: string;
-	title: string;
-	/** Short description / snippet from the search engine. */
-	snippet: string;
-	/** ISO-8601 or human-readable date, if the engine returned one. */
-	publishedAt?: string;
-}
+// WebSearchResult is defined in ports.ts (the abstraction layer).
+// web-search.ts is an adapter — it imports from the port, not the other way.
+export type { WebSearchResult } from "./ports.js";
+import type { ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
 
 export interface BraveSearchOptions {
 	/** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY. */
@@ -160,8 +156,6 @@ export async function webSearch(
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters
 // ---------------------------------------------------------------------------
-
-import type { ISearchEngine, SearchQuery } from "./ports.js";
 
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine implements ISearchEngine {

@@ -1,7 +1,6 @@
 import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
 import { chunk, toMarkdown } from "./convert.js";
-import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags } from "./parse.js";
+import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import { buildTree } from "./tree.js";
 import { toLean } from "./views.js";
 // ---------------------------------------------------------------------------
@@ -83,9 +82,8 @@ export async function spider(url, opts) {
     }
     if (fetchError)
         throw fetchError;
-    // Parse DOM — keep it for link/meta extraction before Readability mutates it.
-    const dom = new JSDOM(html, { url });
-    const doc = dom.window.document;
+    // Parse DOM via parse.ts — keeps the JSDOM dependency in one module.
+    const doc = parseDom(html, url);
     // Apply excludeSelectors before Readability strips the DOM.
     if (excludeSelectors) {
         for (const sel of excludeSelectors

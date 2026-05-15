@@ -98,6 +98,9 @@ export async function webSearch(query, opts = {}) {
         ? braveSearch(query, { numResults: opts.numResults })
         : tavilySearch(query, { numResults: opts.numResults });
 }
+// ---------------------------------------------------------------------------
+// ISearchEngine adapters
+// ---------------------------------------------------------------------------
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine {
     constructor(apiKey, country) {

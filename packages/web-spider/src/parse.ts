@@ -9,6 +9,19 @@ import { JSDOM } from "jsdom";
 import type { Link, SpideredPage } from "./types.js";
 
 // ---------------------------------------------------------------------------
+// DOM creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse raw HTML into a DOM Document.
+ * Centralises the JSDOM dependency — spider.ts calls this instead of
+ * importing JSDOM directly, keeping external deps in one place per module.
+ */
+export function parseDom(html: string, url: string): Document {
+	return new JSDOM(html, { url }).window.document;
+}
+
+// ---------------------------------------------------------------------------
 // Nav classification
 // ---------------------------------------------------------------------------
 

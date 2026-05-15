@@ -5,7 +5,7 @@
 
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Escape suppression — no backslash noise in output
@@ -425,5 +425,86 @@ describe("extended nav classification", () => {
 		const dom = new JSDOM("<html><head></head></html>");
 		const tags = extractTags(dom.window.document);
 		expect(tags).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// IHttpClient injection — spider() without real network
+// ---------------------------------------------------------------------------
+
+import { spider } from "../src/spider.js";
+import type { IHttpClient } from "../src/ports.js";
+
+function makeHtmlResponse(html: string, status = 200): ReturnType<IHttpClient["fetch"]> {
+	return Promise.resolve({
+		ok: status >= 200 && status < 300,
+		status,
+		statusText: status === 200 ? "OK" : "Error",
+		headers: { get: () => null },
+		text: () => Promise.resolve(html),
+	});
+}
+
+function mockClient(html: string, status = 200): IHttpClient {
+	return { fetch: () => makeHtmlResponse(html, status) };
+}
+
+const SIMPLE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Test Page</title>
+  <meta name="description" content="A test description">
+  <meta name="keywords" content="testing, spider">
+</head>
+<body>
+  <article>
+    <h1>Hello World</h1>
+    <p>${"Content paragraph. ".repeat(30)}</p>
+    <h2>Section Two</h2>
+    <p>${"More content here. ".repeat(30)}</p>
+  </article>
+</body>
+</html>`;
+
+describe("spider() with injected IHttpClient", () => {
+	it("fetches and parses a page without real network", async () => {
+		const page = await spider("https://example.com", { httpClient: mockClient(SIMPLE_HTML) });
+		expect(page.url).toBe("https://example.com");
+		expect(page.title).toContain("Test Page");
+		expect(page.description).toBe("A test description");
+		expect(page.tags).toContain("testing");
+		expect(page.markdown.length).toBeGreaterThan(0);
+		expect(page.chunks.length).toBeGreaterThan(0);
+	});
+
+	it("returns a lean page without network", async () => {
+		const page = await spider("https://example.com", {
+			httpClient: mockClient(SIMPLE_HTML),
+			view: "lean",
+		});
+		expect(page.view).toBe("lean");
+		expect(page.title).toContain("Test Page");
+		expect(page.headings.length).toBeGreaterThan(0);
+	});
+
+	it("throws FetchError on non-200 response", async () => {
+		await expect(
+			spider("https://example.com", { httpClient: mockClient("", 404) })
+		).rejects.toThrow("404");
+	});
+
+	it("throws on non-http URL without touching the client", async () => {
+		const client = { fetch: vi.fn() };
+		await expect(spider("ftp://example.com", { httpClient: client })).rejects.toThrow("Unsupported protocol");
+		expect(client.fetch).not.toHaveBeenCalled();
+	});
+
+	it("applies tokenBudget via injected client", async () => {
+		const full = await spider("https://example.com", { httpClient: mockClient(SIMPLE_HTML) });
+		const budgeted = await spider("https://example.com", {
+			httpClient: mockClient(SIMPLE_HTML),
+			tokenBudget: 50,
+		});
+		expect(budgeted.markdown.length).toBeLessThan(full.markdown.length);
 	});
 });
