@@ -19,6 +19,9 @@
  *   TAVILY_API_KEY        — https://tavily.com ($1k free credits)
  *   EXA_API_KEY           — https://exa.ai (neural/semantic search)
  */
+import { existsSync, mkdirSync } from "node:fs"
+import { homedir } from "node:os"
+import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import { bodyLinks, highlightHit, leanOutput, linksOutput, markdownOutput, navLinksCount, omitEmpty } from "./format.js"
@@ -52,7 +55,20 @@ export default async function (pi: ExtensionAPI) {
   // creates its own DomainThrottle and RobotsCache internally when none are
   // passed (respectRobots:true is the default). Single-page spider() calls
   // are one request and don't need session-level throttling.
-  const cache = new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
+  // Disk-backed cache — survives extension reloads and pi restarts.
+  // Override path via WEB_SPIDER_CACHE_PATH env var.
+  // Falls back to in-memory SpiderCache if the path is not writable.
+  const cache = (() => {
+    const cachePath = process.env["WEB_SPIDER_CACHE_PATH"]
+      ?? join(homedir(), ".cache", "web-spider", "pages.json")
+    try {
+      const dir = dirname(cachePath)
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      return new lib.DiskCache(cachePath, { maxSize: 500, ttlMs: 30 * 60 * 1000 })
+    } catch {
+      return new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
+    }
+  })()
   const graph = new PageGraph()
   const corpus: lib.SpideredPage[] = []
 
@@ -96,10 +112,19 @@ export default async function (pi: ExtensionAPI) {
 
   /** Search path: params.searchQuery is set. */
   async function handleSearch(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
-    const results = await webSearch(params.searchQuery!, {
-      engine: params.searchEngine,
-      numResults: params.numResults ?? 10,
-    })
+    let results: lib.WebSearchResult[]
+    try {
+      results = await webSearch(params.searchQuery!, {
+        engine: params.searchEngine,
+        numResults: params.numResults ?? 10,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+        details: {},
+      }
+    }
 
     if (params.searchEnrich) {
       const enriched = await Promise.allSettled(
