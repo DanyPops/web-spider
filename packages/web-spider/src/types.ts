@@ -130,6 +130,9 @@ export interface LeanPage {
 	// --- graph edges ---
 	/** Outbound links — href + anchor text only. */
 	links: LeanLink[];
+
+	/** True when the page appears JS-rendered — metadata may be partial. */
+	jsRendered?: boolean;
 }
 
 // toLean() moved to views.ts. Import from there or from the package root.
@@ -175,4 +178,11 @@ export interface SpideredPage {
 
 	// --- full body (fallback / debug) ---
 	markdown: string;
+
+	/**
+	 * True when the page appears to be JavaScript-rendered (Readability
+	 * found no content). metadata and links are still populated where
+	 * possible; chunks and markdown are empty.
+	 */
+	jsRendered?: boolean;
 }

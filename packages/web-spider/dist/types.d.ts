@@ -109,6 +109,8 @@ export interface LeanPage {
     headings: string[];
     /** Outbound links — href + anchor text only. */
     links: LeanLink[];
+    /** True when the page appears JS-rendered — metadata may be partial. */
+    jsRendered?: boolean;
 }
 /**
  * A fully spidered page.
@@ -143,5 +145,11 @@ export interface SpideredPage {
     /** Outbound links from this page */
     links: Link[];
     markdown: string;
+    /**
+     * True when the page appears to be JavaScript-rendered (Readability
+     * found no content). metadata and links are still populated where
+     * possible; chunks and markdown are empty.
+     */
+    jsRendered?: boolean;
 }
 //# sourceMappingURL=types.d.ts.map

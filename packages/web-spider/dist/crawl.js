@@ -1,6 +1,7 @@
 import { SpiderCache } from "./cache.js";
 import { PageGraph } from "./graph.js";
 import { RobotsCache } from "./robots.js";
+import { fetchSitemapUrls } from "./sitemap.js";
 import { spider } from "./spider.js";
 import { DomainThrottle } from "./throttle.js";
 /**
@@ -15,10 +16,11 @@ import { DomainThrottle } from "./throttle.js";
  * before proceeding, giving BFS ordering and predictable memory use.
  */
 export async function crawl(startUrl, opts = {}) {
-    const { maxDepth = 2, maxPages = 50, sameDomainOnly = true, concurrency = 3, delayMs = 500, cache = new SpiderCache(), graph = new PageGraph(), onPage, urlFilter, respectRobots = true, ...spiderOpts } = opts;
+    const { maxDepth = 2, maxPages = 50, sameDomainOnly = true, concurrency = 3, delayMs = 500, cache = new SpiderCache(), graph = new PageGraph(), onPage, urlFilter, respectRobots = true, useSitemap = true, ...spiderOpts } = opts;
     // Build shared throttle and robots cache for the whole crawl.
     const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
     const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
+    const httpClient = spiderOpts.httpClient;
     const startDomain = new URL(startUrl).hostname;
     const pages = new Map();
     const errors = new Map();
@@ -79,9 +81,25 @@ export async function crawl(startUrl, opts = {}) {
             tryNext();
         });
     };
-    // BFS level by level
+    // Optionally seed frontier from sitemap before BFS.
     let frontier = [startUrl];
     seen.add(startUrl);
+    if (useSitemap) {
+        const origin = new URL(startUrl).origin;
+        // Use a minimal default httpClient if none was injected
+        const client = httpClient ?? {
+            async fetch(req) {
+                return globalThis.fetch(req.url, { headers: req.headers });
+            },
+        };
+        const sitemapUrls = await fetchSitemapUrls(origin, client);
+        for (const u of sitemapUrls) {
+            if (shouldVisit(u)) {
+                seen.add(u);
+                frontier.push(u);
+            }
+        }
+    }
     for (let depth = 0; depth <= maxDepth; depth++) {
         if (frontier.length === 0)
             break;
