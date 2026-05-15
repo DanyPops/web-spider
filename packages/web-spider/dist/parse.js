@@ -6,6 +6,17 @@
  */
 import { JSDOM } from "jsdom";
 // ---------------------------------------------------------------------------
+// DOM creation
+// ---------------------------------------------------------------------------
+/**
+ * Parse raw HTML into a DOM Document.
+ * Centralises the JSDOM dependency — spider.ts calls this instead of
+ * importing JSDOM directly, keeping external deps in one place per module.
+ */
+export function parseDom(html, url) {
+    return new JSDOM(html, { url }).window.document;
+}
+// ---------------------------------------------------------------------------
 // Nav classification
 // ---------------------------------------------------------------------------
 const NAV_CLASS_RE = /^(nav|navbar|navigation|menu|menubar|header|footer|sidebar|breadcrumb|topbar|toolbar|site-nav|main-nav|primary-nav|global-nav)$/i;

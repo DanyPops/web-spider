@@ -6,7 +6,6 @@
  * spider.ts and crawl.ts so callers need not supply them unless they want
  * to substitute (e.g. inject a mock HTTP client for testing).
  */
-import type { WebSearchResult } from "./web-search.js";
 export interface HttpRequest {
     url: string;
     headers?: Record<string, string>;
@@ -67,6 +66,18 @@ export interface IRobotsChecker {
 export interface SearchQuery {
     query: string;
     numResults?: number;
+}
+/**
+ * A single result from a web search engine.
+ * Defined here so port interfaces have no dependency on adapter modules.
+ */
+export interface WebSearchResult {
+    url: string;
+    title: string;
+    /** Short description or snippet from the search engine. */
+    snippet: string;
+    /** ISO-8601 or human-readable date, if the engine returned one. */
+    publishedAt?: string;
 }
 /**
  * Web search engine port.

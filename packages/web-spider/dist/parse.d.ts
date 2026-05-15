@@ -5,6 +5,12 @@
  * it never touches JSDOM directly.
  */
 import type { Link, SpideredPage } from "./types.js";
+/**
+ * Parse raw HTML into a DOM Document.
+ * Centralises the JSDOM dependency — spider.ts calls this instead of
+ * importing JSDOM directly, keeping external deps in one place per module.
+ */
+export declare function parseDom(html: string, url: string): Document;
 /** True if el or any ancestor up to 5 levels looks like navigation chrome. */
 export declare function isNavElement(el: Element): boolean;
 /** Extract visible text from an anchor, skipping SVG subtrees. */

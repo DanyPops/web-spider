@@ -6,14 +6,8 @@
  *   BRAVE_SEARCH_API_KEY
  *   TAVILY_API_KEY
  */
-export interface WebSearchResult {
-    url: string;
-    title: string;
-    /** Short description / snippet from the search engine. */
-    snippet: string;
-    /** ISO-8601 or human-readable date, if the engine returned one. */
-    publishedAt?: string;
-}
+export type { WebSearchResult } from "./ports.js";
+import type { ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
 export interface BraveSearchOptions {
     /** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY. */
     apiKey?: string;
@@ -49,7 +43,6 @@ export declare function webSearch(query: string, opts?: {
     engine?: SearchEngine;
     numResults?: number;
 }): Promise<WebSearchResult[]>;
-import type { ISearchEngine, SearchQuery } from "./ports.js";
 /** Brave Search adapter implementing ISearchEngine. */
 export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;
