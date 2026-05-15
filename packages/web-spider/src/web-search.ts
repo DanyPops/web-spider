@@ -30,7 +30,7 @@ export interface TavilySearchOptions {
 	depth?: "basic" | "advanced";
 }
 
-export type SearchEngine = "brave" | "tavily" | "exa";
+export type SearchEngine = "brave" | "tavily" | "exa" | "ddg";
 
 export interface ExaSearchOptions {
 	/** API key. Defaults to process.env.EXA_API_KEY. */
@@ -197,37 +197,141 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 	}));
 }
 
+// ---------------------------------------------------------------------------
+// DuckDuckGo Instant Answer API — no key required, zero-cost fallback
+// ---------------------------------------------------------------------------
+
+export interface DdgSearchOptions {
+	/**
+	 * Maximum results to return. DDG doesn't support a server-side count param;
+	 * this slices the client-side result list. Default: 10.
+	 */
+	numResults?: number;
+}
+
 /**
- * Search using whichever engine has an API key available.
- * Tries Brave first, then Tavily, throws if neither is configured.
+ * Search via the DuckDuckGo Instant Answer API.
+ * https://duckduckgo.com/api
+ *
+ * No API key required. Returns structured instant answers (Abstract,
+ * Results, RelatedTopics) mapped to WebSearchResult[].
+ *
+ * Limitation: not a full web index — best for well-known entities and
+ * unambiguous queries. Returns empty when DDG has no instant answer.
+ */
+export async function ddgSearch(query: string, opts: DdgSearchOptions = {}): Promise<WebSearchResult[]> {
+	const params = new URLSearchParams({
+		q: query,
+		format: "json",
+		no_redirect: "1",
+		no_html: "1",
+		skip_disambig: "1",
+	});
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 10_000);
+	let res: Response;
+	try {
+		res = await fetch(`https://api.duckduckgo.com/?${params}`, {
+			signal: controller.signal,
+			headers: { Accept: "application/json" },
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`DDG API error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		Abstract?: string;
+		AbstractURL?: string;
+		AbstractSource?: string;
+		Heading?: string;
+		Results?: Array<{ FirstURL: string; Text: string }>;
+		RelatedTopics?: Array<{
+			FirstURL?: string;
+			Text?: string;
+			Topics?: Array<{ FirstURL: string; Text: string }>;
+		}>;
+	};
+
+	const results: WebSearchResult[] = [];
+	const limit = opts.numResults ?? 10;
+
+	// 1. Instant answer abstract (Wikipedia-style knowledge panel)
+	if (data.Abstract && data.AbstractURL) {
+		results.push({
+			url: data.AbstractURL,
+			title: data.Heading ?? data.AbstractSource ?? "DuckDuckGo",
+			snippet: data.Abstract,
+		});
+	}
+
+	// 2. Official results (e.g. official site links)
+	for (const r of data.Results ?? []) {
+		if (results.length >= limit) break;
+		if (r.FirstURL) results.push({ url: r.FirstURL, title: r.Text, snippet: r.Text });
+	}
+
+	// 3. Related topics — flatten one level of nesting
+	for (const topic of data.RelatedTopics ?? []) {
+		if (results.length >= limit) break;
+		if (topic.FirstURL && topic.Text) {
+			results.push({ url: topic.FirstURL, title: topic.Text, snippet: topic.Text });
+		}
+		for (const sub of topic.Topics ?? []) {
+			if (results.length >= limit) break;
+			results.push({ url: sub.FirstURL, title: sub.Text, snippet: sub.Text });
+		}
+	}
+
+	return results;
+}
+
+/**
+ * Search using whichever engine is explicitly requested or has an API key
+ * available. Falls through to the DDG Instant Answer API as a zero-cost
+ * last resort — no key required.
+ *
+ * Prefer {@link defaultSearchEngine} + {@link FallbackSearchEngine} when
+ * you need composable retry / fallback behaviour.
  */
 export async function webSearch(
 	query: string,
 	opts: { engine?: SearchEngine; numResults?: number } = {},
 ): Promise<WebSearchResult[]> {
-	const engine =
-		opts.engine ??
-		(process.env["BRAVE_SEARCH_API_KEY"]
-			? "brave"
-			: process.env["TAVILY_API_KEY"]
-				? "tavily"
-				: process.env["EXA_API_KEY"]
-					? "exa"
-					: null);
+	const engine = resolveEngine(opts.engine, opts.numResults);
+	return engine.search({ query, numResults: opts.numResults });
+}
 
-	if (!engine) {
-		throw new Error(
-			"No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
-		);
+/** @internal Resolve a named engine (or auto-detect) into an ISearchEngine instance. */
+function resolveEngine(name: SearchEngine | undefined, numResults?: number): ISearchEngine {
+	void numResults; // forwarded per-call, not stored on the engine
+	switch (name) {
+		case "brave": {
+			const key = process.env["BRAVE_SEARCH_API_KEY"];
+			if (!key) throw new Error("BRAVE_SEARCH_API_KEY not set");
+			return new BraveSearchEngine(key);
+		}
+		case "tavily": {
+			const key = process.env["TAVILY_API_KEY"];
+			if (!key) throw new Error("TAVILY_API_KEY not set");
+			return new TavilySearchEngine(key);
+		}
+		case "exa": {
+			const key = process.env["EXA_API_KEY"];
+			if (!key) throw new Error("EXA_API_KEY not set");
+			return new ExaSearchEngine(key);
+		}
+		case "ddg":
+			return new DdgSearchEngine();
+		default:
+			return defaultSearchEngine();
 	}
-
-	if (engine === "brave") return braveSearch(query, { numResults: opts.numResults });
-	if (engine === "tavily") return tavilySearch(query, { numResults: opts.numResults });
-	return exaSearch(query, { numResults: opts.numResults });
 }
 
 // ---------------------------------------------------------------------------
-// ISearchEngine adapters
+// ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------
 
 /** Brave Search adapter implementing ISearchEngine. */
@@ -257,16 +361,105 @@ export class ExaSearchEngine implements ISearchEngine {
 	}
 }
 
+/** DuckDuckGo Instant Answer adapter — no API key required. */
+export class DdgSearchEngine implements ISearchEngine {
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return ddgSearch(req.query, { numResults: req.numResults });
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FallbackSearchEngine — strategy composite
+// ---------------------------------------------------------------------------
+
+export interface FallbackSearchEngineOptions {
+	/**
+	 * Treat an empty result set as a failure and try the next engine.
+	 * Default: true.
+	 */
+	fallbackOnEmpty?: boolean;
+	/**
+	 * Swallow a thrown error and try the next engine instead of propagating.
+	 * Default: true.
+	 */
+	fallbackOnError?: boolean;
+}
+
 /**
- * Build an ISearchEngine from environment variables.
- * Priority: Brave → Tavily → Exa.
+ * A composite ISearchEngine that tries each engine in order, falling back
+ * to the next when the current one returns empty results or throws.
+ *
+ * Because it implements ISearchEngine itself it is fully composable —
+ * nest FallbackSearchEngines, wrap them in caches, inject stubs in tests.
+ *
+ * @example
+ * // Tavily with DDG as zero-cost fallback
+ * const engine = new FallbackSearchEngine([
+ *   new TavilySearchEngine(process.env.TAVILY_API_KEY),
+ *   new DdgSearchEngine(),
+ * ]);
+ */
+export class FallbackSearchEngine implements ISearchEngine {
+	private readonly fallbackOnEmpty: boolean;
+	private readonly fallbackOnError: boolean;
+
+	constructor(
+		private readonly engines: ISearchEngine[],
+		opts: FallbackSearchEngineOptions = {},
+	) {
+		if (engines.length === 0) throw new Error("FallbackSearchEngine requires at least one engine");
+		this.fallbackOnEmpty = opts.fallbackOnEmpty ?? true;
+		this.fallbackOnError = opts.fallbackOnError ?? true;
+	}
+
+	async search(req: SearchQuery): Promise<WebSearchResult[]> {
+		let lastError: unknown;
+
+		for (const engine of this.engines) {
+			try {
+				const results = await engine.search(req);
+				if (results.length > 0 || !this.fallbackOnEmpty) return results;
+				// Empty + fallbackOnEmpty → try next engine
+			} catch (err) {
+				if (!this.fallbackOnError) throw err;
+				lastError = err;
+				// Error + fallbackOnError → try next engine
+			}
+		}
+
+		// All engines exhausted — surface the last error or return empty
+		if (lastError) throw lastError;
+		return [];
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — compose engines from environment variables
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a FallbackSearchEngine chain from environment variables.
+ *
+ * Priority order for keyed engines: Brave → Tavily → Exa.
+ * DuckDuckGo is always appended as the zero-cost last resort.
+ *
+ * The returned engine implements ISearchEngine — swap it for any stub
+ * in tests without touching call sites.
  */
 export function defaultSearchEngine(): ISearchEngine {
+	const engines: ISearchEngine[] = [];
+
 	const brave = process.env["BRAVE_SEARCH_API_KEY"];
-	if (brave) return new BraveSearchEngine(brave);
+	if (brave) engines.push(new BraveSearchEngine(brave));
+
 	const tavily = process.env["TAVILY_API_KEY"];
-	if (tavily) return new TavilySearchEngine(tavily);
+	if (tavily) engines.push(new TavilySearchEngine(tavily));
+
 	const exa = process.env["EXA_API_KEY"];
-	if (exa) return new ExaSearchEngine(exa);
-	throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.");
+	if (exa) engines.push(new ExaSearchEngine(exa));
+
+	// DDG always last — no key needed, never throws the "no key" error
+	engines.push(new DdgSearchEngine());
+
+	return new FallbackSearchEngine(engines);
 }
