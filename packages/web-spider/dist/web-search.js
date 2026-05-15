@@ -7,6 +7,50 @@
  *   TAVILY_API_KEY
  */
 /**
+ * Search the web via the Exa Search API (neural/semantic retrieval).
+ * https://exa.ai/docs/reference/search
+ *
+ * Returns highlights inline per result — richer snippets without extra round-trips.
+ */
+export async function exaSearch(query, opts = {}) {
+    const apiKey = opts.apiKey ?? process.env["EXA_API_KEY"];
+    if (!apiKey)
+        throw new Error("Exa API key required — set EXA_API_KEY or pass opts.apiKey");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let res;
+    try {
+        res = await fetch("https://api.exa.ai/search", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+                "Content-Type": "application/json",
+                "x-api-key": apiKey,
+            },
+            body: JSON.stringify({
+                query,
+                numResults: opts.numResults ?? 10,
+                type: opts.type ?? "auto",
+                contents: {
+                    highlights: { numSentences: 2, highlightsPerUrl: 3 },
+                },
+            }),
+        });
+    }
+    finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok)
+        throw new Error(`Exa API error: ${res.status} ${res.statusText}`);
+    const data = (await res.json());
+    return (data.results ?? []).map((r) => ({
+        url: r.url,
+        title: r.title,
+        snippet: r.highlights?.join(" … ") ?? "",
+        ...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
+    }));
+}
+/**
  * Search the web via the Brave Search API.
  * https://api.search.brave.com/app/documentation/web-search
  */
@@ -90,13 +134,21 @@ export async function tavilySearch(query, opts = {}) {
  */
 export async function webSearch(query, opts = {}) {
     const engine = opts.engine ??
-        (process.env["BRAVE_SEARCH_API_KEY"] ? "brave" : process.env["TAVILY_API_KEY"] ? "tavily" : null);
+        (process.env["BRAVE_SEARCH_API_KEY"]
+            ? "brave"
+            : process.env["TAVILY_API_KEY"]
+                ? "tavily"
+                : process.env["EXA_API_KEY"]
+                    ? "exa"
+                    : null);
     if (!engine) {
-        throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY.");
+        throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.");
     }
-    return engine === "brave"
-        ? braveSearch(query, { numResults: opts.numResults })
-        : tavilySearch(query, { numResults: opts.numResults });
+    if (engine === "brave")
+        return braveSearch(query, { numResults: opts.numResults });
+    if (engine === "tavily")
+        return tavilySearch(query, { numResults: opts.numResults });
+    return exaSearch(query, { numResults: opts.numResults });
 }
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters
@@ -120,9 +172,18 @@ export class TavilySearchEngine {
         return tavilySearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
     }
 }
+/** Exa adapter implementing ISearchEngine. */
+export class ExaSearchEngine {
+    constructor(apiKey) {
+        this.apiKey = apiKey;
+    }
+    search(req) {
+        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+    }
+}
 /**
  * Build an ISearchEngine from environment variables.
- * Prefers Brave when both keys are present.
+ * Priority: Brave → Tavily → Exa.
  */
 export function defaultSearchEngine() {
     const brave = process.env["BRAVE_SEARCH_API_KEY"];
@@ -131,6 +192,9 @@ export function defaultSearchEngine() {
     const tavily = process.env["TAVILY_API_KEY"];
     if (tavily)
         return new TavilySearchEngine(tavily);
-    throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY.");
+    const exa = process.env["EXA_API_KEY"];
+    if (exa)
+        return new ExaSearchEngine(exa);
+    throw new Error("No search API key found. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.");
 }
 //# sourceMappingURL=web-search.js.map
