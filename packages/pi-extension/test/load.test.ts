@@ -56,16 +56,19 @@ describe("extension load — tryNative:false (Bun binary simulation)", () => {
     const { api, tools } = makeMockApi()
     await factory(api)
     expect(tools).toContain("web_fetch")
-    expect(api.registerTool).toHaveBeenCalledOnce()
+    expect(api.registerTool).toHaveBeenCalled()
   })
 
-  it("registers exactly one tool", async () => {
+  it("registers exactly four tools", async () => {
     const { createJiti: cj } = await import(jitiPath)
     const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false })
     const factory = await jiti.import(EXTENSION_PATH, { default: true }) as (api: unknown) => Promise<void>
     const { api, tools } = makeMockApi()
     await factory(api)
-    expect(tools).toHaveLength(1)
+    expect(tools).toHaveLength(4)
+    expect(tools).toContain("web_tree")
+    expect(tools).toContain("web_query")
+    expect(tools).toContain("web_navigate")
   })
 })
 
