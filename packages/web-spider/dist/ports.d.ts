@@ -19,6 +19,7 @@ export interface HttpResponse {
         get(name: string): string | null;
     };
     text(): Promise<string>;
+    arrayBuffer(): Promise<ArrayBuffer>;
 }
 /**
  * Minimal HTTP client port.

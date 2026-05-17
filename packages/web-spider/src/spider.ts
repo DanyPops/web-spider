@@ -1,5 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import { chunk, toMarkdown } from "./convert.js";
+import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
 import { buildTree } from "./tree.js";
@@ -18,10 +19,18 @@ const WORDS_PER_MINUTE = 200;
 
 const defaultHttpClient: IHttpClient = {
 	async fetch(req) {
-		return globalThis.fetch(req.url, {
+		const res = await globalThis.fetch(req.url, {
 			signal: req.signal,
 			headers: req.headers,
 		});
+		return {
+			ok: res.ok,
+			status: res.status,
+			statusText: res.statusText,
+			headers: { get: (name: string) => res.headers.get(name) },
+			text: () => res.text(),
+			arrayBuffer: () => res.arrayBuffer(),
+		};
 	},
 };
 
@@ -76,6 +85,17 @@ export interface SpiderOptions {
 	 * Inject a stub for testing without real network access.
 	 */
 	httpClient?: IHttpClient;
+	/**
+	 * When true, fetch <img> src URLs found in the article content and attach
+	 * them as base64-encoded ImageRef objects to SpideredPage.images.
+	 * Default: false — preserves current behaviour exactly.
+	 */
+	captureImages?: boolean;
+	/**
+	 * Maximum number of images to fetch per page.
+	 * Default: 10.
+	 */
+	maxImages?: number;
 }
 
 /**
@@ -100,6 +120,91 @@ export interface SpiderOptions {
  * // Lean overview — no body text, ideal for navigation decisions
  * const lean = await spider("https://example.com", { view: "lean" })
  */
+// ---------------------------------------------------------------------------
+// Image fetching
+// ---------------------------------------------------------------------------
+
+/** Detect MIME type from a URL path extension, defaulting to image/jpeg. */
+function mimeFromUrl(src: string): string {
+	const ext = src.split("?")[0].split(".").pop()?.toLowerCase();
+	const map: Record<string, string> = {
+		jpg: "image/jpeg",
+		jpeg: "image/jpeg",
+		png: "image/png",
+		webp: "image/webp",
+		gif: "image/gif",
+		svg: "image/svg+xml",
+		avif: "image/avif",
+	};
+	return map[ext ?? ""] ?? "image/jpeg";
+}
+
+/**
+ * Extract <img> elements from article HTML, resolve src URLs, and fetch
+ * each as a base64-encoded ImageRef. data: URLs are included without fetching.
+ * Failed fetches are silently skipped.
+ */
+async function fetchImages(
+	articleHtml: string,
+	pageUrl: string,
+	httpClient: IHttpClient,
+	maxImages: number,
+	throttle?: IThrottle,
+): Promise<ImageRef[]> {
+	// Parse the article HTML to extract img elements.
+	const { parseDom } = await import("./parse.js");
+	const doc = parseDom(articleHtml, pageUrl);
+	const imgEls = [...doc.querySelectorAll("img")].slice(0, maxImages);
+
+	const results: ImageRef[] = [];
+
+	for (const el of imgEls) {
+		const rawSrc = el.getAttribute("src") ?? "";
+		if (!rawSrc) continue;
+
+		const alt = el.getAttribute("alt") ?? "";
+
+		// data: URLs — include without fetching.
+		if (rawSrc.startsWith("data:")) {
+			const match = /^data:([^;]+);base64,(.+)$/.exec(rawSrc);
+			if (match) {
+				results.push({ src: rawSrc, mimeType: match[1], alt, base64: match[2] });
+			}
+			continue;
+		}
+
+		// Resolve relative URLs.
+		let absoluteSrc: string;
+		try {
+			absoluteSrc = new URL(rawSrc, pageUrl).toString();
+		} catch {
+			continue;
+		}
+
+		try {
+			if (throttle) await throttle.wait(absoluteSrc);
+			const res = await httpClient.fetch({
+				url: absoluteSrc,
+				headers: { "User-Agent": "web-spider/0.1", Accept: "image/*" },
+			});
+			if (!res.ok) continue;
+			throttle?.success(absoluteSrc);
+
+			const buf = await res.arrayBuffer();
+			const base64 = Buffer.from(buf).toString("base64");
+			const contentType = res.headers.get("content-type");
+			const mimeType = contentType?.split(";")[0].trim() || mimeFromUrl(absoluteSrc);
+
+			results.push({ src: absoluteSrc, mimeType, alt, base64 });
+		} catch {
+			// Skip failed image fetches silently — a missing image should never
+			// cause the whole page scrape to fail.
+		}
+	}
+
+	return results;
+}
+
 /** A page with its full DOM tree attached. */
 export interface TreePage extends SpideredPage {
 	readonly view: "tree";
@@ -123,6 +228,8 @@ export async function spider(
 		throttle,
 		robotsCache,
 		httpClient = defaultHttpClient,
+		captureImages = false,
+		maxImages = 10,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -283,9 +390,12 @@ export async function spider(
 	// ---------------------------------------------------------------------------
 	if (view === "tree") {
 		const tree = buildTree(article.content ?? "", url);
-		const markdown = toMarkdown(article.content ?? "");
+		const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
 		const wordCount = markdown.split(/\s+/).filter(Boolean).length;
 		const chunks = chunk(markdown, url);
+		const images = captureImages
+			? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
+			: undefined;
 		return {
 			view: "tree",
 			url,
@@ -305,13 +415,14 @@ export async function spider(
 			links,
 			markdown,
 			tree,
+			...(images ? { images } : {}),
 		};
 	}
 
 	// ---------------------------------------------------------------------------
 	// Full path — turndown + chunk
 	// ---------------------------------------------------------------------------
-	const markdown = toMarkdown(article.content ?? "");
+	const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
 	const wordCount = markdown.split(/\s+/).filter(Boolean).length;
 
 	// Chunk-aware tokenBudget: select whole chunks up to the budget rather
@@ -337,6 +448,10 @@ export async function spider(
 		? allChunks.map((c) => c.text).join("\n\n")
 		: markdown;
 
+	const images = captureImages
+		? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
+		: undefined;
+
 	return {
 		url,
 		domain,
@@ -354,6 +469,7 @@ export async function spider(
 		chunks: allChunks,
 		links,
 		markdown: finalMarkdown,
+		...(images ? { images } : {}),
 		...(jsRendered ? { jsRendered: true } : {}),
 	};
 }
