@@ -500,20 +500,28 @@ export default async function (pi: ExtensionAPI) {
     // logic. Business logic lives in the handlers above.
     // -------------------------------------------------------------------------
     async execute(_id, params) {
-      const fetchPage = buildFetchPage(params)
+      try {
+        const fetchPage = buildFetchPage(params)
 
-      if (params.searchQuery) return handleSearch(params, fetchPage)
+        if (params.searchQuery) return handleSearch(params, fetchPage)
 
-      if (!params.url) {
+        if (!params.url) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "Provide either url or searchQuery." }) }],
+            details: {},
+          }
+        }
+
+        if ((params.depth ?? 0) > 0) return await handleCrawl(params)
+
+        return await handleSinglePage(params, fetchPage)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
         return {
-          content: [{ type: "text", text: JSON.stringify({ error: "Provide either url or searchQuery." }) }],
+          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
           details: {},
         }
       }
-
-      if ((params.depth ?? 0) > 0) return handleCrawl(params)
-
-      return handleSinglePage(params, fetchPage)
     },
   })
 }
