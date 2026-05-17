@@ -5,13 +5,23 @@
   "workspaces": [
     "packages/*"
   ],
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "check": "npm run check --workspaces"
   },
   "pi": {
-    "extensions": ["packages/pi-extension/src/index.ts"]
+    "extensions": [
+      "packages/pi-extension/src/index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "file:../pi-mono/packages/coding-agent"
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
   }
 }
