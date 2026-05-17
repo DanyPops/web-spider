@@ -30,6 +30,7 @@ export class PlaywrightHttpClient {
         this.executablePath = opts.executablePath ?? "";
         this.timeoutMs = opts.timeoutMs ?? 30_000;
         this.waitUntil = opts.waitUntil ?? "networkidle";
+        this.captureImages = opts.captureImages ?? false;
     }
     async getChromium() {
         // Prefer playwright-extra + stealth — patches headless fingerprints.
@@ -62,12 +63,25 @@ export class PlaywrightHttpClient {
         const browser = await this.getBrowser();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const page = await browser.newPage();
+        // Suppress browser-side console output and JS errors — they are not
+        // useful to the caller and would leak into Pi's TUI stream.
+        page.on("console", () => { });
+        page.on("pageerror", () => { });
         try {
-            // Skip images, fonts, and media — we only need the rendered HTML.
+            // Block fonts always (never needed for HTML extraction).
+            // Block images and media during page navigation for speed — unless
+            // this is a direct image fetch (Accept: image/*), in which case
+            // captureImages:true lets it through so fetchImages() can retrieve
+            // the binary via arrayBuffer().
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await page.route("**/*", (route) => {
                 const type = route.request().resourceType();
-                if (["image", "media", "font"].includes(type)) {
+                const accept = route.request().headers()["accept"] ?? "";
+                const isImageFetch = accept.startsWith("image/");
+                if (type === "font") {
+                    route.abort();
+                }
+                else if (["image", "media"].includes(type) && !(this.captureImages && isImageFetch)) {
                     route.abort();
                 }
                 else {
@@ -94,6 +108,10 @@ export class PlaywrightHttpClient {
                 statusText: response.statusText(),
                 headers: { get: (name) => headers[name.toLowerCase()] ?? null },
                 text: async () => html,
+                arrayBuffer: async () => {
+                    const buf = await response.body();
+                    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                },
             };
         }
         finally {

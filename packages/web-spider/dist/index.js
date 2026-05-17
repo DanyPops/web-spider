@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
 // Public API — what most consumers need
 // ---------------------------------------------------------------------------
-export { batchSpider } from "./batch.js";
 export { SpiderCache } from "./cache.js";
 export { crawl } from "./crawl.js";
 export { PageGraph } from "./graph.js";
@@ -11,7 +10,25 @@ export { searchPages as fuzzySearch } from "./search.js";
 export { spider } from "./spider.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export { toLean } from "./views.js";
-export { braveSearch, ddgSearch, exaSearch, tavilySearch, webSearch } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, registerSearchEngine, resolveSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+/**
+ * Retrieve a single chunk from a cached page by URL and chunk index.
+ *
+ * Avoids loading the full page markdown when an agent only needs one
+ * specific chunk — e.g. to re-read a section after a highlights hit.
+ *
+ * Returns undefined when the URL is not cached, the index is out of range,
+ * or the index is negative.
+ *
+ * @example
+ * const chunk = getChunk(cache, "https://example.com/article", 3)
+ * if (chunk) console.log(chunk.text)
+ */
+export function getChunk(cache, url, index) {
+    if (index < 0)
+        return undefined;
+    return cache.get(url)?.chunks[index];
+}
 export { DiskCache } from "./disk-cache.js";
 export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";

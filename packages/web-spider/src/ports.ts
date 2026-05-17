@@ -23,6 +23,7 @@ export interface HttpResponse {
 	statusText: string;
 	headers: { get(name: string): string | null };
 	text(): Promise<string>;
+	arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 /**

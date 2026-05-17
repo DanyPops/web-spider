@@ -44,6 +44,14 @@ export interface PlaywrightClientOptions {
      * "load"             — window load event fired.
      */
     waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit";
+    /**
+     * When true, image and media resource types are allowed through instead of
+     * being aborted. Required when spider() is called with captureImages: true
+     * so that individual image fetches via this client succeed.
+     * Fonts are always blocked regardless of this flag.
+     * Default: false.
+     */
+    captureImages?: boolean;
 }
 export declare class PlaywrightHttpClient implements IHttpClient {
     private browser;
@@ -51,6 +59,7 @@ export declare class PlaywrightHttpClient implements IHttpClient {
     private readonly executablePath;
     private readonly timeoutMs;
     private readonly waitUntil;
+    private readonly captureImages;
     constructor(opts?: PlaywrightClientOptions);
     private getChromium;
     private getBrowser;

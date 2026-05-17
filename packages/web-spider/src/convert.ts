@@ -18,18 +18,34 @@ const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fen
 // producing backslash noise that is unnatural for agent consumption.
 (turndown as unknown as { escape: (s: string) => string }).escape = (s) => s;
 
-// Strip images — agents cannot see them and alt-text is noise.
+// Strip images by default — agents cannot see them and alt-text is noise.
+// Disabled when keepImages: true is passed to toMarkdown().
 turndown.addRule("strip-images", {
 	filter: "img",
 	replacement: () => "",
 });
 
+// A separate Turndown instance that preserves images as ![alt](src).
+const turndownWithImages = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+(turndownWithImages as unknown as { escape: (s: string) => string }).escape = (s) => s;
+// Default Turndown behaviour already renders <img> as ![alt](src) — no extra rule needed.
+
 // ---------------------------------------------------------------------------
 // Markdown conversion
 // ---------------------------------------------------------------------------
 
+export interface ToMarkdownOptions {
+	/**
+	 * When true, <img> tags are rendered as ![alt](src) instead of being stripped.
+	 * Use when captureImages is enabled so image references appear in the markdown.
+	 * Default: false.
+	 */
+	keepImages?: boolean;
+}
+
 /** Convert Readability article HTML to clean markdown. */
-export function toMarkdown(html: string): string {
+export function toMarkdown(html: string, opts?: ToMarkdownOptions): string {
+	if (opts?.keepImages) return turndownWithImages.turndown(html);
 	return turndown.turndown(html);
 }
 
