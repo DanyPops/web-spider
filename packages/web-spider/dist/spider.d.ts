@@ -45,29 +45,18 @@ export interface SpiderOptions {
      * Inject a stub for testing without real network access.
      */
     httpClient?: IHttpClient;
+    /**
+     * When true, fetch <img> src URLs found in the article content and attach
+     * them as base64-encoded ImageRef objects to SpideredPage.images.
+     * Default: false — preserves current behaviour exactly.
+     */
+    captureImages?: boolean;
+    /**
+     * Maximum number of images to fetch per page.
+     * Default: 10.
+     */
+    maxImages?: number;
 }
-/**
- * Spider a single URL and return a fully structured SpideredPage.
- *
- * Pass `view: "lean"` to skip chunking and markdown conversion — returns a
- * LeanPage with only identity, metadata, and the heading/link outline.
- * Significantly faster (~3×) and uses far fewer tokens in agent context.
- *
- * Errors are returned as thrown exceptions with a descriptive message rather
- * than crashing silently. Common cases:
- * - Non-HTTP URLs throw immediately with a clear message.
- * - HTTP errors include the status code.
- * - JS-rendered pages (wordCount === 0) include a hint.
- * - Timeouts include the configured limit.
- *
- * @example
- * // Full page — chunks, markdown, all metadata
- * const page = await spider("https://example.com")
- *
- * @example
- * // Lean overview — no body text, ideal for navigation decisions
- * const lean = await spider("https://example.com", { view: "lean" })
- */
 /** A page with its full DOM tree attached. */
 export interface TreePage extends SpideredPage {
     readonly view: "tree";

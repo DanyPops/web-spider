@@ -5,9 +5,13 @@
  */
 /**
  * Downgrade a full SpideredPage to a LeanPage.
- * Use when you have already fetched full but only need the outline in context.
+ *
+ * Pass a PageGraph as the second argument to populate `inboundCount` —
+ * the number of other spidered pages that link to this one. Agents can
+ * use this as a lightweight authority signal when ranking results from
+ * a crawl without running a full PageRank pass.
  */
-export function toLean(page) {
+export function toLean(page, graph) {
     return {
         view: "lean",
         url: page.url,
@@ -27,6 +31,9 @@ export function toLean(page) {
             .filter((l) => l.rel === "body")
             .slice(0, 10)
             .map((l) => ({ href: l.href, text: l.text })),
+        ...(graph !== undefined
+            ? { inboundCount: graph.inbound(page.url).length }
+            : {}),
     };
 }
 //# sourceMappingURL=views.js.map
