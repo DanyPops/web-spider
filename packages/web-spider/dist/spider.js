@@ -12,14 +12,116 @@ const WORDS_PER_MINUTE = 200;
 // ---------------------------------------------------------------------------
 const defaultHttpClient = {
     async fetch(req) {
-        return globalThis.fetch(req.url, {
+        const res = await globalThis.fetch(req.url, {
             signal: req.signal,
             headers: req.headers,
         });
+        return {
+            ok: res.ok,
+            status: res.status,
+            statusText: res.statusText,
+            headers: { get: (name) => res.headers.get(name) },
+            text: () => res.text(),
+            arrayBuffer: () => res.arrayBuffer(),
+        };
     },
 };
+/**
+ * Spider a single URL and return a fully structured SpideredPage.
+ *
+ * Pass `view: "lean"` to skip chunking and markdown conversion — returns a
+ * LeanPage with only identity, metadata, and the heading/link outline.
+ * Significantly faster (~3×) and uses far fewer tokens in agent context.
+ *
+ * Errors are returned as thrown exceptions with a descriptive message rather
+ * than crashing silently. Common cases:
+ * - Non-HTTP URLs throw immediately with a clear message.
+ * - HTTP errors include the status code.
+ * - JS-rendered pages (wordCount === 0) include a hint.
+ * - Timeouts include the configured limit.
+ *
+ * @example
+ * // Full page — chunks, markdown, all metadata
+ * const page = await spider("https://example.com")
+ *
+ * @example
+ * // Lean overview — no body text, ideal for navigation decisions
+ * const lean = await spider("https://example.com", { view: "lean" })
+ */
+// ---------------------------------------------------------------------------
+// Image fetching
+// ---------------------------------------------------------------------------
+/** Detect MIME type from a URL path extension, defaulting to image/jpeg. */
+function mimeFromUrl(src) {
+    const ext = src.split("?")[0].split(".").pop()?.toLowerCase();
+    const map = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        webp: "image/webp",
+        gif: "image/gif",
+        svg: "image/svg+xml",
+        avif: "image/avif",
+    };
+    return map[ext ?? ""] ?? "image/jpeg";
+}
+/**
+ * Extract <img> elements from article HTML, resolve src URLs, and fetch
+ * each as a base64-encoded ImageRef. data: URLs are included without fetching.
+ * Failed fetches are silently skipped.
+ */
+async function fetchImages(articleHtml, pageUrl, httpClient, maxImages, throttle) {
+    // Parse the article HTML to extract img elements.
+    const { parseDom } = await import("./parse.js");
+    const doc = parseDom(articleHtml, pageUrl);
+    const imgEls = [...doc.querySelectorAll("img")].slice(0, maxImages);
+    const results = [];
+    for (const el of imgEls) {
+        const rawSrc = el.getAttribute("src") ?? "";
+        if (!rawSrc)
+            continue;
+        const alt = el.getAttribute("alt") ?? "";
+        // data: URLs — include without fetching.
+        if (rawSrc.startsWith("data:")) {
+            const match = /^data:([^;]+);base64,(.+)$/.exec(rawSrc);
+            if (match) {
+                results.push({ src: rawSrc, mimeType: match[1], alt, base64: match[2] });
+            }
+            continue;
+        }
+        // Resolve relative URLs.
+        let absoluteSrc;
+        try {
+            absoluteSrc = new URL(rawSrc, pageUrl).toString();
+        }
+        catch {
+            continue;
+        }
+        try {
+            if (throttle)
+                await throttle.wait(absoluteSrc);
+            const res = await httpClient.fetch({
+                url: absoluteSrc,
+                headers: { "User-Agent": "web-spider/0.1", Accept: "image/*" },
+            });
+            if (!res.ok)
+                continue;
+            throttle?.success(absoluteSrc);
+            const buf = await res.arrayBuffer();
+            const base64 = Buffer.from(buf).toString("base64");
+            const contentType = res.headers.get("content-type");
+            const mimeType = contentType?.split(";")[0].trim() || mimeFromUrl(absoluteSrc);
+            results.push({ src: absoluteSrc, mimeType, alt, base64 });
+        }
+        catch {
+            // Skip failed image fetches silently — a missing image should never
+            // cause the whole page scrape to fail.
+        }
+    }
+    return results;
+}
 export async function spider(url, opts) {
-    const { timeoutMs = 10_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, } = opts ?? {};
+    const { timeoutMs = 10_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, } = opts ?? {};
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {
@@ -165,9 +267,12 @@ export async function spider(url, opts) {
     // ---------------------------------------------------------------------------
     if (view === "tree") {
         const tree = buildTree(article.content ?? "", url);
-        const markdown = toMarkdown(article.content ?? "");
+        const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
         const wordCount = markdown.split(/\s+/).filter(Boolean).length;
         const chunks = chunk(markdown, url);
+        const images = captureImages
+            ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
+            : undefined;
         return {
             view: "tree",
             url,
@@ -187,12 +292,13 @@ export async function spider(url, opts) {
             links,
             markdown,
             tree,
+            ...(images ? { images } : {}),
         };
     }
     // ---------------------------------------------------------------------------
     // Full path — turndown + chunk
     // ---------------------------------------------------------------------------
-    const markdown = toMarkdown(article.content ?? "");
+    const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
     const wordCount = markdown.split(/\s+/).filter(Boolean).length;
     // Chunk-aware tokenBudget: select whole chunks up to the budget rather
     // than slicing markdown mid-sentence. Preserves chunk boundaries and
@@ -216,6 +322,9 @@ export async function spider(url, opts) {
     const finalMarkdown = tokenBudget !== undefined
         ? allChunks.map((c) => c.text).join("\n\n")
         : markdown;
+    const images = captureImages
+        ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
+        : undefined;
     return {
         url,
         domain,
@@ -233,6 +342,7 @@ export async function spider(url, opts) {
         chunks: allChunks,
         links,
         markdown: finalMarkdown,
+        ...(images ? { images } : {}),
         ...(jsRendered ? { jsRendered: true } : {}),
     };
 }

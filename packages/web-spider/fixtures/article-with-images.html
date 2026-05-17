@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Article With Images — Fixture</title>
+  <meta name="description" content="A fixture page for testing image scraping.">
+  <meta name="keywords" content="images, scraping, fixtures">
+  <link rel="canonical" href="https://example.com/article-with-images">
+</head>
+<body>
+  <header>
+    <nav><a href="/">Home</a></nav>
+  </header>
+
+  <article>
+    <h1>Understanding Web Images for AI Agents</h1>
+
+    <p>
+      Images are a fundamental part of the modern web. When AI agents scrape pages, they
+      often need to capture visual content — charts, product photos, diagrams — alongside
+      the text. This article covers the key considerations for image-aware scraping.
+    </p>
+
+    <!-- 1. Absolute JPEG src, descriptive alt -->
+    <img
+      src="https://example.com/images/hero.jpg"
+      alt="A hero image showing a web spider diagram"
+    >
+
+    <p>
+      The first consideration is format. JPEG is the dominant format for photographs on
+      the web, while PNG is preferred for screenshots and diagrams that require lossless
+      compression. WebP is increasingly common as a modern alternative offering superior
+      compression ratios.
+    </p>
+
+    <!-- 2. Absolute PNG src, descriptive alt -->
+    <img
+      src="https://example.com/images/diagram.png"
+      alt="Architecture diagram of the web spider pipeline"
+    >
+
+    <p>
+      For AI agents that feed images to vision-language models, the wire format that all
+      major LLM APIs accept is a base64-encoded data URL:
+      <code>data:image/jpeg;base64,…</code>. This means an agent can scrape an image,
+      encode it in-memory, and pass it directly to GPT-4o or Claude without any
+      intermediate file I/O.
+    </p>
+
+    <!-- 3. Absolute WebP src, descriptive alt -->
+    <img
+      src="https://example.com/images/chart.webp"
+      alt="Performance chart comparing image formats by file size"
+    >
+
+    <p>
+      Caching is the other key concern. Fetching the same image repeatedly wastes
+      bandwidth and risks rate limiting. A sensible strategy is to cache small images
+      (under 32 KB) inline as base64 in the page cache, and write larger images as binary
+      files to a sibling <code>images/</code> directory, storing only the file path in
+      the JSON index.
+    </p>
+
+    <!-- 4. Relative src — must be resolved to absolute against the page URL -->
+    <img
+      src="/images/chart.png"
+      alt="Relative URL image — should be resolved to absolute"
+    >
+
+    <!-- 5. data: URL — should be included without making a network request -->
+    <img
+      src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=="
+      alt="Inline data URL image — 1x1 pixel PNG"
+    >
+
+    <!-- 6. No alt attribute — alt should default to empty string -->
+    <img src="https://example.com/images/no-alt.jpg">
+
+    <h2>Conclusion</h2>
+
+    <p>
+      Web image scraping for AI agents is straightforward when broken into three layers:
+      fetch (extend the HTTP client to return binary data), normalise (base64 + MIME type),
+      and persist (inline for small, file-backed for large). The resulting
+      <code>ImageRef</code> objects are immediately usable by any vision-capable LLM.
+    </p>
+  </article>
+
+  <footer>
+    <a href="/privacy">Privacy</a>
+  </footer>
+</body>
+</html>

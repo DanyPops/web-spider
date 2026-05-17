@@ -2,8 +2,6 @@
 // Public API — what most consumers need
 // ---------------------------------------------------------------------------
 
-export type { BatchOptions } from "./batch.js";
-export { batchSpider } from "./batch.js";
 export type { SpiderCacheOptions } from "./cache.js";
 export { SpiderCache } from "./cache.js";
 export type { CrawlOptions, CrawlResult } from "./crawl.js";
@@ -18,10 +16,39 @@ export type { SpiderOptions, TreePage } from "./spider.js";
 export { spider } from "./spider.js";
 export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
-export type { Chunk, ChunkType, DOMNode, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
+export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
 export type { BraveSearchOptions, DdgSearchOptions, ExaSearchOptions, FallbackSearchEngineOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, ddgSearch, exaSearch, tavilySearch, webSearch } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, registerSearchEngine, resolveSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+import type { ICache } from "./ports.js";
+import type { Chunk, SpideredPage } from "./types.js";
+
+/**
+ * Retrieve a single chunk from a cached page by URL and chunk index.
+ *
+ * Avoids loading the full page markdown when an agent only needs one
+ * specific chunk — e.g. to re-read a section after a highlights hit.
+ *
+ * Returns undefined when the URL is not cached, the index is out of range,
+ * or the index is negative.
+ *
+ * @example
+ * const chunk = getChunk(cache, "https://example.com/article", 3)
+ * if (chunk) console.log(chunk.text)
+ */
+export function getChunk(
+	cache: ICache<string, SpideredPage>,
+	url: string,
+	index: number,
+): Chunk | undefined {
+	if (index < 0) return undefined;
+	return cache.get(url)?.chunks[index];
+}
 
 // ---------------------------------------------------------------------------
 // Extension / DI — port interfaces and their concrete adapters.

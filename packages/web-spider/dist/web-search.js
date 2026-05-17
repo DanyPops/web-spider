@@ -207,37 +207,60 @@ export async function ddgSearch(query, opts = {}) {
  * you need composable retry / fallback behaviour.
  */
 export async function webSearch(query, opts = {}) {
-    const engine = resolveEngine(opts.engine, opts.numResults);
+    const engine = opts.engine
+        ? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
+        : defaultSearchEngine();
     return engine.search({ query, numResults: opts.numResults });
 }
-/** @internal Resolve a named engine (or auto-detect) into an ISearchEngine instance. */
-function resolveEngine(name, numResults) {
-    void numResults; // forwarded per-call, not stored on the engine
-    switch (name) {
-        case "brave": {
-            const key = process.env["BRAVE_SEARCH_API_KEY"];
-            if (!key)
-                throw new Error("BRAVE_SEARCH_API_KEY not set");
-            return new BraveSearchEngine(key);
-        }
-        case "tavily": {
-            const key = process.env["TAVILY_API_KEY"];
-            if (!key)
-                throw new Error("TAVILY_API_KEY not set");
-            return new TavilySearchEngine(key);
-        }
-        case "exa": {
-            const key = process.env["EXA_API_KEY"];
-            if (!key)
-                throw new Error("EXA_API_KEY not set");
-            return new ExaSearchEngine(key);
-        }
-        case "ddg":
-            return new DdgSearchEngine();
-        default:
-            return defaultSearchEngine();
-    }
+/** The global engine registry. Seeded with built-in engines below. */
+const ENGINE_REGISTRY = new Map();
+/**
+ * Register a search engine under a name.
+ *
+ * Call this to add a new engine without touching any existing code:
+ * @example
+ * registerSearchEngine("my-engine", (key) => new MyEngine(key!))
+ */
+export function registerSearchEngine(name, factory) {
+    ENGINE_REGISTRY.set(name, factory);
 }
+/**
+ * Resolve a registered engine by name, passing the provided API key.
+ * Throws a descriptive error for unknown names or missing required keys.
+ */
+export function resolveSearchEngine(name, key) {
+    const factory = ENGINE_REGISTRY.get(name);
+    if (!factory)
+        throw new Error(`Unknown search engine: "${name}". Register it with registerSearchEngine().`);
+    return factory(key);
+}
+/** @internal Map engine name to its env var key name (for webSearch auto-detect). */
+function envKeyForEngine(name) {
+    const envKeys = {
+        brave: "BRAVE_SEARCH_API_KEY",
+        tavily: "TAVILY_API_KEY",
+        exa: "EXA_API_KEY",
+    };
+    return envKeys[name] ?? "";
+}
+// Seed the registry with built-in engines.
+// Adding a new engine: call registerSearchEngine() — do NOT edit this block.
+registerSearchEngine("brave", (key) => {
+    if (!key)
+        throw new Error("BRAVE_SEARCH_API_KEY not set");
+    return new BraveSearchEngine(key);
+});
+registerSearchEngine("tavily", (key) => {
+    if (!key)
+        throw new Error("TAVILY_API_KEY not set");
+    return new TavilySearchEngine(key);
+});
+registerSearchEngine("exa", (key) => {
+    if (!key)
+        throw new Error("EXA_API_KEY not set");
+    return new ExaSearchEngine(key);
+});
+registerSearchEngine("ddg", () => new DdgSearchEngine());
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------

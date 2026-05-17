@@ -12,16 +12,19 @@ const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fen
 // Disable escape — Turndown escapes markdown-special chars by default,
 // producing backslash noise that is unnatural for agent consumption.
 turndown.escape = (s) => s;
-// Strip images — agents cannot see them and alt-text is noise.
+// Strip images by default — agents cannot see them and alt-text is noise.
+// Disabled when keepImages: true is passed to toMarkdown().
 turndown.addRule("strip-images", {
     filter: "img",
     replacement: () => "",
 });
-// ---------------------------------------------------------------------------
-// Markdown conversion
-// ---------------------------------------------------------------------------
+// A separate Turndown instance that preserves images as ![alt](src).
+const turndownWithImages = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+turndownWithImages.escape = (s) => s;
 /** Convert Readability article HTML to clean markdown. */
-export function toMarkdown(html) {
+export function toMarkdown(html, opts) {
+    if (opts?.keepImages)
+        return turndownWithImages.turndown(html);
     return turndown.turndown(html);
 }
 // ---------------------------------------------------------------------------
