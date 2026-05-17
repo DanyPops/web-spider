@@ -99,6 +99,11 @@ export class PlaywrightHttpClient implements IHttpClient {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const page: any = await browser.newPage();
 
+		// Suppress browser-side console output and JS errors — they are not
+		// useful to the caller and would leak into Pi's TUI stream.
+		page.on("console", () => {});
+		page.on("pageerror", () => {});
+
 		try {
 			// Skip images, fonts, and media — we only need the rendered HTML.
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any

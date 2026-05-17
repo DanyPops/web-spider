@@ -1,30 +1,33 @@
 {
-	"name": "@dpopsuev/pi-web-spider",
-	"version": "0.8.0",
-	"description": "Pi extension: web_fetch, web_crawl, web_search — structured scraping for AI agents",
-	"keywords": [
-		"pi-package"
-	],
-	"type": "module",
-	"main": "./src/index.ts",
-	"pi": {
-		"extensions": [
-			"./src/index.ts"
-		]
-	},
-	"dependencies": {
-		"@dpopsuev/web-spider": "*"
-	},
-	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*"
-	},
-	"scripts": {
-		"test": "vitest --run"
-	},
-	"devDependencies": {
-		"@types/node": "^22.19.19",
-		"jiti": "^2.0.0",
-		"typescript": "^5.9.3",
-		"vitest": "^3.0.0"
-	}
+  "name": "@dpopsuev/pi-web-spider",
+  "version": "0.8.0",
+  "description": "Pi extension: web_fetch, web_crawl, web_search \u2014 structured scraping for AI agents",
+  "keywords": [
+    "pi-package"
+  ],
+  "type": "module",
+  "main": "./src/index.ts",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@dpopsuev/web-spider": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "scripts": {
+    "test": "vitest --run",
+    "lint": "biome lint src/",
+    "check": "npm run lint && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@types/node": "^22.19.19",
+    "jiti": "^2.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
 }
