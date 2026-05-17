@@ -1,103 +1,74 @@
 /**
- * execute() contract tests
+ * execute() contract tests.
  *
  * Pi extensions must never throw from execute() — unhandled exceptions
  * propagate to the TUI and produce noise or crashes. Every error path
  * must return { content: [{ type: "text", text: JSON.stringify({ error }) }] }.
  *
- * These tests verify the contract by provoking real failure conditions:
- * invalid URLs, unreachable hosts, and missing required parameters.
+ * Uses createExtensionHarness from @earendil-works/pi-coding-agent/testing
+ * so the boot setup is one line rather than a hand-rolled stub.
  */
 
-import { describe, it, expect } from "vitest"
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
-import piviFactory from "../src/index.js"
+import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { createExtensionHarness, type ExtensionHarness } from "@earendil-works/pi-coding-agent/testing"
+import piFactory from "../src/index.js"
 
-// ---------------------------------------------------------------------------
-// Minimal ExtensionAPI stub — captures the registered tool's execute function
-// ---------------------------------------------------------------------------
+let h: ExtensionHarness
 
-async function bootExtension() {
-  let execute: ((id: string, params: Record<string, unknown>) => Promise<unknown>) | null = null
+beforeAll(async () => {
+  h = createExtensionHarness(piFactory, { cwd: "/tmp" })
+  await h.boot()
+})
 
-  const stubApi = {
-    registerTool(spec: { execute: typeof execute }) {
-      execute = spec.execute
-    },
-    on: () => {},
-    registerCommand: () => {},
-    setActiveTools: () => {},
-    sendUserMessage: () => {},
-  } as unknown as ExtensionAPI
+afterAll(async () => {
+  await h.shutdown()
+})
 
-  await piviFactory(stubApi)
-
-  if (!execute) throw new Error("web_fetch tool was not registered")
-  return execute
-}
-
-// ---------------------------------------------------------------------------
-// Contract: execute() never throws — all errors become { error } responses
-// ---------------------------------------------------------------------------
-
-describe("execute() error contract: never throws, always returns { error }", () => {
+describe("execute() error contract: never throws, always returns content", () => {
   it("invalid URL scheme returns error, does not throw", async () => {
-    const execute = await bootExtension()
-    const result = await execute("test", { url: "ftp://not-supported.example.com" })
+    const result = await h.invokeTool("web_fetch", { url: "ftp://not-supported.example.com" }) as any
     expect(result).toHaveProperty("content")
-    const text = JSON.parse((result as any).content[0].text)
+    const text = JSON.parse(result.content[0].text)
     expect(text).toHaveProperty("error")
     expect(typeof text.error).toBe("string")
   })
 
   it("unreachable host returns error, does not throw", async () => {
-    const execute = await bootExtension()
-    const result = await execute("test", {
+    const result = await h.invokeTool("web_fetch", {
       url: "http://this-host-does-not-exist-pivi-test.invalid",
       timeoutMs: 3000,
-    })
+    }) as any
     expect(result).toHaveProperty("content")
-    const text = JSON.parse((result as any).content[0].text)
+    const text = JSON.parse(result.content[0].text)
     expect(text).toHaveProperty("error")
   })
 
   it("missing url and searchQuery returns error, does not throw", async () => {
-    const execute = await bootExtension()
-    const result = await execute("test", {})
+    const result = await h.invokeTool("web_fetch", {}) as any
     expect(result).toHaveProperty("content")
-    const text = JSON.parse((result as any).content[0].text)
+    const text = JSON.parse(result.content[0].text)
     expect(text).toHaveProperty("error")
   })
 
-  it("highlights format without query returns error, does not throw", async () => {
-    // highlights requires a query param — missing it is a user error, not a throw
-    const execute = await bootExtension()
-    // We can't hit a real URL in CI, so test the validation path with a cached-miss
-    // by using a non-existent local URL that resolves quickly to a connection refusal
-    const result = await execute("test", {
-      url: "http://127.0.0.1:1",  // connection refused — fast failure
+  it("highlights without query returns error, does not throw", async () => {
+    const result = await h.invokeTool("web_fetch", {
+      url: "http://127.0.0.1:1",
       format: "highlights",
-      // no query — should return error regardless of fetch outcome
-    })
+    }) as any
     expect(result).toHaveProperty("content")
-    // Either a fetch error OR a "highlights requires query" error — both are valid { error }
-    const text = JSON.parse((result as any).content[0].text)
+    const text = JSON.parse(result.content[0].text)
     expect(text).toHaveProperty("error")
   })
 
-  it("search with no API key returns content (empty results), does not throw", async () => {
-    const execute = await bootExtension()
-    // No BRAVE/TAVILY/EXA keys in test env — webSearch() returns empty gracefully.
-    // The contract is that execute() NEVER throws; empty results are valid output.
+  it("search with no API key returns content, does not throw", async () => {
     const env = { ...process.env }
     delete process.env.BRAVE_SEARCH_API_KEY
     delete process.env.TAVILY_API_KEY
     delete process.env.EXA_API_KEY
     try {
-      const result = await execute("test", { searchQuery: "test query" })
-      // Must return content (not throw), even if empty results
+      const result = await h.invokeTool("web_fetch", { searchQuery: "test query" }) as any
       expect(result).toHaveProperty("content")
-      expect((result as any).content[0]).toHaveProperty("text")
+      expect(result.content[0]).toHaveProperty("text")
     } finally {
       Object.assign(process.env, env)
     }
