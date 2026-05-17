@@ -46,6 +46,14 @@ export interface PlaywrightClientOptions {
 	 * "load"             — window load event fired.
 	 */
 	waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit";
+	/**
+	 * When true, image and media resource types are allowed through instead of
+	 * being aborted. Required when spider() is called with captureImages: true
+	 * so that individual image fetches via this client succeed.
+	 * Fonts are always blocked regardless of this flag.
+	 * Default: false.
+	 */
+	captureImages?: boolean;
 }
 
 // Module-level flag: stealth is wired to the playwright-extra chromium
@@ -59,12 +67,14 @@ export class PlaywrightHttpClient implements IHttpClient {
 	private readonly executablePath: string;
 	private readonly timeoutMs: number;
 	private readonly waitUntil: string;
+	private readonly captureImages: boolean;
 
 	constructor(opts: PlaywrightClientOptions = {}) {
 		this.channel = opts.channel ?? "chrome";
 		this.executablePath = opts.executablePath ?? "";
 		this.timeoutMs = opts.timeoutMs ?? 30_000;
 		this.waitUntil = opts.waitUntil ?? "networkidle";
+		this.captureImages = opts.captureImages ?? false;
 	}
 
 	private async getChromium() {
@@ -105,11 +115,20 @@ export class PlaywrightHttpClient implements IHttpClient {
 		page.on("pageerror", () => {});
 
 		try {
-			// Skip images, fonts, and media — we only need the rendered HTML.
+			// Block fonts always (never needed for HTML extraction).
+			// Block images and media during page navigation for speed — unless
+			// this is a direct image fetch (Accept: image/*), in which case
+			// captureImages:true lets it through so fetchImages() can retrieve
+			// the binary via arrayBuffer().
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			await page.route("**/*", (route: any) => {
 				const type: string = route.request().resourceType();
-				if (["image", "media", "font"].includes(type)) {
+				const accept: string = route.request().headers()["accept"] ?? "";
+				const isImageFetch = accept.startsWith("image/");
+
+				if (type === "font") {
+					route.abort();
+				} else if (["image", "media"].includes(type) && !(this.captureImages && isImageFetch)) {
 					route.abort();
 				} else {
 					route.continue();
@@ -140,6 +159,10 @@ export class PlaywrightHttpClient implements IHttpClient {
 				statusText: response.statusText(),
 				headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
 				text: async () => html,
+				arrayBuffer: async () => {
+					const buf: Buffer = await response.body();
+					return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+				},
 			};
 		} finally {
 			await page.close();

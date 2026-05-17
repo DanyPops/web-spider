@@ -85,6 +85,24 @@ export declare function webSearch(query: string, opts?: {
     engine?: SearchEngine;
     numResults?: number;
 }): Promise<WebSearchResult[]>;
+/**
+ * A factory that creates an ISearchEngine from an optional API key.
+ * key is undefined for keyless engines (e.g. DDG).
+ */
+type EngineFactory = (key: string | undefined) => ISearchEngine;
+/**
+ * Register a search engine under a name.
+ *
+ * Call this to add a new engine without touching any existing code:
+ * @example
+ * registerSearchEngine("my-engine", (key) => new MyEngine(key!))
+ */
+export declare function registerSearchEngine(name: string, factory: EngineFactory): void;
+/**
+ * Resolve a registered engine by name, passing the provided API key.
+ * Throws a descriptive error for unknown names or missing required keys.
+ */
+export declare function resolveSearchEngine(name: string, key: string | undefined): ISearchEngine;
 /** Brave Search adapter implementing ISearchEngine. */
 export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;

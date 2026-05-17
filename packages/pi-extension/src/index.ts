@@ -57,14 +57,27 @@ export default async function (pi: ExtensionAPI) {
   // passed (respectRobots:true is the default). Single-page spider() calls
   // are one request and don't need session-level throttling.
   // Disk-backed cache — survives extension reloads and pi restarts.
-  // Override path via WEB_SPIDER_CACHE_PATH env var.
+  // Override paths via env vars:
+  //   WEB_SPIDER_CACHE_PATH   — path to the pages JSON index
+  //                             (default: ~/.cache/web-spider/pages.json)
+  //   WEB_SPIDER_IMAGES_PATH  — directory for large binary image files
+  //                             (default: ~/.cache/web-spider/images/)
+  //                             DiskCache derives this automatically from the
+  //                             cache file path, so this env var is for
+  //                             informational/override use by the caller.
   // Falls back to in-memory SpiderCache if the path is not writable.
   const cache = (() => {
     const cachePath = process.env["WEB_SPIDER_CACHE_PATH"]
       ?? join(homedir(), ".cache", "web-spider", "pages.json")
+    // Images dir: honour override env var, otherwise derive from cache path.
+    // DiskCache always derives its own imagesDir from dirname(path)/images,
+    // so this block just ensures the directory exists at startup.
+    const imagesDir = process.env["WEB_SPIDER_IMAGES_PATH"]
+      ?? join(homedir(), ".cache", "web-spider", "images")
     try {
       const dir = dirname(cachePath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      if (!existsSync(imagesDir)) mkdirSync(imagesDir, { recursive: true })
       return new lib.DiskCache(cachePath, { maxSize: 500, ttlMs: 30 * 60 * 1000 })
     } catch {
       return new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })

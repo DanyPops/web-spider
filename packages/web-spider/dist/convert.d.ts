@@ -5,8 +5,16 @@
  * it never imports Turndown directly.
  */
 import type { Chunk, ChunkType } from "./types.js";
+export interface ToMarkdownOptions {
+    /**
+     * When true, <img> tags are rendered as ![alt](src) instead of being stripped.
+     * Use when captureImages is enabled so image references appear in the markdown.
+     * Default: false.
+     */
+    keepImages?: boolean;
+}
 /** Convert Readability article HTML to clean markdown. */
-export declare function toMarkdown(html: string): string;
+export declare function toMarkdown(html: string, opts?: ToMarkdownOptions): string;
 /** Detect the dominant content type from a markdown buffer. */
 export declare function detectContentType(lines: string[]): ChunkType;
 /**

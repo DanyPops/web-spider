@@ -69,6 +69,30 @@ export interface Chunk {
 	contentType: ChunkType;
 }
 
+/**
+ * A single image scraped from a page.
+ *
+ * Storage contract:
+ *   - base64 is populated when the image is small enough to store inline.
+ *   - filePath is populated when the image has been spilled to disk.
+ *   - At least one of base64 or filePath is present on a hydrated ImageRef.
+ *
+ * LLM wire format (works with OpenAI, Anthropic, Together, Gemini):
+ *   `data:${mimeType};base64,${base64}`
+ */
+export interface ImageRef {
+	/** Original absolute src URL of the image. */
+	src: string;
+	/** Base64-encoded image bytes. Omitted when the image is stored on disk. */
+	base64?: string;
+	/** MIME type detected from Content-Type or src extension, e.g. "image/jpeg". */
+	mimeType: string;
+	/** Alt text from the <img> tag, empty string when absent. */
+	alt: string;
+	/** Path to the binary file when the image has been persisted to disk. */
+	filePath?: string;
+}
+
 /** An outbound link — one edge in the knowledge graph. */
 export interface Link {
 	href: string;
@@ -133,6 +157,12 @@ export interface LeanPage {
 
 	/** True when the page appears JS-rendered — metadata may be partial. */
 	jsRendered?: boolean;
+	/**
+	 * Number of other spidered pages that link to this page.
+	 * Populated when a PageGraph is passed to toLean(). Omitted otherwise.
+	 * Higher = more authoritative within the crawled corpus.
+	 */
+	inboundCount?: number;
 }
 
 // toLean() moved to views.ts. Import from there or from the package root.
@@ -175,6 +205,13 @@ export interface SpideredPage {
 	// --- graph edges ---
 	/** Outbound links from this page */
 	links: Link[];
+
+	// --- images (opt-in, requires captureImages: true) ---
+	/**
+	 * Images scraped from the article content.
+	 * Only populated when spider() is called with captureImages: true.
+	 */
+	images?: ImageRef[];
 
 	// --- full body (fallback / debug) ---
 	markdown: string;
