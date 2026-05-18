@@ -18,10 +18,8 @@
       "packages/pi-extension/src/index.ts"
     ]
   },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "file:../pi-mono/packages/coding-agent"
-  },
-  "dependencies": {
-    "typebox": "^1.1.38"
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   }
 }
