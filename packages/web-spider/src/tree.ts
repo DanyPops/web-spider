@@ -1,4 +1,8 @@
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
+
+// See parse.ts for rationale — a bare VirtualConsole silently drops all
+// jsdomError events so CSS parse failures never reach process.stderr.
+const silentConsole = new VirtualConsole();
 import type { DOMNode, TreeHit } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -211,7 +215,7 @@ function collapseWrapper(el: Element, pathPrefix: string, siblingIndex: Map<stri
  * single-child chains are simplified, and only semantic tags survive.
  */
 export function buildTree(articleHtml: string, baseUrl: string): DOMNode {
-	const dom = new JSDOM(articleHtml, { url: baseUrl });
+	const dom = new JSDOM(articleHtml, { url: baseUrl, virtualConsole: silentConsole });
 	const body = dom.window.document.body;
 
 	const children: DOMNode[] = [];

@@ -5,7 +5,14 @@
  * it never touches JSDOM directly.
  */
 
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
+
+// Shared silent virtual console — suppresses all jsdomError events (CSS parse
+// failures, resource load errors, etc.) so they never reach process.stderr.
+// JSDOM's default is (new VirtualConsole()).forwardTo(console), which routes
+// every jsdomError to console.error → process.stderr → raw terminal.
+// A bare VirtualConsole with no listeners silently drops every event.
+const silentConsole = new VirtualConsole();
 import type { Link, SpideredPage } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +25,7 @@ import type { Link, SpideredPage } from "./types.js";
  * importing JSDOM directly, keeping external deps in one place per module.
  */
 export function parseDom(html: string, url: string): Document {
-	return new JSDOM(html, { url }).window.document;
+	return new JSDOM(html, { url, virtualConsole: silentConsole }).window.document;
 }
 
 // ---------------------------------------------------------------------------
