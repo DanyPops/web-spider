@@ -35,7 +35,7 @@ export default async function (pi: ExtensionAPI) {
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
-  const { spider, crawl, searchPages, SpiderCache, PageGraph, webSearch, PlaywrightHttpClient,
+  const { spider, crawl, searchPages, SpiderCache, PageGraph, PlaywrightHttpClient,
           queryTree, navigateTree } = lib
 
   // Shared Playwright browser — launched lazily on first use, reused across
@@ -123,52 +123,6 @@ export default async function (pi: ExtensionAPI) {
   // ---------------------------------------------------------------------------
   // Path handlers — each owns one execution branch. SRP: one reason to change.
   // ---------------------------------------------------------------------------
-
-  /** Search path: params.searchQuery is set. */
-  async function handleSearch(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
-    let results: lib.WebSearchResult[]
-    try {
-      results = await webSearch(params.searchQuery!, {
-        engine: params.searchEngine,
-        numResults: params.numResults ?? 10,
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-        details: {},
-      }
-    }
-
-    if (params.searchEnrich) {
-      const enriched = await Promise.allSettled(
-        results.slice(0, params.numResults ?? 10).map((r) =>
-          fetchPage(r.url)
-            .then((page) => omitEmpty({
-              url: r.url,
-              title: r.title,
-              snippet: r.snippet,
-              publishedAt: r.publishedAt,
-              wordCount: page.wordCount,
-              headings: page.headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
-            }))
-            .catch(() => ({ url: r.url, title: r.title, snippet: r.snippet }))
-        )
-      )
-      return {
-        content: [{ type: "text", text: JSON.stringify({
-          query: params.searchQuery,
-          results: enriched.map((r) => r.status === "fulfilled" ? r.value : null).filter(Boolean),
-        }) }],
-        details: { engine: params.searchEngine ?? "auto", count: results.length, enriched: true },
-      }
-    }
-
-    return {
-      content: [{ type: "text", text: JSON.stringify({ query: params.searchQuery, results }) }],
-      details: { engine: params.searchEngine ?? "auto", count: results.length },
-    }
-  }
 
   /** Crawl path: depth > 0. */
   async function handleCrawl(params: Params) {
@@ -351,13 +305,6 @@ export default async function (pi: ExtensionAPI) {
     label: "Web Fetch",
     description: [
       "Fetch a URL and return its content. Optionally crawl to a given depth.",
-      "Can also search the web when searchQuery is provided instead of a URL.",
-      "",
-      "SEARCH",
-      "  searchQuery       — search the web instead of fetching a URL.",
-      "  searchEngine      — 'brave', 'tavily', or 'exa'. Auto-detected from env vars.",
-      "  numResults        — number of results (default 10).",
-      "  Requires BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
       "",
       "DEPTH",
       "  depth=0 (default) — fetch the single URL.",
@@ -397,32 +344,9 @@ export default async function (pi: ExtensionAPI) {
       "  robots.txt is checked and respected before each fetch.",
     ].join("\n"),
     promptSnippet:
-      "Fetch URL or search: format=markdown/lean/links/highlights, searchQuery, depth, rootSelector, tokenBudget",
+      "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
     parameters: Type.Object({
       url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
-
-      searchQuery: Type.Optional(
-        Type.String({
-          description:
-            "Web search query. When provided, searches the web instead of fetching a URL. " +
-            "Requires BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY env var.",
-        })
-      ),
-      searchEngine: Type.Optional(
-        Type.Union([Type.Literal("brave"), Type.Literal("tavily"), Type.Literal("exa")], {
-          description: "Search engine. Auto-detected from available API keys if omitted.",
-        })
-      ),
-      numResults: Type.Optional(
-        Type.Number({ description: "Number of search results (default 10)." })
-      ),
-      searchEnrich: Type.Optional(
-        Type.Boolean({
-          description:
-            "When true, auto-fetch each search result in lean format and return lean pages " +
-            "alongside search results. Saves a round-trip for search-then-triage workflows.",
-        })
-      ),
 
       depth: Type.Optional(
         Type.Number({
@@ -516,11 +440,9 @@ export default async function (pi: ExtensionAPI) {
       try {
         const fetchPage = buildFetchPage(params)
 
-        if (params.searchQuery) return handleSearch(params, fetchPage)
-
         if (!params.url) {
           return {
-            content: [{ type: "text", text: JSON.stringify({ error: "Provide either url or searchQuery." }) }],
+            content: [{ type: "text", text: JSON.stringify({ error: "url is required." }) }],
             details: {},
           }
         }
