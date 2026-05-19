@@ -43,7 +43,7 @@ describe("execute() error contract: never throws, always returns content", () =>
     expect(text).toHaveProperty("error")
   })
 
-  it("missing url and searchQuery returns error, does not throw", async () => {
+  it("missing url returns error, does not throw", async () => {
     const result = await h.invokeTool("web_fetch", {}) as any
     expect(result).toHaveProperty("content")
     const text = JSON.parse(result.content[0].text)
@@ -60,17 +60,4 @@ describe("execute() error contract: never throws, always returns content", () =>
     expect(text).toHaveProperty("error")
   })
 
-  it("search with no API key returns content, does not throw", async () => {
-    const env = { ...process.env }
-    delete process.env.BRAVE_SEARCH_API_KEY
-    delete process.env.TAVILY_API_KEY
-    delete process.env.EXA_API_KEY
-    try {
-      const result = await h.invokeTool("web_fetch", { searchQuery: "test query" }) as any
-      expect(result).toHaveProperty("content")
-      expect(result.content[0]).toHaveProperty("text")
-    } finally {
-      Object.assign(process.env, env)
-    }
-  })
 })

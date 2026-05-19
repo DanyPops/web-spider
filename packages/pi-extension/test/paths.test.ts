@@ -255,45 +255,6 @@ describe("single-page path — highlights", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Search path
-// ---------------------------------------------------------------------------
-
-describe("search path", () => {
-  let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(async () => {
-    execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
-  })
-  afterEach(() => {
-    fetchSpy.mockRestore()
-    delete process.env["BRAVE_SEARCH_API_KEY"]
-  })
-
-  it("returns error when no search key is configured", async () => {
-    const result = await execute("1", { searchQuery: "test query" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
-  })
-
-  it("returns results when BRAVE_SEARCH_API_KEY is set", async () => {
-    process.env["BRAVE_SEARCH_API_KEY"] = "test-key"
-    const result = await execute("1", { searchQuery: "web scraping" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.query).toBe("web scraping")
-    expect(Array.isArray(body.results)).toBe(true)
-    expect(body.results.length).toBeGreaterThan(0)
-  })
-
-  it("returns error when neither url nor searchQuery provided", async () => {
-    const result = await execute("1", {})
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Crawl path (depth > 0)
 // ---------------------------------------------------------------------------
 
