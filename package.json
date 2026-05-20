@@ -11,7 +11,8 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
-    "check": "npm run check --workspaces"
+    "check": "npm run check --workspaces",
+    "postinstall": "find node_modules -path '*/tr46/index.js' -exec sed -i 's|require(\"punycode/\")|require(\"punycode\")|g' {} +"
   },
   "pi": {
     "extensions": [
