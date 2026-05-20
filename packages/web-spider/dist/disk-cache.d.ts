@@ -52,6 +52,8 @@ export declare class DiskCache implements ICache<string, SpideredPage> {
     /** Write current contents to disk. Large images are spilled to imagesDir. */
     flush(): void;
     private load;
+    /** All currently valid (non-expired) pages, sorted newest-first. */
+    values(): SpideredPage[];
     /** Retrieve a page, hydrating any file-backed images from disk. */
     get(url: string): SpideredPage | undefined;
 }

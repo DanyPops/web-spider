@@ -39,6 +39,8 @@ export interface ICache<K, V> {
     set(key: K, value: V): void;
     has(key: K): boolean;
     delete(key: K): void;
+    /** All currently valid (non-expired) values. */
+    values(): V[];
 }
 /**
  * Per-domain request throttle port.
