@@ -121,6 +121,15 @@ export default async function (pi: ExtensionAPI) {
   }
 
   // ---------------------------------------------------------------------------
+  // Local materialized view helpers
+  // ---------------------------------------------------------------------------
+
+  /** All non-expired cached pages as an array. */
+  function cachedPages(): lib.SpideredPage[] {
+    return cache.values()
+  }
+
+  // ---------------------------------------------------------------------------
   // Path handlers — each owns one execution branch. SRP: one reason to change.
   // ---------------------------------------------------------------------------
 
@@ -190,6 +199,75 @@ export default async function (pi: ExtensionAPI) {
     const page = await spider(url, { view: "tree", timeoutMs })
     treeCache.set(url, page.tree)
     return page.tree
+  }
+
+  /**
+   * Cache listing path: no url, no query.
+   * Returns lean summaries of all cached pages, with grep/offset/limit filters.
+   * Defaults to lean format — the full set could be hundreds of pages.
+   */
+  function handleCacheListing(params: Params) {
+    let pages = cachedPages()
+    const total = pages.length
+
+    if (params.grep?.trim()) {
+      const pat = params.grep.toLowerCase()
+      pages = pages.filter(
+        (p) =>
+          p.url.toLowerCase().includes(pat) ||
+          p.title.toLowerCase().includes(pat) ||
+          p.domain.toLowerCase().includes(pat) ||
+          (p.description ?? "").toLowerCase().includes(pat),
+      )
+    }
+
+    const filtered = pages.length
+    const offset = params.offset ?? 0
+    const limit = Math.min(params.limit ?? 20, 100) // hard cap at 100
+    const slice = pages.slice(offset, offset + limit)
+    const remaining = filtered - offset - slice.length
+
+    const meta = omitEmpty({
+      total,
+      filtered: filtered !== total ? filtered : undefined,
+      offset: offset || undefined,
+      limit,
+      remaining: remaining > 0 ? remaining : undefined,
+    })
+
+    return {
+      content: [{ type: "text", text: JSON.stringify({ ...meta, pages: slice.map(leanOutput) }) }],
+      details: { format: "lean", total, filtered, offset, limit },
+    }
+  }
+
+  /**
+   * Cache search path: no url, query provided.
+   * BM25F search across all cached pages (including previous sessions).
+   */
+  function handleCacheSearch(params: Params) {
+    const pages = cachedPages()
+    if (pages.length === 0) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: "Local cache is empty. Fetch some pages first with depth=0 or depth>0." }) }],
+        details: {},
+      }
+    }
+
+    const topN = params.limit ?? 10
+    const hits = searchPages(pages, params.query!, { topN, snippetRadius: 150 })
+    return {
+      content: [{ type: "text", text: JSON.stringify(omitEmpty({
+        query: params.query,
+        pagesSearched: pages.length,
+        hits: hits.map((h) => ({
+          url: h.url,
+          ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
+        })),
+        hint: hits.length === 0 ? "No matches. Try broader terms, or list cached pages with web_fetch(format=lean) and no url." : undefined,
+      })) }],
+      details: { format: "highlights", pagesSearched: pages.length, hits: hits.length },
+    }
   }
 
   /** Single-page path: depth === 0, url provided. */
@@ -305,6 +383,14 @@ export default async function (pi: ExtensionAPI) {
     label: "Web Fetch",
     description: [
       "Fetch a URL and return its content. Optionally crawl to a given depth.",
+      "Can also search the web when searchQuery is provided instead of a URL.",
+      "",
+      "LOCAL MATERIALIZED VIEW (no url)",
+      "  Omit url to query the local page cache (disk-backed, survives restarts).",
+      "  No url, no query  — list all cached pages in lean format.",
+      "  No url, query=X  — BM25F full-text search across all cached pages.",
+      "  grep=X           — filter list by url/title/domain/description substring.",
+      "  offset/limit     — paginate results (default limit 20, hard cap 100).",
       "",
       "DEPTH",
       "  depth=0 (default) — fetch the single URL.",
@@ -405,6 +491,23 @@ export default async function (pi: ExtensionAPI) {
         })
       ),
 
+      grep: Type.Optional(
+        Type.String({
+          description:
+            "Filter cached pages by substring match on url, title, domain, or description. Only applies when url is omitted (local cache listing).",
+        })
+      ),
+      offset: Type.Optional(
+        Type.Number({
+          description: "Skip first N results when listing or searching the local cache (pagination).",
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Max results to return from cache listing or search (default 20, hard cap 100 for listing, 10 for search).",
+        })
+      ),
+
       rootSelector: Type.Optional(
         Type.String({
           description:
@@ -440,11 +543,10 @@ export default async function (pi: ExtensionAPI) {
       try {
         const fetchPage = buildFetchPage(params)
 
+        // Local materialized view path — no url: query the cache directly.
         if (!params.url) {
-          return {
-            content: [{ type: "text", text: JSON.stringify({ error: "url is required." }) }],
-            details: {},
-          }
+          if (params.query?.trim()) return handleCacheSearch(params)
+          return handleCacheListing(params)
         }
 
         if ((params.depth ?? 0) > 0) return await handleCrawl(params)

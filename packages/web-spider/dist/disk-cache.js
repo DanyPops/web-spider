@@ -129,6 +129,17 @@ export class DiskCache {
             // Corrupt file — start fresh
         }
     }
+    /** All currently valid (non-expired) pages, sorted newest-first. */
+    values() {
+        const now = Date.now();
+        return [...this.store.values()]
+            .filter((e) => e.expiresAt > now)
+            .sort((a, b) => b.expiresAt - a.expiresAt)
+            .map((e) => {
+            const page = e.page;
+            return page.images ? { ...page, images: this.hydrate(page.images) } : page;
+        });
+    }
     /** Retrieve a page, hydrating any file-backed images from disk. */
     get(url) {
         const k = this.key(url);

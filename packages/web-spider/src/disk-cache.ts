@@ -164,6 +164,18 @@ export class DiskCache implements ICache<string, SpideredPage> {
 		}
 	}
 
+	/** All currently valid (non-expired) pages, sorted newest-first. */
+	values(): SpideredPage[] {
+		const now = Date.now();
+		return [...this.store.values()]
+			.filter((e) => e.expiresAt > now)
+			.sort((a, b) => b.expiresAt - a.expiresAt)
+			.map((e) => {
+				const page = e.page;
+				return page.images ? { ...page, images: this.hydrate(page.images) } : page;
+			});
+	}
+
 	/** Retrieve a page, hydrating any file-backed images from disk. */
 	get(url: string): SpideredPage | undefined {
 		const k = this.key(url);
