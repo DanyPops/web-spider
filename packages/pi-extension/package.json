@@ -1,6 +1,6 @@
 {
   "name": "@dpopsuev/pi-web-spider",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Pi extension: web_fetch, web_crawl, web_search — structured scraping for AI agents",
   "keywords": [
     "pi-package"
