@@ -43,11 +43,17 @@ describe("execute() error contract: never throws, always returns content", () =>
     expect(text).toHaveProperty("error")
   })
 
-  it("missing url returns error, does not throw", async () => {
+  it("missing url returns cache listing (not error), does not throw", async () => {
+    // No url → local materialized view path: returns cache listing, not an error.
+    // This is intentional: omitting url is the way to query the session cache.
     const result = await h.invokeTool("web_fetch", {}) as any
     expect(result).toHaveProperty("content")
     const text = JSON.parse(result.content[0].text)
-    expect(text).toHaveProperty("error")
+    expect(text).not.toHaveProperty("error")
+    expect(text).toHaveProperty("total")
+    expect(typeof text.total).toBe("number")
+    expect(text).toHaveProperty("pages")
+    expect(Array.isArray(text.pages)).toBe(true)
   })
 
   it("highlights without query returns error, does not throw", async () => {

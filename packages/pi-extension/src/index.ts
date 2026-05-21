@@ -43,8 +43,20 @@ export default async function (pi: ExtensionAPI) {
   // headless fingerprint signals). Null if playwright-core is not installed.
   let playwrightClient: InstanceType<typeof PlaywrightHttpClient> | null = null
   const getPlaywrightClient = () => {
-    if (!playwrightClient) playwrightClient = new PlaywrightHttpClient()
+    if (!playwrightClient) {
+      // WEB_SPIDER_PLAYWRIGHT_EXECUTABLE — override Chrome binary path (e.g. /nonexistent to fail fast in tests).
+      const executablePath = process.env["WEB_SPIDER_PLAYWRIGHT_EXECUTABLE"]
+      playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined)
+    }
     return playwrightClient
+  }
+
+  // stderr: never pollutes the tool JSON output on stdout.
+  const log = (level: "info" | "warn" | "error", msg: string, extra?: unknown) => {
+    const line = extra !== undefined
+      ? `[web_fetch:${level}] ${msg} ${JSON.stringify(extra)}`
+      : `[web_fetch:${level}] ${msg}`
+    process.stderr.write(line + "\n")
   }
 
   // throttle.js and robots.js are loaded as side-effects of crawl.js before
@@ -109,9 +121,20 @@ export default async function (pi: ExtensionAPI) {
     return async (url: string): Promise<lib.SpideredPage> => {
       const hit = cache.get(url)
       if (hit) return hit
+      log("info", "fetching", { url, enhanced: params.enhanced ?? false })
       let page = await spider(url, spiderOpts)
+      log("info", "plain fetch done", { url, wordCount: page.wordCount, jsRendered: page.jsRendered })
       if (page.jsRendered && !params.enhanced) {
-        page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
+
+        log("info", "jsRendered detected, retrying with Playwright", { url })
+        try {
+          page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
+          log("info", "Playwright fetch done", { url, wordCount: page.wordCount })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          log("error", "Playwright fallback failed", { url, error: msg })
+          throw new Error(`Playwright fallback failed: ${msg}`)
+        }
       }
       cache.set(url, page)
       corpus.push(page)
