@@ -30,6 +30,11 @@ export interface PageGraphSnapshot {
  *
  * All graph queries return plain data — no PageNode references —
  * so the graph is trivially serialisable.
+ *
+ * Internal storage uses plain objects (Object.create(null)) rather than
+ * Maps. Plain objects carry no realm-specific internal slots, making them
+ * safe across V8 context (realm) boundaries — e.g. when the graph is
+ * constructed in an ESM module realm but called from a jiti VM-sandbox.
  */
 export declare class PageGraph {
     private readonly nodes;

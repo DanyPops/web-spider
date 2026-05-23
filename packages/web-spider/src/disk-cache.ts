@@ -14,7 +14,7 @@
  * across V8 context (realm) boundaries — e.g. when DiskCache is constructed
  * in an ESM module realm but called from a jiti VM-sandbox realm (Bun binary
  * mode). The Map-backed version threw "Map operation called on non-Map object"
- * in that scenario (WBS-BUG-4).
+ * in that scenario.
  *
  * A schema version field in the persisted JSON guards against stale cache
  * files from previous major versions being silently loaded with wrong shapes.

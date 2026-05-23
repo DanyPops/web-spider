@@ -100,11 +100,11 @@ export function searchPages(pages, query, opts = {}) {
     const fullQuery = query.trim().toLowerCase();
     const queryTokens = tokenise(query);
     return results.slice(0, topN).map((r) => ({
-        url: r["url"],
-        chunkId: r["chunkId"],
-        heading: r["heading"],
+        url: String(r["url"]),
+        chunkId: String(r["chunkId"]),
+        heading: String(r["heading"]),
         score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
-        snippet: buildSnippet(r["text"], fullQuery, queryTokens, snippetRadius),
+        snippet: buildSnippet(String(r["text"]), fullQuery, queryTokens, snippetRadius),
     }));
 }
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */
