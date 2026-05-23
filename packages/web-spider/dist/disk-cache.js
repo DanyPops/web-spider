@@ -3,13 +3,30 @@
  *
  * Persists to a JSON file so the cache survives extension reloads and
  * pi restarts. Call flush() to write — set() auto-flushes by default.
+ *
+ * The images directory is derived automatically from `dirname(path)/images`.
+ * Callers do not need to create it — DiskCache creates it on first large-image
+ * flush. Pre-creating it at startup (e.g. in the extension boot path) is
+ * harmless and avoids a first-write delay.
+ *
+ * Internal storage uses a plain object (Object.create(null)) rather than a
+ * Map. Plain objects carry no realm-specific internal slots, making them safe
+ * across V8 context (realm) boundaries — e.g. when DiskCache is constructed
+ * in an ESM module realm but called from a jiti VM-sandbox realm (Bun binary
+ * mode). The Map-backed version threw "Map operation called on non-Map object"
+ * in that scenario.
+ *
+ * A schema version field in the persisted JSON guards against stale cache
+ * files from previous major versions being silently loaded with wrong shapes.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
+/** Bump when the on-disk entry shape changes incompatibly. */
+const SCHEMA_VERSION = 2;
 export class DiskCache {
     constructor(path, opts = {}) {
-        this.store = new Map();
+        this.store = Object.create(null);
         this.path = path;
         this.ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
         this.maxSize = opts.maxSize ?? 500;
@@ -30,11 +47,12 @@ export class DiskCache {
     }
     set(url, page) {
         const k = this.key(url);
-        if (this.store.size >= this.maxSize && !this.store.has(k)) {
-            const oldest = this.store.keys().next().value;
-            this.store.delete(oldest);
+        if (Object.keys(this.store).length >= this.maxSize && !(k in this.store)) {
+            const oldest = Object.keys(this.store)[0];
+            if (oldest !== undefined)
+                delete this.store[oldest];
         }
-        this.store.set(k, { page, expiresAt: Date.now() + this.ttlMs });
+        this.store[k] = { page, expiresAt: Date.now() + this.ttlMs };
         if (this.autoFlush)
             this.flush();
     }
@@ -42,7 +60,7 @@ export class DiskCache {
         return this.get(url) !== undefined;
     }
     delete(url) {
-        this.store.delete(this.key(url));
+        delete this.store[this.key(url)];
         if (this.autoFlush)
             this.flush();
     }
@@ -67,12 +85,11 @@ export class DiskCache {
         }
         return images.map((img) => {
             if (!img.base64 || img.base64.length <= this.inlineImageThreshold) {
-                return img; // keep inline
+                return img;
             }
             const filename = this.imageFilename(img.src);
             const filePath = join(this.imagesDir, filename);
             writeFileSync(filePath, Buffer.from(img.base64, "base64"));
-            // Return without base64 — only filePath stored in JSON.
             const { base64: _omit, ...rest } = img;
             return { ...rest, filePath };
         });
@@ -86,7 +103,7 @@ export class DiskCache {
             if (img.base64 || !img.filePath)
                 return img;
             if (!existsSync(img.filePath))
-                return img; // file missing — degrade gracefully
+                return img;
             try {
                 const base64 = readFileSync(img.filePath).toString("base64");
                 return { ...img, base64 };
@@ -103,8 +120,8 @@ export class DiskCache {
     flush() {
         const now = Date.now();
         const entries = {};
-        for (const [k, v] of this.store) {
-            if (v.expiresAt <= now)
+        for (const [k, v] of Object.entries(this.store)) {
+            if (!v || v.expiresAt <= now)
                 continue;
             const page = v.page;
             const serialised = page.images
@@ -112,28 +129,37 @@ export class DiskCache {
                 : page;
             entries[k] = { page: serialised, expiresAt: v.expiresAt };
         }
-        writeFileSync(this.path, JSON.stringify(entries), "utf8");
+        const payload = { v: SCHEMA_VERSION, entries };
+        writeFileSync(this.path, JSON.stringify(payload), "utf8");
     }
     load() {
         if (!existsSync(this.path))
             return;
         try {
             const raw = JSON.parse(readFileSync(this.path, "utf8"));
+            // Reject files from incompatible schema versions (including old
+            // unversioned files that lack the "v" field entirely).
+            if (typeof raw !== "object" ||
+                raw === null ||
+                raw.v !== SCHEMA_VERSION) {
+                return; // stale schema — start fresh, do not throw
+            }
+            const payload = raw;
             const now = Date.now();
-            for (const [k, v] of Object.entries(raw)) {
+            for (const [k, v] of Object.entries(payload.entries)) {
                 if (v.expiresAt > now)
-                    this.store.set(k, v);
+                    this.store[k] = v;
             }
         }
         catch {
-            // Corrupt file — start fresh
+            // Corrupt or unreadable file — start fresh.
         }
     }
     /** All currently valid (non-expired) pages, sorted newest-first. */
     values() {
         const now = Date.now();
-        return [...this.store.values()]
-            .filter((e) => e.expiresAt > now)
+        return Object.values(this.store)
+            .filter((e) => e !== undefined && e.expiresAt > now)
             .sort((a, b) => b.expiresAt - a.expiresAt)
             .map((e) => {
             const page = e.page;
@@ -143,11 +169,11 @@ export class DiskCache {
     /** Retrieve a page, hydrating any file-backed images from disk. */
     get(url) {
         const k = this.key(url);
-        const entry = this.store.get(k);
+        const entry = this.store[k];
         if (!entry)
             return undefined;
         if (Date.now() > entry.expiresAt) {
-            this.store.delete(k);
+            delete this.store[k];
             return undefined;
         }
         const page = entry.page;

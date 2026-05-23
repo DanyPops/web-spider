@@ -3,6 +3,21 @@
  *
  * Persists to a JSON file so the cache survives extension reloads and
  * pi restarts. Call flush() to write — set() auto-flushes by default.
+ *
+ * The images directory is derived automatically from `dirname(path)/images`.
+ * Callers do not need to create it — DiskCache creates it on first large-image
+ * flush. Pre-creating it at startup (e.g. in the extension boot path) is
+ * harmless and avoids a first-write delay.
+ *
+ * Internal storage uses a plain object (Object.create(null)) rather than a
+ * Map. Plain objects carry no realm-specific internal slots, making them safe
+ * across V8 context (realm) boundaries — e.g. when DiskCache is constructed
+ * in an ESM module realm but called from a jiti VM-sandbox realm (Bun binary
+ * mode). The Map-backed version threw "Map operation called on non-Map object"
+ * in that scenario.
+ *
+ * A schema version field in the persisted JSON guards against stale cache
+ * files from previous major versions being silently loaded with wrong shapes.
  */
 import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";

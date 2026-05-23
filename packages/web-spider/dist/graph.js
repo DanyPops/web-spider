@@ -6,18 +6,23 @@
  *
  * All graph queries return plain data — no PageNode references —
  * so the graph is trivially serialisable.
+ *
+ * Internal storage uses plain objects (Object.create(null)) rather than
+ * Maps. Plain objects carry no realm-specific internal slots, making them
+ * safe across V8 context (realm) boundaries — e.g. when the graph is
+ * constructed in an ESM module realm but called from a jiti VM-sandbox.
  */
 export class PageGraph {
     constructor() {
-        this.nodes = new Map();
+        this.nodes = Object.create(null);
         /** url → outbound edges */
-        this.out = new Map();
+        this.out = Object.create(null);
         /** url → inbound source urls */
-        this.in_ = new Map();
+        this.in_ = Object.create(null);
     }
     /** Add or update a node from a spidered page. */
     addPage(page) {
-        this.nodes.set(page.url, {
+        this.nodes[page.url] = {
             url: page.url,
             domain: page.domain,
             title: page.title,
@@ -25,8 +30,7 @@ export class PageGraph {
             wordCount: page.wordCount,
             fetchedAt: page.fetchedAt,
             chunkCount: page.chunks.length,
-        });
-        // Wire edges from the page's outbound links
+        };
         for (const link of page.links) {
             if (!link.href)
                 continue;
@@ -36,36 +40,39 @@ export class PageGraph {
     /** Add a directed edge without requiring the target to be spidered yet. */
     addEdge(from, to, text, isExternal) {
         const edge = { from, to, text, isExternal };
-        const existing = this.out.get(from) ?? [];
-        // Deduplicate by (from, to)
+        const existing = this.out[from] ?? [];
         if (!existing.some((e) => e.to === to)) {
-            this.out.set(from, [...existing, edge]);
+            this.out[from] = [...existing, edge];
         }
-        const inbound = this.in_.get(to) ?? [];
+        const inbound = this.in_[to] ?? [];
         if (!inbound.includes(from)) {
-            this.in_.set(to, [...inbound, from]);
+            this.in_[to] = [...inbound, from];
         }
     }
     node(url) {
-        return this.nodes.get(url);
+        return this.nodes[url];
     }
     /** Outbound edges from a node. */
     outbound(url) {
-        return this.out.get(url) ?? [];
+        return this.out[url] ?? [];
     }
     /** URLs that link TO this page. */
     inbound(url) {
-        return this.in_.get(url) ?? [];
+        return this.in_[url] ?? [];
     }
     /** Pages with no inbound links — entry points to the graph. */
     roots() {
-        return [...this.nodes.values()].filter((n) => (this.in_.get(n.url) ?? []).length === 0);
+        return Object.values(this.nodes)
+            .filter((n) => n !== undefined && (this.in_[n.url] ?? []).length === 0);
     }
     /** Pages with no outbound links to other spidered nodes. */
     sinks() {
-        return [...this.nodes.values()].filter((n) => {
-            const edges = this.out.get(n.url) ?? [];
-            return !edges.some((e) => this.nodes.has(e.to));
+        return Object.values(this.nodes)
+            .filter((n) => {
+            if (!n)
+                return false;
+            const edges = this.out[n.url] ?? [];
+            return !edges.some((e) => e.to in this.nodes);
         });
     }
     /** BFS shortest path between two page URLs. Returns null if unreachable. */
@@ -77,10 +84,10 @@ export class PageGraph {
         while (queue.length > 0) {
             const path = queue.shift();
             const current = path[path.length - 1];
-            for (const edge of this.out.get(current) ?? []) {
+            for (const edge of this.out[current] ?? []) {
                 if (edge.to === to)
                     return [...path, to];
-                if (!visited.has(edge.to) && this.nodes.has(edge.to)) {
+                if (!visited.has(edge.to) && edge.to in this.nodes) {
                     visited.add(edge.to);
                     queue.push([...path, edge.to]);
                 }
@@ -97,42 +104,50 @@ export class PageGraph {
         const queue = [startUrl];
         while (queue.length > 0) {
             const url = queue.shift();
-            for (const edge of this.out.get(url) ?? []) {
-                if (!visited.has(edge.to) && this.nodes.has(edge.to)) {
+            for (const edge of this.out[url] ?? []) {
+                if (!visited.has(edge.to) && edge.to in this.nodes) {
                     visited.add(edge.to);
                     queue.push(edge.to);
                 }
             }
         }
         visited.delete(startUrl);
-        return [...visited].map((u) => this.nodes.get(u)).filter(Boolean);
+        return [...visited].map((u) => this.nodes[u]).filter((n) => n !== undefined);
     }
     /** Nodes ranked by inbound link count (highest first). */
     byPageRank() {
-        return [...this.nodes.values()]
-            .map((n) => ({ node: n, inboundCount: (this.in_.get(n.url) ?? []).length }))
+        return Object.values(this.nodes)
+            .filter((n) => n !== undefined)
+            .map((n) => ({ node: n, inboundCount: (this.in_[n.url] ?? []).length }))
             .sort((a, b) => b.inboundCount - a.inboundCount);
     }
     get nodeCount() {
-        return this.nodes.size;
+        return Object.keys(this.nodes).length;
     }
     get edgeCount() {
         let total = 0;
-        for (const edges of this.out.values())
-            total += edges.length;
+        for (const edges of Object.values(this.out)) {
+            if (edges)
+                total += edges.length;
+        }
         return total;
     }
     /** Plain snapshot — safe to JSON.stringify or embed. */
     toJSON() {
         const edges = [];
-        for (const edgeList of this.out.values())
-            edges.push(...edgeList);
-        return { nodes: [...this.nodes.values()], edges };
+        for (const edgeList of Object.values(this.out)) {
+            if (edgeList)
+                edges.push(...edgeList);
+        }
+        return {
+            nodes: Object.values(this.nodes).filter((n) => n !== undefined),
+            edges,
+        };
     }
     static fromJSON(snap) {
         const g = new PageGraph();
         for (const n of snap.nodes)
-            g.nodes.set(n.url, n);
+            g.nodes[n.url] = n;
         for (const e of snap.edges)
             g.addEdge(e.from, e.to, e.text, e.isExternal);
         return g;

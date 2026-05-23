@@ -93,6 +93,30 @@ export default async function (pi: ExtensionAPI) {
     }
   })()
   const graph = new PageGraph()
+
+  // ---------------------------------------------------------------------------
+  // Boot probe — logs the internal storage type of cache and graph so we can
+  // confirm whether the realm fix (plain objects) is active in this session.
+  // ---------------------------------------------------------------------------
+  {
+    const cacheInternal = (cache as unknown as Record<string, unknown>)
+    const storeRaw = cacheInternal["store"] ?? cacheInternal["map"]
+    const graphInternal = (graph as unknown as Record<string, unknown>)
+    process.stderr.write(JSON.stringify({
+      tag: "[web_fetch:boot-probe]",
+      cacheClass: cache.constructor.name,
+      // Is the internal storage a Map or a plain object?
+      storeTag:       Object.prototype.toString.call(storeRaw),
+      storeIsMap:     storeRaw instanceof Map,
+      // Does the Map constructor used inside the library match the one
+      // visible here in the extension's realm?
+      libMapSameRef:  (lib as unknown as Record<string, unknown>)["Map"] === undefined
+                        ? "lib does not re-export Map (expected)"
+                        : String((lib as unknown as Record<string, unknown>)["Map"] === Map),
+      extMapTag:      Object.prototype.toString.call(Map),
+      nodesTag:       Object.prototype.toString.call(graphInternal["nodes"]),
+    }) + "\n")
+  }
   const corpus: lib.SpideredPage[] = []
 
   // ---------------------------------------------------------------------------
@@ -116,27 +140,46 @@ export default async function (pi: ExtensionAPI) {
   function buildFetchPage(params: Params) {
     const spiderOpts = buildSpiderOpts(params)
     return async (url: string): Promise<lib.SpideredPage> => {
-      const hit = cache.get(url)
-      if (hit) return hit
-      log("info", "fetching", { url, enhanced: params.enhanced ?? false })
-      let page = await spider(url, spiderOpts)
-      log("info", "plain fetch done", { url, wordCount: page.wordCount, jsRendered: page.jsRendered })
-      if (page.jsRendered && !params.enhanced) {
+      // Label each cross-realm call so the first-to-throw is identifiable
+      // in stderr even when the top-level catch swallows the site detail.
+      let probe = "cache.get"
+      try {
+        const hit = cache.get(url)
+        if (hit) return hit
 
-        log("info", "jsRendered detected, retrying with Playwright", { url })
-        try {
-          page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
-          log("info", "Playwright fetch done", { url, wordCount: page.wordCount })
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          log("error", "Playwright fallback failed", { url, error: msg })
-          throw new Error(`Playwright fallback failed: ${msg}`)
+        log("info", "fetching", { url, enhanced: params.enhanced ?? false })
+        probe = "spider"
+        let page = await spider(url, spiderOpts)
+        log("info", "plain fetch done", { url, wordCount: page.wordCount, jsRendered: page.jsRendered })
+
+        if (page.jsRendered && !params.enhanced) {
+          log("info", "jsRendered detected, retrying with Playwright", { url })
+          probe = "spider(playwright)"
+          try {
+            page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
+            log("info", "Playwright fetch done", { url, wordCount: page.wordCount })
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            log("error", "Playwright fallback failed", { url, error: msg })
+            throw new Error(`Playwright fallback failed: ${msg}`)
+          }
         }
+
+        probe = "cache.set"
+        cache.set(url, page)
+        corpus.push(page)
+        probe = "graph.addPage"
+        graph.addPage(page)
+        return page
+      } catch (err) {
+        // Re-log with the probe label so we know which call threw.
+        log("error", "cross-realm op threw", {
+          probe,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack?.split("\n").slice(0, 6).join(" | ") : undefined,
+        })
+        throw err
       }
-      cache.set(url, page)
-      corpus.push(page)
-      graph.addPage(page)
-      return page
     }
   }
 

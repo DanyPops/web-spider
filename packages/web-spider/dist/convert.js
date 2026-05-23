@@ -5,9 +5,6 @@
  * it never imports Turndown directly.
  */
 import TurndownService from "turndown";
-// ---------------------------------------------------------------------------
-// Turndown setup
-// ---------------------------------------------------------------------------
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 // Disable escape — Turndown escapes markdown-special chars by default,
 // producing backslash noise that is unnatural for agent consumption.
@@ -18,7 +15,6 @@ turndown.addRule("strip-images", {
     filter: "img",
     replacement: () => "",
 });
-// A separate Turndown instance that preserves images as ![alt](src).
 const turndownWithImages = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 turndownWithImages.escape = (s) => s;
 /** Convert Readability article HTML to clean markdown. */

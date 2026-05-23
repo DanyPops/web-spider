@@ -17,7 +17,6 @@ import { DomainThrottle } from "./throttle.js";
  */
 export async function crawl(startUrl, opts = {}) {
     const { maxDepth = 2, maxPages = 50, sameDomainOnly = true, concurrency = 3, delayMs = 500, cache = new SpiderCache(), graph = new PageGraph(), onPage, urlFilter, respectRobots = true, useSitemap = true, ...spiderOpts } = opts;
-    // Build shared throttle and robots cache for the whole crawl.
     const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
     const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
     const httpClient = spiderOpts.httpClient;
@@ -44,7 +43,6 @@ export async function crawl(startUrl, opts = {}) {
             return false;
         return true;
     };
-    // Fetch a batch of URLs with concurrency limit.
     // Throttle and robots.txt are handled inside spider() via shared instances.
     const fetchBatch = async (urls, depth) => {
         let index = 0;
@@ -81,7 +79,6 @@ export async function crawl(startUrl, opts = {}) {
             tryNext();
         });
     };
-    // Optionally seed frontier from sitemap before BFS.
     let frontier = [startUrl];
     seen.add(startUrl);
     if (useSitemap) {
@@ -105,13 +102,11 @@ export async function crawl(startUrl, opts = {}) {
             break;
         if (pages.size + errors.size >= maxPages)
             break;
-        // Cap the frontier to not exceed maxPages
         const remaining = maxPages - pages.size - errors.size;
         const batch = frontier.slice(0, remaining);
         await fetchBatch(batch, depth);
         if (depth === maxDepth)
             break;
-        // Collect next level from all pages spidered at this depth
         const nextFrontier = [];
         for (const url of batch) {
             const page = pages.get(url);
