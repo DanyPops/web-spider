@@ -81,9 +81,6 @@ export default async function (pi: ExtensionAPI) {
   const cache = (() => {
     const cachePath = process.env["WEB_SPIDER_CACHE_PATH"]
       ?? join(homedir(), ".cache", "web-spider", "pages.json")
-    // Images dir: honour override env var, otherwise derive from cache path.
-    // DiskCache always derives its own imagesDir from dirname(path)/images,
-    // so this block just ensures the directory exists at startup.
     const imagesDir = process.env["WEB_SPIDER_IMAGES_PATH"]
       ?? join(homedir(), ".cache", "web-spider", "images")
     try {
@@ -160,9 +157,10 @@ export default async function (pi: ExtensionAPI) {
   async function handleCrawl(params: Params) {
     const spiderOpts = buildSpiderOpts(params)
     const fmt = params.format ?? "markdown"
-    const depth = params.depth!
+    const depth = params.depth ?? 0
+    const url = params.url ?? ""
 
-    const result = await crawl(params.url!, {
+    const result = await crawl(url, {
       maxDepth: depth,
       maxPages: params.maxPages ?? 10,
       sameDomainOnly: params.sameDomain ?? true,
@@ -278,17 +276,16 @@ export default async function (pi: ExtensionAPI) {
     }
 
     const topN = params.limit ?? 10
-    const hits = searchPages(pages, params.query!, { topN, snippetRadius: 150 })
+    const hits = searchPages(pages, params.query ?? "", { topN, snippetRadius: 150 })
     return {
-      content: [{ type: "text", text: JSON.stringify(omitEmpty({
-        query: params.query,
-        pagesSearched: pages.length,
+      content: [{ type: "text", text: JSON.stringify({
+        ...omitEmpty({ query: params.query, pagesSearched: pages.length }),
         hits: hits.map((h) => ({
           url: h.url,
           ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
         })),
-        hint: hits.length === 0 ? "No matches. Try broader terms, or list cached pages with web_fetch(format=lean) and no url." : undefined,
-      })) }],
+        ...(hits.length === 0 ? { hint: "No matches. Try broader terms, or list cached pages with web_fetch(format=lean) and no url." } : {}),
+      }) }],
       details: { format: "highlights", pagesSearched: pages.length, hits: hits.length },
     }
   }
@@ -296,11 +293,12 @@ export default async function (pi: ExtensionAPI) {
   /** Single-page path: depth === 0, url provided. */
   async function handleSinglePage(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
     const fmt = params.format ?? "markdown"
+    const url = params.url ?? ""
 
     // ── Tree formats ───────────────────────────────────────────────────────────────
     if (fmt === "tree") {
       try {
-        const tree = await fetchTree(params.url!, params.timeoutMs)
+        const tree = await fetchTree(url, params.timeoutMs)
 
         // path= → navigate to a specific node
         if (params.path) {
@@ -351,7 +349,7 @@ export default async function (pi: ExtensionAPI) {
       }
     }
 
-    const page = await fetchPage(params.url!)
+    const page = await fetchPage(url)
 
     if (fmt === "lean") {
       return {
@@ -379,13 +377,11 @@ export default async function (pi: ExtensionAPI) {
       }
       const hits = searchPages([page], params.query, { topN: 5, snippetRadius: 150 })
       return {
-        content: [{ type: "text", text: JSON.stringify(omitEmpty({
-          url: page.url,
-          title: page.title,
-          query: params.query,
+        content: [{ type: "text", text: JSON.stringify({
+          ...omitEmpty({ url: page.url, title: page.title, query: params.query }),
           hits: hits.map((h) => highlightHit(h, page.chunks)),
-          hint: hits.length === 0 ? "No matches. Try broader terms or use format=markdown." : undefined,
-        })) }],
+          ...(hits.length === 0 ? { hint: "No matches. Try broader terms or use format=markdown." } : {}),
+        }) }],
         details: { format: "highlights", hits: hits.length },
       }
     }

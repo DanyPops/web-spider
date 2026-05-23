@@ -80,8 +80,8 @@ describe("DiskCache hybrid image persistence", () => {
 		cache.set("https://example.com", page);
 		cache.flush();
 
-		const raw = JSON.parse(readFileSync(cachePath(), "utf8"));
-		const entry = Object.values(raw)[0] as { page: SpideredPage };
+		const raw = JSON.parse(readFileSync(cachePath(), "utf8")) as { entries: Record<string, { page: SpideredPage }> };
+		const entry = Object.values(raw.entries)[0];
 		expect(entry.page.images![0].base64).toBe(b64);
 		expect(entry.page.images![0].filePath).toBeUndefined();
 	});
@@ -94,8 +94,8 @@ describe("DiskCache hybrid image persistence", () => {
 		cache.set("https://example.com", page);
 		cache.flush();
 
-		const raw = JSON.parse(readFileSync(cachePath(), "utf8"));
-		const entry = Object.values(raw)[0] as { page: SpideredPage };
+		const raw = JSON.parse(readFileSync(cachePath(), "utf8")) as { entries: Record<string, { page: SpideredPage }> };
+		const entry = Object.values(raw.entries)[0];
 		const storedImg = entry.page.images![0];
 
 		expect(storedImg.base64).toBeUndefined();
@@ -128,8 +128,8 @@ describe("DiskCache hybrid image persistence", () => {
 		cache1.flush();
 
 		// Read the JSON to find the file path, then delete it
-		const raw = JSON.parse(readFileSync(cachePath(), "utf8"));
-		const entry = Object.values(raw)[0] as { page: SpideredPage };
+		const raw = JSON.parse(readFileSync(cachePath(), "utf8")) as { entries: Record<string, { page: SpideredPage }> };
+		const entry = Object.values(raw.entries)[0];
 		const filePath = entry.page.images![0].filePath!;
 		rmSync(filePath);
 

@@ -19,12 +19,17 @@ export interface SpiderCacheOptions {
  * Implements the Identity Map pattern from Local Materialized View:
  * exactly one entry per normalised URL — duplicate fetches never happen.
  *
- * Uses a JS Map for O(1) get/set. Because Map preserves insertion order,
- * moving an entry to the tail on access gives LRU semantics with no
- * secondary data structure needed.
+ * Uses a plain object (Object.create(null)) for storage rather than a Map.
+ * Plain objects carry no realm-specific internal slots, so they are safe
+ * across V8 context (realm) boundaries — e.g. when the cache is constructed
+ * in an ESM module realm but called from a jiti VM-sandbox realm.
+ *
+ * JavaScript objects maintain insertion order for string keys (ES2015+),
+ * so delete-then-reinsert gives the same LRU-tail promotion semantics as a
+ * Map without any cross-realm risk.
  */
 export class SpiderCache implements ICache<string, SpideredPage> {
-	private readonly map = new Map<string, CacheEntry>();
+	private readonly store: Record<string, CacheEntry | undefined> = Object.create(null);
 	private readonly maxSize: number;
 	private readonly ttlMs: number;
 
@@ -46,26 +51,26 @@ export class SpiderCache implements ICache<string, SpideredPage> {
 
 	get(url: string): SpideredPage | undefined {
 		const k = this.key(url);
-		const entry = this.map.get(k);
+		const entry = this.store[k];
 		if (!entry) return undefined;
 		if (Date.now() > entry.expiresAt) {
-			this.map.delete(k);
+			delete this.store[k];
 			return undefined;
 		}
-		// Move to tail — most recently used
-		this.map.delete(k);
-		this.map.set(k, entry);
+		// Promote to tail (most-recently-used) by delete + reinsert.
+		// Object insertion order is preserved for string keys in ES2015+.
+		delete this.store[k];
+		this.store[k] = entry;
 		return entry.page;
 	}
 
 	set(url: string, page: SpideredPage): void {
 		const k = this.key(url);
-		// Evict LRU (head of map) if at capacity
-		if (this.map.size >= this.maxSize && !this.map.has(k)) {
-			const lruKey = this.map.keys().next().value as string;
-			this.map.delete(lruKey);
+		if (Object.keys(this.store).length >= this.maxSize && !(k in this.store)) {
+			const lruKey = Object.keys(this.store)[0];
+			if (lruKey !== undefined) delete this.store[lruKey];
 		}
-		this.map.set(k, { page, expiresAt: Date.now() + this.ttlMs });
+		this.store[k] = { page, expiresAt: Date.now() + this.ttlMs };
 	}
 
 	has(url: string): boolean {
@@ -73,20 +78,22 @@ export class SpiderCache implements ICache<string, SpideredPage> {
 	}
 
 	delete(url: string): void {
-		this.map.delete(this.key(url));
+		delete this.store[this.key(url)];
 	}
 
 	clear(): void {
-		this.map.clear();
+		for (const k of Object.keys(this.store)) delete this.store[k];
 	}
 
 	get size(): number {
-		return this.map.size;
+		return Object.keys(this.store).length;
 	}
 
 	/** All currently valid pages (does not update LRU order). */
 	values(): SpideredPage[] {
 		const now = Date.now();
-		return [...this.map.values()].filter((e) => e.expiresAt > now).map((e) => e.page);
+		return Object.values(this.store)
+			.filter((e): e is CacheEntry => e !== undefined && e.expiresAt > now)
+			.map((e) => e.page);
 	}
 }

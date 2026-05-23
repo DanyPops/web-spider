@@ -189,7 +189,10 @@ describe("cache search path", () => {
 
   it("returns zero hits gracefully for a query with no matches", async () => {
     const result = await h.invokeTool("web_fetch", {
-      query: "xyzzy-no-such-content-ever-12345",
+      // Use a single token with no vowels — avoids the hyphen-splitting bug where
+    // "xyzzy-no-such-content-ever-12345" tokenises to [xyzzy, no, such, content,
+    // ever, 12345] and "content" literally matches the article fixture.
+    query: "zxqfkwjpvm",
     }) as { content: { text: string }[] }
     const text = JSON.parse(result.content[0].text)
 

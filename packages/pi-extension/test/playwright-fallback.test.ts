@@ -109,9 +109,14 @@ let h: ExtensionHarness
 
 beforeEach(async () => {
   const { default: factory } = await import("../src/index.js")
+  // Unique path per test — prevents cache hits from a previous test's successful
+  // fetch from bypassing Playwright in subsequent error-propagation tests.
+  // Without isolation the first test caches the page, later tests return it
+  // immediately from DiskCache.load(), and Playwright is never invoked.
+  const cachePath = `/tmp/ws-playwright-fallback-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
   h = createExtensionHarness(factory, {
     cwd: "/tmp",
-    env: { WEB_SPIDER_CACHE_PATH: "/tmp/ws-playwright-fallback-test.json" },
+    env: { WEB_SPIDER_CACHE_PATH: cachePath },
   })
   await h.boot()
 })
