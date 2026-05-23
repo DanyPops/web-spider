@@ -36,15 +36,20 @@ const getAll = (flag) => {
 
 const extensionPath = get("--extension");
 const toolName      = get("--tool") ?? "web_fetch";
-const paramsJson    = get("--params") ?? "{}";
+// Support multiple --params flags: each is one sequential tool invocation in the
+// same process (same extension instance, same cache object). This is essential for
+// cache round-trip tests where the second call must cross the realm boundary into
+// an already-populated in-memory cache.
+const allParamsJson = getAll("--params");
+if (allParamsJson.length === 0) allParamsJson.push("{}");
 const envOverrides  = Object.fromEntries(getAll("--env").map(s => s.split("=", 2)));
 
 if (!extensionPath) { process.stderr.write("--extension required\n"); process.exit(1); }
 
 for (const [k, v] of Object.entries(envOverrides)) process.env[k] = v;
 
-// Jiti with production Pi Node.js settings: alias map, tryNative defaults to true.
-// tryNative:false (test harness) is what breaks vi.mock interception — this avoids it.
+// tryNative:true (default) — matches the real Pi Node.js binary.
+// The test harness uses tryNative:false, which breaks vi.mock interception.
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const piDistRoot = resolve(__dirname, "../../../../../pi-mono/packages/coding-agent/dist");
 const require    = createRequire(import.meta.url);
@@ -64,7 +69,7 @@ const tools = new Map();
 
 const pi = {
   registerTool({ name, execute }) { tools.set(name, execute); },
-  on() {},                    // lifecycle events — no-op
+  on() {},
   registerCommand() {},
   ui: { notify() {} },
 };
@@ -90,17 +95,19 @@ if (!execute) {
   process.exit(1);
 }
 
-const params = JSON.parse(paramsJson);
-
-emit({ type: "tool_execution_start", toolName, args: params });
-
-try {
-  const result = await execute(`mock-call-${Date.now()}`, params);
-  emit({ type: "tool_execution_end", toolName, result });
-  emit({ type: "exit", code: 0 });
-} catch (err) {
-  emit({ type: "tool_execution_error", toolName, error: err?.message ?? String(err) });
-  emit({ type: "exit", code: 1 });
+for (const paramsJson of allParamsJson) {
+  const params = JSON.parse(paramsJson);
+  emit({ type: "tool_execution_start", toolName, args: params });
+  try {
+    const result = await execute(`mock-call-${Date.now()}`, params);
+    emit({ type: "tool_execution_end", toolName, result });
+  } catch (err) {
+    emit({ type: "tool_execution_error", toolName, error: err?.message ?? String(err) });
+    emit({ type: "exit", code: 1 });
+    process.exit(1);
+  }
 }
+
+emit({ type: "exit", code: 0 });
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }

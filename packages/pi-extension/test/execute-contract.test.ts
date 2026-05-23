@@ -1,12 +1,6 @@
 /**
- * execute() contract tests.
- *
- * Pi extensions must never throw from execute() — unhandled exceptions
- * propagate to the TUI and produce noise or crashes. Every error path
- * must return { content: [{ type: "text", text: JSON.stringify({ error }) }] }.
- *
- * Uses createExtensionHarness from @earendil-works/pi-coding-agent/testing
- * so the boot setup is one line rather than a hand-rolled stub.
+ * execute() contract: never throw, always return content.
+ * Unhandled exceptions propagate to the Pi TUI and crash the session.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
@@ -22,6 +16,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await h.shutdown()
+})
+
+describe("stream hygiene: extension must not write to stdout or stderr", () => {
+  it("boot produces no stdout/stderr leaks", () => {
+    expect(h.leaks).toHaveLength(0)
+  })
 })
 
 describe("execute() error contract: never throws, always returns content", () => {
