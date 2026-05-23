@@ -12,11 +12,14 @@ import type { Chunk, ChunkType } from "./types.js";
 // Turndown setup
 // ---------------------------------------------------------------------------
 
+// TurndownService exposes .escape as a mutable internal — not in @types/turndown.
+interface PatchableTurndown { escape: (s: string) => string }
+
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 
 // Disable escape — Turndown escapes markdown-special chars by default,
 // producing backslash noise that is unnatural for agent consumption.
-(turndown as unknown as { escape: (s: string) => string }).escape = (s) => s;
+(turndown as unknown as PatchableTurndown).escape = (s) => s;
 
 // Strip images by default — agents cannot see them and alt-text is noise.
 // Disabled when keepImages: true is passed to toMarkdown().
@@ -25,9 +28,8 @@ turndown.addRule("strip-images", {
 	replacement: () => "",
 });
 
-// A separate Turndown instance that preserves images as ![alt](src).
 const turndownWithImages = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
-(turndownWithImages as unknown as { escape: (s: string) => string }).escape = (s) => s;
+(turndownWithImages as unknown as PatchableTurndown).escape = (s) => s;
 // Default Turndown behaviour already renders <img> as ![alt](src) — no extra rule needed.
 
 // ---------------------------------------------------------------------------

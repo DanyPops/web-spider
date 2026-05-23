@@ -161,11 +161,11 @@ export function searchPages(pages: SpideredPage[], query: string, opts: FuzzySea
 	const queryTokens = tokenise(query);
 
 	return results.slice(0, topN).map((r) => ({
-		url: r["url"] as string,
-		chunkId: r["chunkId"] as string,
-		heading: r["heading"] as string,
+		url: String(r["url"]),
+		chunkId: String(r["chunkId"]),
+		heading: String(r["heading"]),
 		score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
-		snippet: buildSnippet(r["text"] as string, fullQuery, queryTokens, snippetRadius),
+		snippet: buildSnippet(String(r["text"]), fullQuery, queryTokens, snippetRadius),
 	}));
 }
 

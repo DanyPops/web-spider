@@ -76,7 +76,6 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		...spiderOpts
 	} = opts;
 
-	// Build shared throttle and robots cache for the whole crawl.
 	const throttle = spiderOpts.throttle ?? new DomainThrottle({ minDelayMs: delayMs });
 	const robotsCache = spiderOpts.robotsCache ?? (respectRobots ? new RobotsCache(spiderOpts.userAgent) : undefined);
 	const httpClient = spiderOpts.httpClient;
@@ -100,7 +99,6 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		return true;
 	};
 
-	// Fetch a batch of URLs with concurrency limit.
 	// Throttle and robots.txt are handled inside spider() via shared instances.
 	const fetchBatch = async (urls: string[], depth: number): Promise<void> => {
 		let index = 0;
@@ -139,7 +137,6 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		});
 	};
 
-	// Optionally seed frontier from sitemap before BFS.
 	let frontier = [startUrl];
 	seen.add(startUrl);
 
@@ -164,7 +161,6 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		if (frontier.length === 0) break;
 		if (pages.size + errors.size >= maxPages) break;
 
-		// Cap the frontier to not exceed maxPages
 		const remaining = maxPages - pages.size - errors.size;
 		const batch = frontier.slice(0, remaining);
 
@@ -172,7 +168,6 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 
 		if (depth === maxDepth) break;
 
-		// Collect next level from all pages spidered at this depth
 		const nextFrontier: string[] = [];
 		for (const url of batch) {
 			const page = pages.get(url);
