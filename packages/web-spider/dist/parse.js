@@ -15,12 +15,35 @@ const silentConsole = new VirtualConsole();
 // DOM creation
 // ---------------------------------------------------------------------------
 /**
+ * Strip all inline styles and <style> blocks from HTML.
+ * Used as a fallback when JSDOM's CSS engine throws — styles are irrelevant
+ * for Readability content extraction and link/heading enumeration.
+ */
+function stripStyles(html) {
+    return html
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/\s+style="[^"]*"/gi, "");
+}
+/**
  * Parse raw HTML into a DOM Document.
  * Centralises the JSDOM dependency — spider.ts calls this instead of
  * importing JSDOM directly, keeping external deps in one place per module.
+ *
+ * JSDOM's CSS property parser uses module-level Maps that can fail with
+ * "Map operation called on non-Map object" in certain loader environments
+ * (e.g. jiti's CJS transform pipeline). When that happens, styles are
+ * stripped and parsing is retried — structure, links, and headings survive.
  */
 export function parseDom(html, url) {
-    return new JSDOM(html, { url, virtualConsole: silentConsole }).window.document;
+    try {
+        return new JSDOM(html, { url, virtualConsole: silentConsole }).window.document;
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes("Map operation"))
+            throw err;
+        return new JSDOM(stripStyles(html), { url, virtualConsole: silentConsole }).window.document;
+    }
 }
 // ---------------------------------------------------------------------------
 // Nav classification

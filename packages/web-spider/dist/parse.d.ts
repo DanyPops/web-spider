@@ -9,6 +9,11 @@ import type { Link, SpideredPage } from "./types.js";
  * Parse raw HTML into a DOM Document.
  * Centralises the JSDOM dependency — spider.ts calls this instead of
  * importing JSDOM directly, keeping external deps in one place per module.
+ *
+ * JSDOM's CSS property parser uses module-level Maps that can fail with
+ * "Map operation called on non-Map object" in certain loader environments
+ * (e.g. jiti's CJS transform pipeline). When that happens, styles are
+ * stripped and parsing is retried — structure, links, and headings survive.
  */
 export declare function parseDom(html: string, url: string): Document;
 /** True if el or any ancestor up to 5 levels looks like navigation chrome. */
