@@ -20,6 +20,7 @@
  *   EXA_API_KEY           — https://exa.ai (neural/semantic search)
  */
 import { existsSync, mkdirSync, appendFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -119,6 +120,15 @@ export default async function (pi: ExtensionAPI) {
                         : String((lib as unknown as Record<string, unknown>)["Map"] === Map),
       extMapTag:      Object.prototype.toString.call(Map),
       nodesTag:       Object.prototype.toString.call(graphInternal["nodes"]),
+      // Resolve the actual path jiti loaded @dpopsuev/web-spider from.
+      // createRequire resolves from index.ts's location, matching jiti's lookup.
+      resolvedPkg: (() => {
+        try {
+          return createRequire(import.meta.url).resolve("@dpopsuev/web-spider")
+        } catch (e) {
+          return String(e)
+        }
+      })(),
     })
   }
   const corpus: lib.SpideredPage[] = []
