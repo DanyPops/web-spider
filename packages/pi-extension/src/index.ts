@@ -19,7 +19,7 @@
  *   TAVILY_API_KEY        — https://tavily.com ($1k free credits)
  *   EXA_API_KEY           — https://exa.ai (neural/semantic search)
  */
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, mkdirSync, appendFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -52,6 +52,13 @@ export default async function (pi: ExtensionAPI) {
   }
 
   // stderr: never pollutes the tool JSON output on stdout.
+  // Diagnostics also written to a file readable inside the session.
+  const diagPath = join(homedir(), ".cache", "web-spider", "diag.log")
+  const diag = (entry: Record<string, unknown>) => {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry })
+    process.stderr.write(line + "\n")
+    try { appendFileSync(diagPath, line + "\n") } catch { /* best-effort */ }
+  }
   const log = (level: "info" | "warn" | "error", msg: string, extra?: unknown) => {
     const line = extra !== undefined
       ? `[web_fetch:${level}] ${msg} ${JSON.stringify(extra)}`
@@ -102,20 +109,17 @@ export default async function (pi: ExtensionAPI) {
     const cacheInternal = (cache as unknown as Record<string, unknown>)
     const storeRaw = cacheInternal["store"] ?? cacheInternal["map"]
     const graphInternal = (graph as unknown as Record<string, unknown>)
-    process.stderr.write(JSON.stringify({
-      tag: "[web_fetch:boot-probe]",
+    diag({
+      tag: "boot-probe",
       cacheClass: cache.constructor.name,
-      // Is the internal storage a Map or a plain object?
       storeTag:       Object.prototype.toString.call(storeRaw),
       storeIsMap:     storeRaw instanceof Map,
-      // Does the Map constructor used inside the library match the one
-      // visible here in the extension's realm?
       libMapSameRef:  (lib as unknown as Record<string, unknown>)["Map"] === undefined
                         ? "lib does not re-export Map (expected)"
                         : String((lib as unknown as Record<string, unknown>)["Map"] === Map),
       extMapTag:      Object.prototype.toString.call(Map),
       nodesTag:       Object.prototype.toString.call(graphInternal["nodes"]),
-    }) + "\n")
+    })
   }
   const corpus: lib.SpideredPage[] = []
 
@@ -172,8 +176,8 @@ export default async function (pi: ExtensionAPI) {
         graph.addPage(page)
         return page
       } catch (err) {
-        // Re-log with the probe label so we know which call threw.
-        log("error", "cross-realm op threw", {
+        diag({
+          tag: "call-site-throw",
           probe,
           error: err instanceof Error ? err.message : String(err),
           stack: err instanceof Error ? err.stack?.split("\n").slice(0, 6).join(" | ") : undefined,
