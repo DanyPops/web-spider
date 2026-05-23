@@ -1,26 +1,9 @@
 /**
- * @dpopsuev/pi-web-spider
+ * @dpopsuev/pi-web-spider — Pi extension exposing web_fetch.
  *
- * Pi extension: one tool, web_fetch, with format and depth as parameters.
- *
- *   depth=0  (default) — fetch a single URL
- *   depth>0            — BFS crawl, returns per-page summaries, caches all pages
- *
- *   format=markdown    — full markdown body + metadata
- *   format=lean        — headings + links only, no body (~10-20x fewer tokens)
- *   format=links       — outbound links only
- *   format=highlights  — BM25F search the page(s), return matching text blocks
- *
- * Install:
- *   pi install git:github.com/dpopsuev/web-spider
- *
- * Search API keys (optional):
- *   BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/ ($5 free/mo)
- *   TAVILY_API_KEY        — https://tavily.com ($1k free credits)
- *   EXA_API_KEY           — https://exa.ai (neural/semantic search)
+ * Install: pi install git:github.com/dpopsuev/web-spider
  */
 import { existsSync, mkdirSync, appendFileSync } from "node:fs"
-import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -39,53 +22,36 @@ export default async function (pi: ExtensionAPI) {
   const { spider, crawl, searchPages, SpiderCache, PageGraph, PlaywrightHttpClient,
           queryTree, navigateTree } = lib
 
-  // Shared Playwright browser — launched lazily on first use, reused across
-  // all requests. Stealth plugin is applied automatically (patches ~15
-  // headless fingerprint signals). Null if playwright-core is not installed.
+  // Browser processes are expensive — one shared instance per session.
   let playwrightClient: InstanceType<typeof PlaywrightHttpClient> | null = null
   const getPlaywrightClient = () => {
     if (!playwrightClient) {
-      // WEB_SPIDER_PLAYWRIGHT_EXECUTABLE — override Chrome binary path (e.g. /nonexistent to fail fast in tests).
+      // /nonexistent in tests forces an immediate launch failure rather than a hang.
       const executablePath = process.env["WEB_SPIDER_PLAYWRIGHT_EXECUTABLE"]
       playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined)
     }
     return playwrightClient
   }
 
-  // stderr: never pollutes the tool JSON output on stdout.
-  // Diagnostics also written to a file readable inside the session.
-  const diagPath = join(homedir(), ".cache", "web-spider", "diag.log")
+  // Diagnostics go only to a file — never to stdout/stderr, which belong to Pi's TUI.
+  const diagPath = process.env["WEB_SPIDER_DIAG_PATH"] ?? join(homedir(), ".cache", "web-spider", "diag.log")
   const diag = (entry: Record<string, unknown>) => {
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry })
-    process.stderr.write(line + "\n")
     try { appendFileSync(diagPath, line + "\n") } catch { /* best-effort */ }
   }
   const log = (level: "info" | "warn" | "error", msg: string, extra?: unknown) => {
-    const line = extra !== undefined
-      ? `[web_fetch:${level}] ${msg} ${JSON.stringify(extra)}`
-      : `[web_fetch:${level}] ${msg}`
-    process.stderr.write(line + "\n")
+    diag({ level, msg, ...extra !== undefined ? { extra } : {} })
   }
 
-  // throttle.js and robots.js are loaded as side-effects of crawl.js before
-  // index.js processes its own re-exports for them. Under jiti tryNative:false
-  // (Bun binary mode) this causes their exports to be undefined via the barrel.
-  // Sub-path imports don't work either — jiti resolves the package name from
-  // the process cwd, which may find a different node_modules.
-  // Solution: don't import those modules in the extension at all. crawl()
-  // creates its own DomainThrottle and RobotsCache internally when none are
-  // passed (respectRobots:true is the default). Single-page spider() calls
-  // are one request and don't need session-level throttling.
-  // Disk-backed cache — survives extension reloads and pi restarts.
-  // Override paths via env vars:
-  //   WEB_SPIDER_CACHE_PATH   — path to the pages JSON index
-  //                             (default: ~/.cache/web-spider/pages.json)
-  //   WEB_SPIDER_IMAGES_PATH  — directory for large binary image files
-  //                             (default: ~/.cache/web-spider/images/)
-  //                             DiskCache derives this automatically from the
-  //                             cache file path, so this env var is for
-  //                             informational/override use by the caller.
-  // Falls back to in-memory SpiderCache if the path is not writable.
+  // throttle.js and robots.js become undefined via the barrel under jiti
+  // tryNative:false (Bun binary mode) — they load as side-effects of crawl.js
+  // before index.js finishes its own re-exports. crawl() creates its own
+  // DomainThrottle / RobotsCache internally, so we don't need to import them.
+  //
+  // WEB_SPIDER_CACHE_PATH   — pages JSON index (default: ~/.cache/web-spider/pages.json)
+  // WEB_SPIDER_IMAGES_PATH  — large image files; DiskCache derives this from
+  //                           dirname(cachePath)/images, so set only to override.
+  // Falls back to in-memory SpiderCache if the cache path is not writable.
   const cache = (() => {
     const cachePath = process.env["WEB_SPIDER_CACHE_PATH"]
       ?? join(homedir(), ".cache", "web-spider", "pages.json")
@@ -102,33 +68,14 @@ export default async function (pi: ExtensionAPI) {
   })()
   const graph = new PageGraph()
 
-  // ---------------------------------------------------------------------------
-  // Boot probe — logs the internal storage type of cache and graph so we can
-  // confirm whether the realm fix (plain objects) is active in this session.
-  // ---------------------------------------------------------------------------
   {
-    const cacheInternal = (cache as unknown as Record<string, unknown>)
-    const storeRaw = cacheInternal["store"] ?? cacheInternal["map"]
-    const graphInternal = (graph as unknown as Record<string, unknown>)
+    const storeRaw = (cache as unknown as Record<string, unknown>)["store"] ??
+                     (cache as unknown as Record<string, unknown>)["map"]
     diag({
       tag: "boot-probe",
-      cacheClass: cache.constructor.name,
-      storeTag:       Object.prototype.toString.call(storeRaw),
-      storeIsMap:     storeRaw instanceof Map,
-      libMapSameRef:  (lib as unknown as Record<string, unknown>)["Map"] === undefined
-                        ? "lib does not re-export Map (expected)"
-                        : String((lib as unknown as Record<string, unknown>)["Map"] === Map),
-      extMapTag:      Object.prototype.toString.call(Map),
-      nodesTag:       Object.prototype.toString.call(graphInternal["nodes"]),
-      // Resolve the actual path jiti loaded @dpopsuev/web-spider from.
-      // createRequire resolves from index.ts's location, matching jiti's lookup.
-      resolvedPkg: (() => {
-        try {
-          return createRequire(import.meta.url).resolve("@dpopsuev/web-spider")
-        } catch (e) {
-          return String(e)
-        }
-      })(),
+      cacheClass:  cache.constructor.name,
+      storeTag:    Object.prototype.toString.call(storeRaw),
+      storeIsMap:  storeRaw instanceof Map,
     })
   }
   const corpus: lib.SpideredPage[] = []
@@ -139,7 +86,6 @@ export default async function (pi: ExtensionAPI) {
 
   type Params = Parameters<Parameters<typeof pi.registerTool>[0]["execute"]>[1]
 
-  /** Build spider options from tool params. */
   function buildSpiderOpts(params: Params) {
     return {
       rootSelector: params.rootSelector,
@@ -150,12 +96,9 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  /** Return a fetchPage function bound to session state and request params. */
   function buildFetchPage(params: Params) {
     const spiderOpts = buildSpiderOpts(params)
     return async (url: string): Promise<lib.SpideredPage> => {
-      // Label each cross-realm call so the first-to-throw is identifiable
-      // in stderr even when the top-level catch swallows the site detail.
       let probe = "cache.get"
       try {
         const hit = cache.get(url)
@@ -201,7 +144,6 @@ export default async function (pi: ExtensionAPI) {
   // Local materialized view helpers
   // ---------------------------------------------------------------------------
 
-  /** All non-expired cached pages as an array. */
   function cachedPages(): lib.SpideredPage[] {
     return cache.values()
   }
@@ -210,7 +152,6 @@ export default async function (pi: ExtensionAPI) {
   // Path handlers — each owns one execution branch. SRP: one reason to change.
   // ---------------------------------------------------------------------------
 
-  /** Crawl path: depth > 0. */
   async function handleCrawl(params: Params) {
     const spiderOpts = buildSpiderOpts(params)
     const fmt = params.format ?? "markdown"
@@ -268,7 +209,7 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  // Separate in-memory tree cache — trees are large, session-scoped, not persisted.
+  // Trees are too large and volatile for DiskCache — session-scoped only.
   const treeCache = new Map<string, lib.DOMNode>()
 
   async function fetchTree(url: string, timeoutMs?: number): Promise<lib.DOMNode> {
@@ -279,11 +220,6 @@ export default async function (pi: ExtensionAPI) {
     return page.tree
   }
 
-  /**
-   * Cache listing path: no url, no query.
-   * Returns lean summaries of all cached pages, with grep/offset/limit filters.
-   * Defaults to lean format — the full set could be hundreds of pages.
-   */
   function handleCacheListing(params: Params) {
     let pages = cachedPages()
     const total = pages.length
@@ -319,10 +255,6 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  /**
-   * Cache search path: no url, query provided.
-   * BM25F search across all cached pages (including previous sessions).
-   */
   function handleCacheSearch(params: Params) {
     const pages = cachedPages()
     if (pages.length === 0) {
@@ -347,7 +279,6 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  /** Single-page path: depth === 0, url provided. */
   async function handleSinglePage(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
     const fmt = params.format ?? "markdown"
     const url = params.url ?? ""

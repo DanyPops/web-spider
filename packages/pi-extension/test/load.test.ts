@@ -1,17 +1,10 @@
 /**
- * Extension load tests.
+ * Extension load tests — two jiti modes.
  *
- * Two modes — mirrors how Pi actually loads extensions:
- *
- *   tryNative:false  The Bun binary mode. Class constructors from re-exported
- *                    ESM modules silently become undefined in this mode.
- *                    This is the failure class web-spider hit in production
- *                    before switching to dynamic import() in the factory.
- *
- *   tryNative:true   Node ESM baseline. Used for comparison.
- *
- * Uses loadExtensionViaJiti + createExtensionHarness from
- * @earendil-works/pi-coding-agent/testing rather than hand-rolling a stub.
+ * tryNative:false — Bun binary path. Class constructors from re-exported ESM
+ *   packages silently become undefined here; the factory uses dynamic import()
+ *   to avoid this.
+ * tryNative:true  — Node ESM baseline.
  */
 
 import { join, dirname } from "node:path"
@@ -55,11 +48,28 @@ describe("extension load — tryNative:false (Bun binary simulation)", () => {
 
 describe("extension load — tryNative:true (Node ESM baseline)", () => {
   it("registers web_fetch", async () => {
-    // Direct import — no jiti interop concerns
     const { default: factory } = await import("../src/index.js")
     const h = createExtensionHarness(factory, { cwd: "/tmp" })
     await h.boot()
     expect(h.tools.has("web_fetch")).toBe(true)
+    await h.shutdown()
+  })
+
+  it("execute() returns valid result on first call — no crash at the Map boundary", async () => {
+    // The Map realm bug only surfaces on the first execute() call, not at
+    // construction time. The e2e-jiti tests cover the production jiti context;
+    // this guards the simpler failure of execute() crashing at all.
+    const { default: factory } = await import("../src/index.js")
+    const h = createExtensionHarness(factory, { cwd: "/tmp" })
+    await h.boot()
+
+    const result = await h.invokeTool("web_fetch", {}) as { content: { text: string }[] }
+    expect(result).toHaveProperty("content")
+    const text = JSON.parse(result.content[0].text)
+    expect(text).not.toHaveProperty("error")
+    expect(text).toHaveProperty("total")
+    expect(typeof text.total).toBe("number")
+
     await h.shutdown()
   })
 })
