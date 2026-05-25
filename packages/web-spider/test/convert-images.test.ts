@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-15: TDD tests for toMarkdown() keepImages flag.
+ * TDD tests for toMarkdown() keepImages flag.
  */
 
 import { describe, expect, it } from "vitest";

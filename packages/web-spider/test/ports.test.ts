@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-12: TDD tests for HttpResponse.arrayBuffer()
+ * TDD tests for HttpResponse.arrayBuffer()
  *
  * All tests use stub HTTP clients — no real network.
  */

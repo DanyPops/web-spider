@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-9: TDD tests for PlaywrightHttpClient captureImages option.
+ * TDD tests for PlaywrightHttpClient captureImages option.
  *
  * No real browser is launched. We test:
  *   1. Option wiring — captureImages is stored and readable.

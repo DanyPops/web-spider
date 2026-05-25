@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-13: TDD tests for ImageRef and SpideredPage.images
+ * TDD tests for ImageRef and SpideredPage.images
  */
 
 import { describe, expect, it } from "vitest";

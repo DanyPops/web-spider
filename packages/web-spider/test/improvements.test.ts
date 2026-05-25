@@ -1,5 +1,5 @@
 /**
- * Tests for the six improvement tasks (PII-TSK-8 through PII-TSK-13).
+ * Tests for improvement tasks: JS degradation, chunk tokenBudget, sitemap discovery, disk cache.
  * Written before implementation — all should fail until code is in place.
  */
 
@@ -24,6 +24,7 @@ function mockClient(responses: Record<string, { status?: number; body: string }>
 				statusText: status === 200 ? "OK" : "Error",
 				headers: { get: () => null },
 				text: async () => entry.body,
+				arrayBuffer: async () => new ArrayBuffer(0),
 			};
 		},
 	};
@@ -38,10 +39,10 @@ const articleHtml = (title: string, body: string) => `<!DOCTYPE html>
 const LONG_BODY = `<p>${"Word ".repeat(300)}</p><h2>Section</h2><p>${"More words. ".repeat(300)}</p>`;
 
 // ---------------------------------------------------------------------------
-// PII-TSK-9: Graceful degradation on JS-rendered pages
+// Graceful degradation on JS-rendered pages
 // ---------------------------------------------------------------------------
 
-describe("PII-TSK-9: JS-rendered pages degrade gracefully", () => {
+describe("JS-rendered pages degrade gracefully", () => {
 	const jsHtml = `<!DOCTYPE html><html><head><title>App</title></head>
 <body><div id="root"></div><script>/* SPA */</script></body></html>`;
 
@@ -80,10 +81,10 @@ describe("PII-TSK-9: JS-rendered pages degrade gracefully", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PII-TSK-13: Chunk-aware tokenBudget
+// Chunk-aware tokenBudget
 // ---------------------------------------------------------------------------
 
-describe("PII-TSK-13: chunk-aware tokenBudget", () => {
+describe("chunk-aware tokenBudget", () => {
 	it("returns whole chunks up to budget, not truncated mid-sentence", async () => {
 		const page = await spider("https://example.com", {
 			httpClient: mockClient({ "*": { body: articleHtml("Test", LONG_BODY) } }),
@@ -126,10 +127,10 @@ describe("PII-TSK-13: chunk-aware tokenBudget", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PII-TSK-12: Sitemap discovery
+// Sitemap discovery
 // ---------------------------------------------------------------------------
 
-describe("PII-TSK-12: sitemap.xml seeds crawl frontier", () => {
+describe("sitemap.xml seeds crawl frontier", () => {
 	const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://example.com/page-a</loc></url>
@@ -188,6 +189,7 @@ describe("PII-TSK-12: sitemap.xml seeds crawl frontier", () => {
 					ok: true, status: 200, statusText: "OK",
 					headers: { get: () => null },
 					text: async () => pageHtml,
+					arrayBuffer: async () => new ArrayBuffer(0),
 				};
 			},
 		};
@@ -203,7 +205,7 @@ describe("PII-TSK-12: sitemap.xml seeds crawl frontier", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PII-TSK-11: Disk cache (tested via ICache contract)
+// Disk cache (tested via ICache contract)
 // ---------------------------------------------------------------------------
 
 import { DiskCache } from "../src/disk-cache.js";
@@ -212,7 +214,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SpideredPage } from "../src/types.js";
 
-describe("PII-TSK-11: DiskCache persists across instances", () => {
+describe("DiskCache persists across instances", () => {
 	function makePage(url: string): SpideredPage {
 		return {
 			url, domain: "example.com", fetchedAt: new Date().toISOString(),
