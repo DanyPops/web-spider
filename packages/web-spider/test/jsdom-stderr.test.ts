@@ -101,7 +101,7 @@ const HTML_MULTIPLE_CSS_ERRORS = `<!DOCTYPE html>
 function assertHtmlTriggersCssError(html: string, url = "https://example.com"): void {
 	const vc = new VirtualConsole();
 	let errorCount = 0;
-	vc.on("jsdomError", (e) => {
+	vc.on("jsdomError", (e: Error & { type?: string }) => {
 		if (e.type === "css-parsing") errorCount++;
 	});
 	new JSDOM(html, { url, virtualConsole: vc });

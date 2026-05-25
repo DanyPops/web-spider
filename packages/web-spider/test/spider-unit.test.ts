@@ -442,6 +442,7 @@ function makeHtmlResponse(html: string, status = 200): ReturnType<IHttpClient["f
 		statusText: status === 200 ? "OK" : "Error",
 		headers: { get: () => null },
 		text: () => Promise.resolve(html),
+		arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
 	});
 }
 

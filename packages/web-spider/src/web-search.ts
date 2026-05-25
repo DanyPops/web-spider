@@ -339,7 +339,7 @@ export function registerSearchEngine(name: string, factory: EngineFactory): void
  * Resolve a registered engine by name, passing the provided API key.
  * Throws a descriptive error for unknown names or missing required keys.
  */
-export function resolveSearchEngine(name: string, key: string | undefined): ISearchEngine {
+export function resolveSearchEngine(name: string, key?: string | undefined): ISearchEngine {
 	const factory = ENGINE_REGISTRY.get(name);
 	if (!factory) throw new Error(`Unknown search engine: "${name}". Register it with registerSearchEngine().`);
 	return factory(key);

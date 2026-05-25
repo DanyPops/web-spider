@@ -24,6 +24,7 @@ function mockClient(responses: Record<string, { status?: number; body: string }>
 				statusText: status === 200 ? "OK" : "Error",
 				headers: { get: () => null },
 				text: async () => entry.body,
+				arrayBuffer: async () => new ArrayBuffer(0),
 			};
 		},
 	};
@@ -188,6 +189,7 @@ describe("PII-TSK-12: sitemap.xml seeds crawl frontier", () => {
 					ok: true, status: 200, statusText: "OK",
 					headers: { get: () => null },
 					text: async () => pageHtml,
+					arrayBuffer: async () => new ArrayBuffer(0),
 				};
 			},
 		};
