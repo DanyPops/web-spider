@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-19: End-to-end captureImages integration tests.
+ * End-to-end captureImages integration tests.
  *
  * Covers the full pipeline:
  *   spider() → SpideredPage.images → DiskCache.flush() → DiskCache.get()

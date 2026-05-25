@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-3: TDD tests for getChunk(cache, url, index).
+ * TDD tests for getChunk(cache, url, index).
  */
 
 import { describe, expect, it } from "vitest";

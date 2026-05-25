@@ -442,6 +442,7 @@ function makeHtmlResponse(html: string, status = 200): ReturnType<IHttpClient["f
 		statusText: status === 200 ? "OK" : "Error",
 		headers: { get: () => null },
 		text: () => Promise.resolve(html),
+		arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
 	});
 }
 
@@ -517,12 +518,12 @@ describe("spider() with injected IHttpClient", () => {
 });
 
 // ---------------------------------------------------------------------------
-// WBS-TSK-2: Table-aware chunking — tables must be atomic
+// Table-aware chunking — tables must be atomic
 // ---------------------------------------------------------------------------
 
 import { chunk } from "../src/convert.js";
 
-describe("WBS-TSK-2: table-aware chunking", () => {
+describe("table-aware chunking", () => {
   const URL = "https://example.com/page";
 
   it("keeps a table in a single chunk", () => {

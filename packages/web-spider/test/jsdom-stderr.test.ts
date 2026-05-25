@@ -1,5 +1,5 @@
 /**
- * Regression tests for WBS-BUG-2:
+ * Regression tests:
  * JSDOM emits "Could not parse CSS stylesheet" to stderr on every page parse.
  *
  * Root cause: parseDom() passes no virtualConsole to JSDOM. The JSDOM default
@@ -101,7 +101,7 @@ const HTML_MULTIPLE_CSS_ERRORS = `<!DOCTYPE html>
 function assertHtmlTriggersCssError(html: string, url = "https://example.com"): void {
 	const vc = new VirtualConsole();
 	let errorCount = 0;
-	vc.on("jsdomError", (e) => {
+	vc.on("jsdomError", (e: Error & { type?: string }) => {
 		if (e.type === "css-parsing") errorCount++;
 	});
 	new JSDOM(html, { url, virtualConsole: vc });
@@ -176,7 +176,7 @@ describe("test fixture validation", () => {
 // They will start FAILING once parseDom() passes a silent VirtualConsole.
 // ---------------------------------------------------------------------------
 
-describe("WBS-BUG-2 — bug documentation: default JSDOM leaks CSS errors to console.error", () => {
+describe("bug documentation: default JSDOM leaks CSS errors to console.error", () => {
 	it("new JSDOM(html) WITHOUT silent virtualConsole calls console.error on broken CSS", () => {
 		const cap = captureOutput();
 		try {

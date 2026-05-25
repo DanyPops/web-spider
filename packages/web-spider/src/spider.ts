@@ -219,7 +219,7 @@ export async function spider(
 	opts?: SpiderOptions & { view?: "lean" | "full" | "tree" },
 ): Promise<SpideredPage | LeanPage | TreePage> {
 	const {
-		timeoutMs = 10_000,
+		timeoutMs = 30_000,
 		userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)",
 		view = "full",
 		rootSelector,

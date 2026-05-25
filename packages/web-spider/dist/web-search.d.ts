@@ -102,7 +102,7 @@ export declare function registerSearchEngine(name: string, factory: EngineFactor
  * Resolve a registered engine by name, passing the provided API key.
  * Throws a descriptive error for unknown names or missing required keys.
  */
-export declare function resolveSearchEngine(name: string, key: string | undefined): ISearchEngine;
+export declare function resolveSearchEngine(name: string, key?: string | undefined): ISearchEngine;
 /** Brave Search adapter implementing ISearchEngine. */
 export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;

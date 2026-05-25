@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-1: TDD tests for LeanPage.inboundCount via PageGraph.
+ * TDD tests for LeanPage.inboundCount via PageGraph.
  */
 
 import { describe, expect, it } from "vitest";

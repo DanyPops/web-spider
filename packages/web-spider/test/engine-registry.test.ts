@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-21: TDD tests for the search engine registry.
+ * TDD tests for the search engine registry.
  *
  * Adding a new engine must not require editing existing code —
  * only registering a new entry.

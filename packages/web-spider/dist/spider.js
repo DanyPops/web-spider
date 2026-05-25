@@ -121,7 +121,7 @@ async function fetchImages(articleHtml, pageUrl, httpClient, maxImages, throttle
     return results;
 }
 export async function spider(url, opts) {
-    const { timeoutMs = 10_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, } = opts ?? {};
+    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, } = opts ?? {};
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {

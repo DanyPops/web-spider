@@ -8,6 +8,8 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
+import type { Static } from "typebox"
+import type { SpideredPage, DOMNode } from "@dpopsuev/web-spider"
 import { bodyLinks, highlightHit, leanOutput, linksOutput, markdownOutput, navLinksCount, omitEmpty } from "./format.js"
 
 // ---------------------------------------------------------------------------
@@ -20,7 +22,7 @@ export default async function (pi: ExtensionAPI) {
   // Native import() always uses the "import" condition and returns proper ESM.
   const lib = await import("@dpopsuev/web-spider")
   const { spider, crawl, searchPages, SpiderCache, PageGraph, PlaywrightHttpClient,
-          queryTree, navigateTree } = lib
+          queryTree, navigateTree, defaultSearchEngine, DomainThrottle, RobotsCache } = lib
 
   // Browser processes are expensive — one shared instance per session.
   let playwrightClient: InstanceType<typeof PlaywrightHttpClient> | null = null
@@ -78,13 +80,18 @@ export default async function (pi: ExtensionAPI) {
       storeIsMap:  storeRaw instanceof Map,
     })
   }
-  const corpus: lib.SpideredPage[] = []
+  const corpus: SpideredPage[] = []
 
   // ---------------------------------------------------------------------------
   // Per-request helpers
   // ---------------------------------------------------------------------------
 
-  type Params = Parameters<Parameters<typeof pi.registerTool>[0]["execute"]>[1]
+  type Params = Static<typeof paramsSchema>
+
+  // Shared throttle + robots checker for single-page spider() calls.
+  // (crawl() creates its own internally; these cover depth=0 fetches.)
+  const sharedThrottle = new DomainThrottle({ minDelayMs: 500 })
+  const sharedRobots = new RobotsCache()
 
   function buildSpiderOpts(params: Params) {
     return {
@@ -93,12 +100,14 @@ export default async function (pi: ExtensionAPI) {
       tokenBudget: params.tokenBudget,
       timeoutMs: params.timeoutMs,
       httpClient: params.enhanced ? getPlaywrightClient() : undefined,
+      throttle: sharedThrottle,
+      robotsCache: sharedRobots,
     }
   }
 
   function buildFetchPage(params: Params) {
     const spiderOpts = buildSpiderOpts(params)
-    return async (url: string): Promise<lib.SpideredPage> => {
+    return async (url: string): Promise<SpideredPage> => {
       let probe = "cache.get"
       try {
         const hit = cache.get(url)
@@ -144,7 +153,7 @@ export default async function (pi: ExtensionAPI) {
   // Local materialized view helpers
   // ---------------------------------------------------------------------------
 
-  function cachedPages(): lib.SpideredPage[] {
+  function cachedPages(): SpideredPage[] {
     return cache.values()
   }
 
@@ -176,13 +185,13 @@ export default async function (pi: ExtensionAPI) {
     if (fmt === "highlights") {
       if (!params.query?.trim()) {
         return {
-          content: [{ type: "text", text: JSON.stringify({ error: "highlights format requires a query." }) }],
+          content: [{ type: "text" as const, text: JSON.stringify({ error: "highlights format requires a query." }) }],
           details: {},
         }
       }
       const hits = searchPages(pages, params.query, { topN: 8, snippetRadius: 150 })
       return {
-        content: [{ type: "text", text: JSON.stringify({
+        content: [{ type: "text" as const, text: JSON.stringify({
           query: params.query,
           pagesSearched: pages.length,
           hits: hits.map((h) => ({
@@ -204,15 +213,15 @@ export default async function (pi: ExtensionAPI) {
         }
 
     return {
-      content: [{ type: "text", text: JSON.stringify(summary) }],
+      content: [{ type: "text" as const, text: JSON.stringify(summary) }],
       details: { depth, pagesFound: result.pages.size },
     }
   }
 
   // Trees are too large and volatile for DiskCache — session-scoped only.
-  const treeCache = new Map<string, lib.DOMNode>()
+  const treeCache = new Map<string, DOMNode>()
 
-  async function fetchTree(url: string, timeoutMs?: number): Promise<lib.DOMNode> {
+  async function fetchTree(url: string, timeoutMs?: number): Promise<DOMNode> {
     const hit = treeCache.get(url)
     if (hit) return hit
     const page = await spider(url, { view: "tree", timeoutMs })
@@ -250,7 +259,7 @@ export default async function (pi: ExtensionAPI) {
     })
 
     return {
-      content: [{ type: "text", text: JSON.stringify({ ...meta, pages: slice.map(leanOutput) }) }],
+      content: [{ type: "text" as const, text: JSON.stringify({ ...meta, pages: slice.map(leanOutput) }) }],
       details: { format: "lean", total, filtered, offset, limit },
     }
   }
@@ -259,7 +268,7 @@ export default async function (pi: ExtensionAPI) {
     const pages = cachedPages()
     if (pages.length === 0) {
       return {
-        content: [{ type: "text", text: JSON.stringify({ error: "Local cache is empty. Fetch some pages first with depth=0 or depth>0." }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ error: "Local cache is empty. Fetch some pages first with depth=0 or depth>0." }) }],
         details: {},
       }
     }
@@ -267,7 +276,7 @@ export default async function (pi: ExtensionAPI) {
     const topN = params.limit ?? 10
     const hits = searchPages(pages, params.query ?? "", { topN, snippetRadius: 150 })
     return {
-      content: [{ type: "text", text: JSON.stringify({
+      content: [{ type: "text" as const, text: JSON.stringify({
         ...omitEmpty({ query: params.query, pagesSearched: pages.length }),
         hits: hits.map((h) => ({
           url: h.url,
@@ -293,12 +302,12 @@ export default async function (pi: ExtensionAPI) {
           const node = navigateTree(tree, params.path)
           if (!node) {
             return {
-              content: [{ type: "text", text: JSON.stringify({ error: `Path not found: ${params.path}` }) }],
+              content: [{ type: "text" as const, text: JSON.stringify({ error: `Path not found: ${params.path}` }) }],
               details: {},
             }
           }
           return {
-            content: [{ type: "text", text: JSON.stringify(node) }],
+            content: [{ type: "text" as const, text: JSON.stringify(node) }],
             details: { format: "tree", mode: "navigate", tag: node.tag, path: node.path },
           }
         }
@@ -307,7 +316,7 @@ export default async function (pi: ExtensionAPI) {
         if (params.query?.trim()) {
           const hits = queryTree(tree, params.query, { topN: params.topN ?? 5 })
           return {
-            content: [{ type: "text", text: JSON.stringify(omitEmpty({
+            content: [{ type: "text" as const, text: JSON.stringify(omitEmpty({
               url: params.url,
               query: params.query,
               hits: hits.map((h) => omitEmpty({
@@ -325,13 +334,13 @@ export default async function (pi: ExtensionAPI) {
 
         // no query, no path → return the full tree
         return {
-          content: [{ type: "text", text: JSON.stringify(tree) }],
+          content: [{ type: "text" as const, text: JSON.stringify(tree) }],
           details: { format: "tree", mode: "full" },
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         return {
-          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+          content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
           details: {},
         }
       }
@@ -341,14 +350,14 @@ export default async function (pi: ExtensionAPI) {
 
     if (fmt === "lean") {
       return {
-        content: [{ type: "text", text: JSON.stringify(leanOutput(page)) }],
+        content: [{ type: "text" as const, text: JSON.stringify(leanOutput(page)) }],
         details: { format: "lean", wordCount: page.wordCount },
       }
     }
 
     if (fmt === "links") {
       return {
-        content: [{ type: "text", text: JSON.stringify(linksOutput(page)) }],
+        content: [{ type: "text" as const, text: JSON.stringify(linksOutput(page)) }],
         details: { format: "links", bodyLinks: bodyLinks(page).length, navLinksCount: navLinksCount(page) },
       }
     }
@@ -356,7 +365,7 @@ export default async function (pi: ExtensionAPI) {
     if (fmt === "highlights") {
       if (!params.query?.trim()) {
         return {
-          content: [{ type: "text", text: JSON.stringify({
+          content: [{ type: "text" as const, text: JSON.stringify({
             error: "highlights format requires a query.",
             hint: "Pass query='what you are looking for', or use format=markdown to read the full page.",
           }) }],
@@ -365,7 +374,7 @@ export default async function (pi: ExtensionAPI) {
       }
       const hits = searchPages([page], params.query, { topN: 5, snippetRadius: 150 })
       return {
-        content: [{ type: "text", text: JSON.stringify({
+        content: [{ type: "text" as const, text: JSON.stringify({
           ...omitEmpty({ url: page.url, title: page.title, query: params.query }),
           hits: hits.map((h) => highlightHit(h, page.chunks)),
           ...(hits.length === 0 ? { hint: "No matches. Try broader terms or use format=markdown." } : {}),
@@ -376,7 +385,7 @@ export default async function (pi: ExtensionAPI) {
 
     // markdown (default)
     return {
-      content: [{ type: "text", text: JSON.stringify(markdownOutput(page)) }],
+      content: [{ type: "text" as const, text: JSON.stringify(markdownOutput(page)) }],
       details: { format: "markdown", wordCount: page.wordCount },
     }
   }
@@ -385,12 +394,133 @@ export default async function (pi: ExtensionAPI) {
   // Tool registration
   // ---------------------------------------------------------------------------
 
+  // Defined here so Params = Static<typeof paramsSchema> resolves concretely
+  // rather than being derived through registerTool's unresolved generic.
+  const paramsSchema = Type.Object({
+    url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
+
+    depth: Type.Optional(
+      Type.Number({
+        description:
+          "BFS depth. 0=single page (default). 1=page + all its links. N=N hops deep.",
+      })
+    ),
+    maxPages: Type.Optional(
+      Type.Number({
+        description: "Hard cap on total pages when depth>0 (default 10).",
+      })
+    ),
+    sameDomain: Type.Optional(
+      Type.Boolean({
+        description: "Only follow links on the same domain when depth>0 (default true).",
+      })
+    ),
+
+    enhanced: Type.Optional(
+      Type.Boolean({
+        description:
+          "When true, always uses a headless browser (playwright-core + system Chrome, stealth mode). " +
+          "When false (default), direct fetch is used and Playwright kicks in automatically " +
+          "only if the page is detected as JS-rendered.",
+      })
+    ),
+
+    format: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("markdown"),
+          Type.Literal("lean"),
+          Type.Literal("links"),
+          Type.Literal("highlights"),
+          Type.Literal("tree"),
+        ],
+        {
+          description:
+            "markdown=full body (default), lean=outline only, links=link list, highlights=BM25F chunks, tree=semantic DOM tree.",
+        }
+      )
+    ),
+    query: Type.Optional(
+      Type.String({
+        description: "Search phrase. Required for format=highlights. Optional for format=tree (searches the tree).",
+      })
+    ),
+    path: Type.Optional(
+      Type.String({
+        description: "Dot-bracket path for format=tree navigation, e.g. article.section[1].pre[0].code",
+      })
+    ),
+    topN: Type.Optional(
+      Type.Number({
+        description: "Max hits to return for format=tree with query (default 5).",
+      })
+    ),
+
+    grep: Type.Optional(
+      Type.String({
+        description:
+          "Filter cached pages by substring match on url, title, domain, or description. Only applies when url is omitted (local cache listing).",
+      })
+    ),
+    offset: Type.Optional(
+      Type.Number({
+        description: "Skip first N results when listing or searching the local cache (pagination).",
+      })
+    ),
+    limit: Type.Optional(
+      Type.Number({
+        description: "Max results to return from cache listing or search (default 20, hard cap 100 for listing, 10 for search).",
+      })
+    ),
+
+    rootSelector: Type.Optional(
+      Type.String({
+        description:
+          "CSS selector to scope extraction (e.g. \"article\"). Discards everything outside.",
+      })
+    ),
+    excludeSelectors: Type.Optional(
+      Type.String({
+        description:
+          "Comma-separated CSS selectors to remove before extraction (e.g. \"nav, footer, .sidebar\").",
+      })
+    ),
+    tokenBudget: Type.Optional(
+      Type.Number({
+        description:
+          "Approximate max tokens to return (~4 chars/token). Truncated at a line boundary.",
+      })
+    ),
+    searchQuery: Type.Optional(
+      Type.String({
+        description:
+          "Web search query. Pass instead of url when you don't know the exact URL. " +
+          "Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/DDG. " +
+          "Use the returned URLs to fetch the actual page content.",
+      })
+    ),
+    timeoutMs: Type.Optional(
+      Type.Number({
+        description:
+          "Per-request fetch timeout in milliseconds (default 30 000). " +
+          "Increase for slow sites; decrease to fail fast in latency-sensitive loops.",
+      })
+    ),
+  })
+
   pi.registerTool({
     name: "web_fetch",
     label: "Web Fetch",
     description: [
       "Fetch a URL and return its content. Optionally crawl to a given depth.",
       "Can also search the web when searchQuery is provided instead of a URL.",
+      "",
+      "SEARCH FIRST — avoid hallucinated URLs",
+      "  If you are not certain the URL exists, pass searchQuery instead of url.",
+      "  The tool will run a web search and return ranked results with real URLs.",
+      "  Then fetch the result URL you want. Never guess article slugs or paths.",
+      "  Example wrong: web_fetch(url='martinfowler.com/articles/agent-as-platform.html')",
+      "  Example right: web_fetch(searchQuery='Martin Fowler agent as platform')",
       "",
       "LOCAL MATERIALIZED VIEW (no url)",
       "  Omit url to query the local page cache (disk-backed, survives restarts).",
@@ -434,121 +564,43 @@ export default async function (pi: ExtensionAPI) {
       "THROTTLING",
       "  Requests are automatically rate-limited per domain (500ms min delay).",
       "  On 429/503, backs off exponentially and respects Retry-After headers.",
-      "  robots.txt is checked and respected before each fetch.",
+      "  robots.txt is checked and respected before each fetch (depth=0 and depth>0).",
     ].join("\n"),
     promptSnippet:
       "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
-    parameters: Type.Object({
-      url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
+    parameters: paramsSchema,
 
-      depth: Type.Optional(
-        Type.Number({
-          description:
-            "BFS depth. 0=single page (default). 1=page + all its links. N=N hops deep.",
-        })
-      ),
-      maxPages: Type.Optional(
-        Type.Number({
-          description: "Hard cap on total pages when depth>0 (default 10).",
-        })
-      ),
-      sameDomain: Type.Optional(
-        Type.Boolean({
-          description: "Only follow links on the same domain when depth>0 (default true).",
-        })
-      ),
-
-      enhanced: Type.Optional(
-        Type.Boolean({
-          description:
-            "When true, always uses a headless browser (playwright-core + system Chrome, stealth mode). " +
-            "When false (default), direct fetch is used and Playwright kicks in automatically " +
-            "only if the page is detected as JS-rendered.",
-        })
-      ),
-
-      format: Type.Optional(
-        Type.Union(
-          [
-            Type.Literal("markdown"),
-            Type.Literal("lean"),
-            Type.Literal("links"),
-            Type.Literal("highlights"),
-            Type.Literal("tree"),
-          ],
-          {
-            description:
-              "markdown=full body (default), lean=outline only, links=link list, highlights=BM25F chunks, tree=semantic DOM tree.",
-          }
-        )
-      ),
-      query: Type.Optional(
-        Type.String({
-          description: "Search phrase. Required for format=highlights. Optional for format=tree (searches the tree).",
-        })
-      ),
-      path: Type.Optional(
-        Type.String({
-          description: "Dot-bracket path for format=tree navigation, e.g. article.section[1].pre[0].code",
-        })
-      ),
-      topN: Type.Optional(
-        Type.Number({
-          description: "Max hits to return for format=tree with query (default 5).",
-        })
-      ),
-
-      grep: Type.Optional(
-        Type.String({
-          description:
-            "Filter cached pages by substring match on url, title, domain, or description. Only applies when url is omitted (local cache listing).",
-        })
-      ),
-      offset: Type.Optional(
-        Type.Number({
-          description: "Skip first N results when listing or searching the local cache (pagination).",
-        })
-      ),
-      limit: Type.Optional(
-        Type.Number({
-          description: "Max results to return from cache listing or search (default 20, hard cap 100 for listing, 10 for search).",
-        })
-      ),
-
-      rootSelector: Type.Optional(
-        Type.String({
-          description:
-            "CSS selector to scope extraction (e.g. \"article\"). Discards everything outside.",
-        })
-      ),
-      excludeSelectors: Type.Optional(
-        Type.String({
-          description:
-            "Comma-separated CSS selectors to remove before extraction (e.g. \"nav, footer, .sidebar\").",
-        })
-      ),
-      tokenBudget: Type.Optional(
-        Type.Number({
-          description:
-            "Approximate max tokens to return (~4 chars/token). Truncated at a line boundary.",
-        })
-      ),
-      timeoutMs: Type.Optional(
-        Type.Number({
-          description:
-            "Per-request fetch timeout in milliseconds (default 10 000). " +
-            "Increase for slow sites; decrease to fail fast in latency-sensitive loops.",
-        })
-      ),
-    }),
 
     // -------------------------------------------------------------------------
     // Router — routes to the correct path handler. One reason to change: routing
     // logic. Business logic lives in the handlers above.
     // -------------------------------------------------------------------------
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
       try {
         const fetchPage = buildFetchPage(params)
+
+        // Web search path — searchQuery instead of url.
+        if (params.searchQuery?.trim()) {
+          try {
+            const engine = defaultSearchEngine()
+            const results = await engine.search({ query: params.searchQuery, numResults: params.limit ?? 10 })
+            log("info", "web search done", { query: params.searchQuery, hits: results.length })
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({
+                query: params.searchQuery,
+                results,
+                hint: "Use the url field from a result to fetch its full content with web_fetch(url=...).",
+              }) }],
+              details: { searchQuery: params.searchQuery, hits: results.length },
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ error: `Web search failed: ${message}` }) }],
+              details: {},
+            }
+          }
+        }
 
         // Local materialized view path — no url: query the cache directly.
         if (!params.url) {
@@ -562,7 +614,7 @@ export default async function (pi: ExtensionAPI) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         return {
-          content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+          content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
           details: {},
         }
       }

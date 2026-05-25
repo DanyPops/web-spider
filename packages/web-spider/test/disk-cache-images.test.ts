@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-16: TDD tests for DiskCache hybrid image persistence.
+ * TDD tests for DiskCache hybrid image persistence.
  * Uses real tmp directories — no mocking of fs.
  */
 

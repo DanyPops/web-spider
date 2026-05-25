@@ -1,5 +1,5 @@
 /**
- * WBS-TSK-14: TDD tests for spider() captureImages option.
+ * TDD tests for spider() captureImages option.
  * No real network — uses stub IHttpClient.
  */
 
