@@ -1,6 +1,6 @@
 {
 	"name": "@dpopsuev/web-spider",
-	"version": "0.10.3",
+	"version": "0.10.4",
 	"description": "AI-agent-friendly web spider: structured output, RAG-ready chunks, graph-traversable links",
 	"type": "module",
 	"main": "./dist/index.js",
