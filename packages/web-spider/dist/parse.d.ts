@@ -1,19 +1,15 @@
 /**
  * DOM parsing helpers.
  *
- * Owns the JSDOM dependency. spider.ts calls these after fetching HTML;
- * it never touches JSDOM directly.
+ * Owns the DOM parsing dependency. spider.ts calls these after fetching HTML;
+ * it never touches the DOM library directly.
  */
 import type { Link, SpideredPage } from "./types.js";
 /**
  * Parse raw HTML into a DOM Document.
- * Centralises the JSDOM dependency — spider.ts calls this instead of
- * importing JSDOM directly, keeping external deps in one place per module.
- *
- * JSDOM's CSS property parser uses module-level Maps that can fail with
- * "Map operation called on non-Map object" in certain loader environments
- * (e.g. jiti's CJS transform pipeline). When that happens, styles are
- * stripped and parsing is retried — structure, links, and headings survive.
+ * Uses linkedom — a lightweight server-side DOM that has no CSS engine,
+ * no module-level Maps, and a flat CJS dependency tree. Safe to load
+ * through jiti's transform pipeline without nativeModules workarounds.
  */
 export declare function parseDom(html: string, url: string): Document;
 /** True if el or any ancestor up to 5 levels looks like navigation chrome. */

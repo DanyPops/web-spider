@@ -3,7 +3,7 @@
  * These tests do not make real HTTP requests.
  */
 
-import { JSDOM } from "jsdom";
+import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { describe, expect, it, vi } from "vitest";
 
@@ -184,41 +184,41 @@ function extractTags(doc: Document): string[] {
 
 describe("extractTags", () => {
 	it("extracts comma-separated keywords", () => {
-		const dom = new JSDOM('<html><head><meta name="keywords" content="scraping, agents, LLM"></head></html>');
-		expect(extractTags(dom.window.document)).toEqual(["scraping", "agents", "llm"]);
+		const dom = parseHTML('<html><head><meta name="keywords" content="scraping, agents, LLM"></head></html>');
+		expect(extractTags(dom.document)).toEqual(["scraping", "agents", "llm"]);
 	});
 
 	it("extracts article:tag properties", () => {
-		const dom = new JSDOM(
+		const dom = parseHTML(
 			"<html><head>" +
 				'<meta property="article:tag" content="AI">' +
 				'<meta property="article:tag" content="Web">' +
 				"</head></html>",
 		);
-		expect(extractTags(dom.window.document)).toEqual(["ai", "web"]);
+		expect(extractTags(dom.document)).toEqual(["ai", "web"]);
 	});
 
 	it("deduplicates across sources", () => {
-		const dom = new JSDOM(
+		const dom = parseHTML(
 			"<html><head>" +
 				'<meta name="keywords" content="ai, web">' +
 				'<meta property="article:tag" content="AI">' +
 				"</head></html>",
 		);
-		const tags = extractTags(dom.window.document);
+		const tags = extractTags(dom.document);
 		// "ai" appears twice (once from keywords, once from article:tag) — should be deduplicated
 		expect(tags.filter((t) => t === "ai")).toHaveLength(1);
 	});
 
 	it("returns empty array when no tags present", () => {
-		const dom = new JSDOM("<html><head></head></html>");
-		expect(extractTags(dom.window.document)).toEqual([]);
+		const dom = parseHTML("<html><head></head></html>");
+		expect(extractTags(dom.document)).toEqual([]);
 	});
 
 	it("caps at 20 tags", () => {
 		const many = Array.from({ length: 30 }, (_, i) => `tag${i}`).join(",");
-		const dom = new JSDOM(`<html><head><meta name="keywords" content="${many}"></head></html>`);
-		expect(extractTags(dom.window.document).length).toBeLessThanOrEqual(20);
+		const dom = parseHTML(`<html><head><meta name="keywords" content="${many}"></head></html>`);
+		expect(extractTags(dom.document).length).toBeLessThanOrEqual(20);
 	});
 });
 
@@ -237,25 +237,25 @@ function extractCanonicalUrl(doc: Document, fetchedUrl: string): string | undefi
 
 describe("extractCanonicalUrl", () => {
 	it("extracts link[rel=canonical]", () => {
-		const dom = new JSDOM('<html><head><link rel="canonical" href="https://example.com/page"></head></html>');
-		expect(extractCanonicalUrl(dom.window.document, "https://example.com/page?ref=social")).toBe(
+		const dom = parseHTML('<html><head><link rel="canonical" href="https://example.com/page"></head></html>');
+		expect(extractCanonicalUrl(dom.document, "https://example.com/page?ref=social")).toBe(
 			"https://example.com/page",
 		);
 	});
 
 	it("extracts og:url when no canonical link", () => {
-		const dom = new JSDOM('<html><head><meta property="og:url" content="https://example.com/og"></head></html>');
-		expect(extractCanonicalUrl(dom.window.document, "https://example.com/other")).toBe("https://example.com/og");
+		const dom = parseHTML('<html><head><meta property="og:url" content="https://example.com/og"></head></html>');
+		expect(extractCanonicalUrl(dom.document, "https://example.com/other")).toBe("https://example.com/og");
 	});
 
 	it("returns undefined when canonical matches fetched URL", () => {
-		const dom = new JSDOM('<html><head><link rel="canonical" href="https://example.com/page"></head></html>');
-		expect(extractCanonicalUrl(dom.window.document, "https://example.com/page")).toBeUndefined();
+		const dom = parseHTML('<html><head><link rel="canonical" href="https://example.com/page"></head></html>');
+		expect(extractCanonicalUrl(dom.document, "https://example.com/page")).toBeUndefined();
 	});
 
 	it("returns undefined when no canonical", () => {
-		const dom = new JSDOM("<html><head></head></html>");
-		expect(extractCanonicalUrl(dom.window.document, "https://example.com")).toBeUndefined();
+		const dom = parseHTML("<html><head></head></html>");
+		expect(extractCanonicalUrl(dom.document, "https://example.com")).toBeUndefined();
 	});
 });
 
@@ -269,38 +269,38 @@ function classifyLinkRel(a: Element): "body" | "nav" {
 
 describe("link rel classification", () => {
 	it("classifies links inside <nav> as nav", () => {
-		const dom = new JSDOM("<html><body><nav><a href='/x'>link</a></nav></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><nav><a href='/x'>link</a></nav></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("nav");
 	});
 
 	it("classifies links inside <footer> as nav", () => {
-		const dom = new JSDOM("<html><body><footer><a href='/x'>link</a></footer></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><footer><a href='/x'>link</a></footer></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("nav");
 	});
 
 	it("classifies links inside <header> as nav", () => {
-		const dom = new JSDOM("<html><body><header><a href='/x'>link</a></header></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><header><a href='/x'>link</a></header></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("nav");
 	});
 
 	it("classifies links inside <aside> as nav", () => {
-		const dom = new JSDOM("<html><body><aside><a href='/x'>link</a></aside></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><aside><a href='/x'>link</a></aside></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("nav");
 	});
 
 	it("classifies links inside article content as body", () => {
-		const dom = new JSDOM("<html><body><article><p><a href='/x'>link</a></p></article></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><article><p><a href='/x'>link</a></p></article></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("body");
 	});
 
 	it("classifies bare links as body", () => {
-		const dom = new JSDOM("<html><body><p><a href='/x'>link</a></p></body></html>");
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML("<html><body><p><a href='/x'>link</a></p></body></html>");
+		const a = dom.document.querySelector("a")!;
 		expect(classifyLinkRel(a)).toBe("body");
 	});
 });
@@ -416,14 +416,14 @@ describe("code block splitting", () => {
 
 describe("extended nav classification", () => {
 	it("classifies links inside role=navigation as nav", () => {
-		const dom = new JSDOM('<html><body><div role="navigation"><a href="/x">link</a></div></body></html>');
-		const a = dom.window.document.querySelector("a")!;
+		const dom = parseHTML('<html><body><div role="navigation"><a href="/x">link</a></div></body></html>');
+		const a = dom.document.querySelector("a")!;
 		expect(a.closest("[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']")).not.toBeNull();
 	});
 
 	it("returns empty tags when no meta tags and no fallback", () => {
-		const dom = new JSDOM("<html><head></head></html>");
-		const tags = extractTags(dom.window.document);
+		const dom = parseHTML("<html><head></head></html>");
+		const tags = extractTags(dom.document);
 		expect(tags).toEqual([]);
 	});
 });
