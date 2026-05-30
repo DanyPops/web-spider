@@ -612,10 +612,22 @@ export default async function (pi: ExtensionAPI) {
 
         return await handleSinglePage(params, fetchPage)
       } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Blocked by robots.txt:")) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({
+              blocked: true,
+              url: params.url,
+              reason: "robots.txt",
+              hint: "The site's robots.txt disallows crawling this URL. Try a different path or domain.",
+            }) }],
+            details: { blocked: true },
+          }
+        }
         const message = err instanceof Error ? err.message : String(err)
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
           details: {},
+          isError: true,
         }
       }
     },
