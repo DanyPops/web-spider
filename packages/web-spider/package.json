@@ -29,13 +29,11 @@
 	},
 	"dependencies": {
 		"@mozilla/readability": "^0.6.0",
-		"jsdom": "^29.1.1",
-		"tough-cookie": ">=4",
+		"linkedom": "^0.18.12",
 		"minisearch": "^7.2.0",
 		"turndown": "^7.2.4"
 	},
 	"devDependencies": {
-		"@types/jsdom": "^21.1.7",
 		"@types/node": "^22.19.19",
 		"@types/turndown": "^5.0.6",
 		"typescript": "^5.9.3",

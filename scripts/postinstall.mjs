@@ -4,12 +4,10 @@
  *
  * Bun (embedded in Pi) resolves package.json exports strictly —
  * packages with top-level condition keys but no "." root entry fail.
- * Also wraps jsdom's tough-cookie require in try/catch so Pi boots
- * even when Bun's symlink-aware resolver can't traverse node_modules.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { join } from "node:path";
 
 const root = new URL("../", import.meta.url).pathname;
 
@@ -58,25 +56,5 @@ if (existsSync(tcPkg)) {
     console.log("patched tough-cookie: added '.' root to exports");
   }
 }
-
-// ── 3. jsdom api.js: make tough-cookie optional ───────────────────────────────
-// When Bun follows workspace symlinks for ESM imports, CJS require()
-// inside transitive CJS deps (jsdom) may fail. Optional require avoids crash.
-const OLD_TC = `const toughCookie = require("tough-cookie");`;
-const NEW_TC = [
-  `let toughCookie;`,
-  `try { toughCookie = require("tough-cookie"); }`,
-  `catch { toughCookie = {`,
-  `  CookieJar: class {`,
-  `    setCookieSync() {} getCookiesSync() { return []; } toJSON() { return {}; }`,
-  `  }`,
-  `}; }`,
-].join(" ");
-
-let jsdomCount = 0;
-for (const f of find(nm, f => f.includes("/jsdom/lib/api.js"))) {
-  if (patch(f, OLD_TC, NEW_TC)) jsdomCount++;
-}
-if (jsdomCount) console.log(`patched jsdom api.js (${jsdomCount} file(s))`);
 
 console.log("postinstall done");

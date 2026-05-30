@@ -1,18 +1,11 @@
 /**
  * DOM parsing helpers.
  *
- * Owns the JSDOM dependency. spider.ts calls these after fetching HTML;
- * it never touches JSDOM directly.
+ * Owns the DOM parsing dependency. spider.ts calls these after fetching HTML;
+ * it never touches the DOM library directly.
  */
 
-import { JSDOM, VirtualConsole } from "jsdom";
-
-// Shared silent virtual console — suppresses all jsdomError events (CSS parse
-// failures, resource load errors, etc.) so they never reach process.stderr.
-// JSDOM's default is (new VirtualConsole()).forwardTo(console), which routes
-// every jsdomError to console.error → process.stderr → raw terminal.
-// A bare VirtualConsole with no listeners silently drops every event.
-const silentConsole = new VirtualConsole();
+import { parseHTML } from "linkedom";
 import type { Link, SpideredPage } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -20,34 +13,13 @@ import type { Link, SpideredPage } from "./types.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Strip all inline styles and <style> blocks from HTML.
- * Used as a fallback when JSDOM's CSS engine throws — styles are irrelevant
- * for Readability content extraction and link/heading enumeration.
- */
-function stripStyles(html: string): string {
-	return html
-		.replace(/<style[\s\S]*?<\/style>/gi, "")
-		.replace(/\s+style="[^"]*"/gi, "");
-}
-
-/**
  * Parse raw HTML into a DOM Document.
- * Centralises the JSDOM dependency — spider.ts calls this instead of
- * importing JSDOM directly, keeping external deps in one place per module.
- *
- * JSDOM's CSS property parser uses module-level Maps that can fail with
- * "Map operation called on non-Map object" in certain loader environments
- * (e.g. jiti's CJS transform pipeline). When that happens, styles are
- * stripped and parsing is retried — structure, links, and headings survive.
+ * Uses linkedom — a lightweight server-side DOM that has no CSS engine,
+ * no module-level Maps, and a flat CJS dependency tree. Safe to load
+ * through jiti's transform pipeline without nativeModules workarounds.
  */
 export function parseDom(html: string, url: string): Document {
-	try {
-		return new JSDOM(html, { url, virtualConsole: silentConsole }).window.document;
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		if (!msg.includes("Map operation")) throw err;
-		return new JSDOM(stripStyles(html), { url, virtualConsole: silentConsole }).window.document;
-	}
+	return parseHTML(html, { url }).document as unknown as Document;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +100,9 @@ export function extractLinks(doc: Document, baseUrl: string): Link[] {
 
 /** Extract h1/h2/h3 headings from Readability article HTML. */
 export function extractHeadings(html: string): SpideredPage["headings"] {
-	const dom = new JSDOM(html);
+	const { document } = parseHTML(`<html><body>${html}</body></html>`);
 	const headings: SpideredPage["headings"] = [];
-	dom.window.document.querySelectorAll("h1, h2, h3").forEach((el) => {
+	document.querySelectorAll("h1, h2, h3").forEach((el) => {
 		const level = parseInt(el.tagName[1], 10) as 1 | 2 | 3;
 		const text = (el.textContent ?? "").trim();
 		if (text) headings.push({ level, text });
