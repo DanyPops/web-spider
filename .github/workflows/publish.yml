@@ -1,0 +1,36 @@
+name: Publish Packages
+
+# Trusted publishing (OIDC) for the @danypops scope. npm CLI (>= 11.5.1)
+# detects OIDC automatically. Configure one trusted publisher per package on
+# npmjs.com: org=DanyPops repo=web-spider workflow=publish.yml
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - run: npm ci
+      - run: npm run build --workspace=packages/web-spider
+      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-extension
+
+      # Dependency order: the extension depends on the library.
+      - run: npm publish --access public
+        working-directory: packages/web-spider
+      - run: npm publish --access public
+        working-directory: packages/pi-extension
