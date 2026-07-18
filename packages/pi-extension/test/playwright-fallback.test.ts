@@ -40,7 +40,7 @@ import {
   createExtensionHarness,
   type ExtensionHarness,
 } from "@earendil-works/pi-coding-agent/testing"
-import type { HttpRequest, HttpResponse } from "@dpopsuev/web-spider"
+import type { HttpRequest, HttpResponse } from "@danypops/web-spider"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(__dirname, "../../web-spider/fixtures")
@@ -75,8 +75,8 @@ function makeOkResponse(html: string): HttpResponse {
 
 // Replace PlaywrightHttpClient with a stub whose fetch() delegates to the
 // per-test ref. All other exports are real (importActual).
-vi.mock("@dpopsuev/web-spider", async (importActual) => {
-  const real = await importActual<typeof import("@dpopsuev/web-spider")>()
+vi.mock("@danypops/web-spider", async (importActual) => {
+  const real = await importActual<typeof import("@danypops/web-spider")>()
   class StubPlaywrightHttpClient {
     async fetch(req: HttpRequest): Promise<HttpResponse> {
       return playwrightFetchImpl(req)

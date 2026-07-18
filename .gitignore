@@ -1,3 +1,4 @@
 node_modules/
 # dist/ intentionally tracked for pi install (no tsc at install time)
 *.js.map
+.npmrc

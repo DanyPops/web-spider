@@ -1,6 +1,6 @@
 # `web_fetch` — API Reference
 
-> Pi extension tool · `@dpopsuev/pi-web-spider`
+> Pi extension tool · `@danypops/pi-web-spider`
 
 `web_fetch` fetches a URL and returns structured content, crawls a site to arbitrary depth, or searches the web — all through a single tool call. Every response is JSON.
 
@@ -18,6 +18,7 @@
 | Navigate to one node | `{ url, format: "tree", path: "article.section[1]" }` |
 | Crawl a whole site | `{ url, depth: 2, maxPages: 20 }` |
 | Search the web | `{ searchQuery: "…" }` |
+| Search recent news | `{ searchQuery: "…", timeRange: "month", topic: "news" }` |
 | Search + auto-read results | `{ searchQuery: "…", searchEnrich: true }` |
 
 ---
@@ -81,6 +82,8 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 |---|---|---|
 | `searchEngine` | `"brave"` \| `"tavily"` \| `"exa"` | Force a specific engine. Auto-detected from available API keys when omitted. |
 | `numResults` | `number` | Number of search results (default `10`). |
+| `timeRange` | `"day"` \| `"week"` \| `"month"` \| `"year"` | Restrict results to content published within this window. Supported by Tavily and Brave. Use `"month"` when asked for recent or latest news. |
+| `topic` | `"news"` \| `"general"` | Search topic mode. `"news"` prioritises freshly indexed news articles (Tavily only). Combine with `timeRange: "month"` for the freshest results. |
 | `searchEnrich` | `boolean` | When `true`, auto-fetches each result in `lean` format and returns the lean page alongside the search result. Saves a round-trip for search-then-triage workflows. |
 
 ---

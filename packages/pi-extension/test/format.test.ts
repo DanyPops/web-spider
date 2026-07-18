@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { SpideredPage } from "@dpopsuev/web-spider";
+import type { SpideredPage } from "@danypops/web-spider";
 import {
 	bodyLinks,
 	highlightHit,

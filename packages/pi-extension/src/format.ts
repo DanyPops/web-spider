@@ -15,7 +15,7 @@
  * and ignore the nav flood that swamps many pages.
  */
 
-import type { SpideredPage } from "@dpopsuev/web-spider";
+import type { SpideredPage } from "@danypops/web-spider";
 
 // ---------------------------------------------------------------------------
 // Primitives

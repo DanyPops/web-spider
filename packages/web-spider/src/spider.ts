@@ -220,7 +220,7 @@ export async function spider(
 ): Promise<SpideredPage | LeanPage | TreePage> {
 	const {
 		timeoutMs = 30_000,
-		userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/dpopsuev)",
+		userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)",
 		view = "full",
 		rootSelector,
 		excludeSelectors,

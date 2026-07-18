@@ -1,7 +1,7 @@
 /**
- * @dpopsuev/pi-web-spider — Pi extension exposing web_fetch.
+ * @danypops/pi-web-spider — Pi extension exposing web_fetch.
  *
- * Install: pi install git:github.com/dpopsuev/web-spider
+ * Install: pi install git:github.com/DanyPops/web-spider
  */
 import { existsSync, mkdirSync, appendFileSync } from "node:fs"
 import { homedir } from "node:os"
@@ -9,7 +9,7 @@ import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import type { Static } from "typebox"
-import type { SpideredPage, DOMNode } from "@dpopsuev/web-spider"
+import type { SpideredPage, DOMNode } from "@danypops/web-spider"
 import { bodyLinks, highlightHit, leanOutput, linksOutput, markdownOutput, navLinksCount, omitEmpty } from "./format.js"
 
 // ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ export default async function (pi: ExtensionAPI) {
   // Dynamic import bypasses jiti/Bun CJS interop, which can silently lose
   // class constructors when require()-ing ESM packages with "type":"module".
   // Native import() always uses the "import" condition and returns proper ESM.
-  const lib = await import("@dpopsuev/web-spider")
+  const lib = await import("@danypops/web-spider")
   const { spider, crawl, searchPages, SpiderCache, PageGraph, PlaywrightHttpClient,
           queryTree, navigateTree, defaultSearchEngine, DomainThrottle, RobotsCache } = lib
 
