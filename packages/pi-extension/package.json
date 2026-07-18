@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-web-spider",
-	"version": "0.10.4",
+	"version": "0.10.6",
 	"description": "Pi extension: web_fetch, web_crawl, web_search \u2014 structured scraping for AI agents",
 	"keywords": [
 		"pi-package"
