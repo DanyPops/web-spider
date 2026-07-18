@@ -249,3 +249,57 @@ describe("Tavily + DDG fallback pattern", () => {
 		expect(results).toEqual([]);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// SearchQuery — timeRange and topic fields
+// ---------------------------------------------------------------------------
+
+describe("SearchQuery — timeRange and topic", () => {
+	it("SearchQuery accepts timeRange field", () => {
+		const req: SearchQuery = { query: "AI agents", numResults: 5, timeRange: "month" };
+		expect(req.timeRange).toBe("month");
+	});
+
+	it("SearchQuery accepts topic field", () => {
+		const req: SearchQuery = { query: "latest news", topic: "news" };
+		expect(req.topic).toBe("news");
+	});
+
+	it("FallbackSearchEngine forwards timeRange and topic to each engine", async () => {
+		const spy = vi.fn().mockResolvedValue([RESULT_A]);
+		const engine = new FallbackSearchEngine([{ search: spy }]);
+
+		await engine.search({ query: "test", timeRange: "week", topic: "news" });
+
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({ timeRange: "week", topic: "news" }),
+		);
+	});
+
+	it("TavilySearchEngine.search() sends time_range and topic in the POST body", async () => {
+		// Intercept global fetch to capture what body Tavily receives.
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> | null = null;
+
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string ?? "{}");
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				headers: { get: () => "application/json" },
+				json: async () => ({
+					results: [{ url: "https://a.com", title: "A", content: "snippet" }],
+				}),
+			};
+		}) as typeof fetch;
+
+		try {
+			const engine = new TavilySearchEngine("test-key");
+			await engine.search({ query: "ona", timeRange: "month", topic: "news" });
+			expect(capturedBody).toMatchObject({ time_range: "month", topic: "news" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});

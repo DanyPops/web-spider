@@ -19,6 +19,12 @@ export interface BraveSearchOptions {
 	numResults?: number;
 	/** ISO 3166-1 alpha-2 country code for localised results, e.g. "US". */
 	country?: string;
+	/**
+	 * Freshness filter. Maps SearchQuery.timeRange to Brave's parameter:
+	 *   "pd" = past day, "pw" = past week, "pm" = past month, "py" = past year.
+	 * Pass directly when bypassing the adapter, or set timeRange on SearchQuery.
+	 */
+	freshness?: "pd" | "pw" | "pm" | "py";
 }
 
 export interface TavilySearchOptions {
@@ -28,6 +34,10 @@ export interface TavilySearchOptions {
 	numResults?: number;
 	/** "basic" (1 credit) or "advanced" (2 credits). Default "basic". */
 	depth?: "basic" | "advanced";
+	/** Restrict results to content published within this window. */
+	timeRange?: "day" | "week" | "month" | "year";
+	/** Topic mode: "news" prioritises fresh news articles. */
+	topic?: "news" | "general";
 }
 
 export type SearchEngine = "brave" | "tavily" | "exa" | "ddg";
@@ -112,6 +122,7 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 		count: String(Math.min(opts.numResults ?? 10, 20)),
 	});
 	if (opts.country) params.set("country", opts.country);
+	if (opts.freshness) params.set("freshness", opts.freshness);
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 10_000);
@@ -172,6 +183,8 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 				max_results: opts.numResults ?? 5,
 				search_depth: opts.depth ?? "basic",
 				include_raw_content: false,
+				...(opts.timeRange ? { time_range: opts.timeRange } : {}),
+				...(opts.topic ? { topic: opts.topic } : {}),
 			}),
 		});
 	} finally {
@@ -303,12 +316,22 @@ export async function ddgSearch(query: string, opts: DdgSearchOptions = {}): Pro
  */
 export async function webSearch(
 	query: string,
-	opts: { engine?: SearchEngine; numResults?: number } = {},
+	opts: {
+		engine?: SearchEngine;
+		numResults?: number;
+		timeRange?: "day" | "week" | "month" | "year";
+		topic?: "news" | "general";
+	} = {},
 ): Promise<WebSearchResult[]> {
 	const engine = opts.engine
 		? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
 		: defaultSearchEngine();
-	return engine.search({ query, numResults: opts.numResults });
+	return engine.search({
+		query,
+		numResults: opts.numResults,
+		timeRange: opts.timeRange,
+		topic: opts.topic,
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -375,12 +398,26 @@ registerSearchEngine("ddg", () => new DdgSearchEngine());
 // ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------
 
+/** Maps the canonical timeRange string to Brave's freshness parameter. */
+const BRAVE_FRESHNESS: Record<string, "pd" | "pw" | "pm" | "py"> = {
+	day: "pd",
+	week: "pw",
+	month: "pm",
+	year: "py",
+};
+
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine implements ISearchEngine {
 	constructor(private readonly apiKey: string, private readonly country?: string) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return braveSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, country: this.country });
+		const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
+		return braveSearch(req.query, {
+			apiKey: this.apiKey,
+			numResults: req.numResults,
+			country: this.country,
+			freshness,
+		});
 	}
 }
 
@@ -389,7 +426,12 @@ export class TavilySearchEngine implements ISearchEngine {
 	constructor(private readonly apiKey: string) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return tavilySearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+		return tavilySearch(req.query, {
+			apiKey: this.apiKey,
+			numResults: req.numResults,
+			timeRange: req.timeRange,
+			topic: req.topic,
+		});
 	}
 }
 

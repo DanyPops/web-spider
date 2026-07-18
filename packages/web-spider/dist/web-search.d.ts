@@ -15,6 +15,12 @@ export interface BraveSearchOptions {
     numResults?: number;
     /** ISO 3166-1 alpha-2 country code for localised results, e.g. "US". */
     country?: string;
+    /**
+     * Freshness filter. Maps SearchQuery.timeRange to Brave's parameter:
+     *   "pd" = past day, "pw" = past week, "pm" = past month, "py" = past year.
+     * Pass directly when bypassing the adapter, or set timeRange on SearchQuery.
+     */
+    freshness?: "pd" | "pw" | "pm" | "py";
 }
 export interface TavilySearchOptions {
     /** API key. Defaults to process.env.TAVILY_API_KEY. */
@@ -23,6 +29,10 @@ export interface TavilySearchOptions {
     numResults?: number;
     /** "basic" (1 credit) or "advanced" (2 credits). Default "basic". */
     depth?: "basic" | "advanced";
+    /** Restrict results to content published within this window. */
+    timeRange?: "day" | "week" | "month" | "year";
+    /** Topic mode: "news" prioritises fresh news articles. */
+    topic?: "news" | "general";
 }
 export type SearchEngine = "brave" | "tavily" | "exa" | "ddg";
 export interface ExaSearchOptions {
@@ -84,6 +94,8 @@ export declare function ddgSearch(query: string, opts?: DdgSearchOptions): Promi
 export declare function webSearch(query: string, opts?: {
     engine?: SearchEngine;
     numResults?: number;
+    timeRange?: "day" | "week" | "month" | "year";
+    topic?: "news" | "general";
 }): Promise<WebSearchResult[]>;
 /**
  * A factory that creates an ISearchEngine from an optional API key.

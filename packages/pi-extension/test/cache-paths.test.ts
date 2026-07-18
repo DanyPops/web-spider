@@ -29,7 +29,7 @@ import {
 import {
   createExtensionHarness,
   type ExtensionHarness,
-} from "@earendil-works/pi-coding-agent/testing"
+} from "./harness/index.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(__dirname, "../../web-spider/fixtures")

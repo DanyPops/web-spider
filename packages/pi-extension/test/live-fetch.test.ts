@@ -22,7 +22,7 @@ import {
   createExtensionHarness,
   loadExtensionViaJiti,
   type ExtensionHarness,
-} from "@earendil-works/pi-coding-agent/testing"
+} from "./harness/index.ts"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 

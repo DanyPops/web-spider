@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { createExtensionHarness, type ExtensionHarness } from "@earendil-works/pi-coding-agent/testing"
+import { createExtensionHarness, type ExtensionHarness } from "./harness/index.ts"
 import piFactory from "../src/index.js"
 
 let h: ExtensionHarness

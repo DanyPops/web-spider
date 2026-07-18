@@ -39,7 +39,7 @@ import {
 import {
   createExtensionHarness,
   type ExtensionHarness,
-} from "@earendil-works/pi-coding-agent/testing"
+} from "./harness/index.ts"
 import type { HttpRequest, HttpResponse } from "@danypops/web-spider"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest"
 import {
   createExtensionHarness,
   loadExtensionViaJiti,
-} from "@earendil-works/pi-coding-agent/testing"
+} from "./harness/index.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const EXTENSION_PATH = join(__dirname, "../src/index.ts")

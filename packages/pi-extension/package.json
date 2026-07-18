@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-web-spider",
-	"version": "0.10.6",
+	"version": "0.10.7",
 	"description": "Pi extension: web_fetch, web_crawl, web_search \u2014 structured scraping for AI agents",
 	"keywords": [
 		"pi-package"
@@ -25,6 +25,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
+		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"@types/node": "^22.19.19",
 		"jiti": "^2.0.0",
 		"typescript": "^5.9.3",
