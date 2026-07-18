@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider",
-	"version": "0.10.6",
+	"version": "0.10.7",
 	"files": [
 		"dist",
 		"package.json"

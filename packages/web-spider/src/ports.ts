@@ -95,6 +95,17 @@ export interface IRobotsChecker {
 export interface SearchQuery {
 	query: string;
 	numResults?: number;
+	/**
+	 * Restrict results to content published within this window.
+	 * Supported by Tavily ("day"|"week"|"month"|"year") and Brave ("pd"|"pw"|"pm"|"py").
+	 * Adapters map this to their engine-specific parameter name.
+	 */
+	timeRange?: "day" | "week" | "month" | "year";
+	/**
+	 * Search topic mode. "news" prioritises freshly indexed news articles.
+	 * Supported by Tavily. Ignored by engines that don't support it.
+	 */
+	topic?: "news" | "general";
 }
 
 /**

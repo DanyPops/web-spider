@@ -64,6 +64,8 @@ export async function braveSearch(query, opts = {}) {
     });
     if (opts.country)
         params.set("country", opts.country);
+    if (opts.freshness)
+        params.set("freshness", opts.freshness);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     let res;
@@ -112,6 +114,8 @@ export async function tavilySearch(query, opts = {}) {
                 max_results: opts.numResults ?? 5,
                 search_depth: opts.depth ?? "basic",
                 include_raw_content: false,
+                ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
+                ...(opts.topic ? { topic: opts.topic } : {}),
             }),
         });
     }
@@ -210,7 +214,12 @@ export async function webSearch(query, opts = {}) {
     const engine = opts.engine
         ? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
         : defaultSearchEngine();
-    return engine.search({ query, numResults: opts.numResults });
+    return engine.search({
+        query,
+        numResults: opts.numResults,
+        timeRange: opts.timeRange,
+        topic: opts.topic,
+    });
 }
 /** The global engine registry. Seeded with built-in engines below. */
 const ENGINE_REGISTRY = new Map();
@@ -264,6 +273,13 @@ registerSearchEngine("ddg", () => new DdgSearchEngine());
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------
+/** Maps the canonical timeRange string to Brave's freshness parameter. */
+const BRAVE_FRESHNESS = {
+    day: "pd",
+    week: "pw",
+    month: "pm",
+    year: "py",
+};
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine {
     constructor(apiKey, country) {
@@ -271,7 +287,13 @@ export class BraveSearchEngine {
         this.country = country;
     }
     search(req) {
-        return braveSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, country: this.country });
+        const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
+        return braveSearch(req.query, {
+            apiKey: this.apiKey,
+            numResults: req.numResults,
+            country: this.country,
+            freshness,
+        });
     }
 }
 /** Tavily adapter implementing ISearchEngine. */
@@ -280,7 +302,12 @@ export class TavilySearchEngine {
         this.apiKey = apiKey;
     }
     search(req) {
-        return tavilySearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+        return tavilySearch(req.query, {
+            apiKey: this.apiKey,
+            numResults: req.numResults,
+            timeRange: req.timeRange,
+            topic: req.topic,
+        });
     }
 }
 /** Exa adapter implementing ISearchEngine. */
