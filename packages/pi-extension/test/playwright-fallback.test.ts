@@ -148,50 +148,32 @@ describe("auto-fallback: jsRendered:true → Playwright retry", () => {
     expect(text.wordCount).toBeGreaterThan(0)
   })
 
-  it("propagates error cleanly when Playwright throws a generic error", async () => {
+  it("throws a native failure when Playwright closes unexpectedly", async () => {
     installFetchMock(GH_SHELL_HTML)
     playwrightFetchImpl = async () => { throw new Error("Browser closed unexpectedly") }
 
-    const result = await h.invokeTool("web_fetch", { url: MOCK_URL }) as { content: { text: string }[] }
-    const text = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
-    expect(text.error).toContain("Browser closed unexpectedly")
+    await expect(h.invokeTool("web_fetch", { url: MOCK_URL })).rejects.toThrow("Browser closed unexpectedly")
   })
 
-  it("propagates error cleanly when Playwright throws 'Map operation called on non-Map object'", async () => {
+  it("throws a native failure for the cross-realm Map defect", async () => {
     installFetchMock(GH_SHELL_HTML)
     playwrightFetchImpl = async () => { throw new TypeError("Map operation called on non-Map object") }
 
-    const result = await h.invokeTool("web_fetch", { url: MOCK_URL }) as { content: { text: string }[] }
-    const text = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
-    expect(text.error).toContain("Map operation called on non-Map object")
+    await expect(h.invokeTool("web_fetch", { url: MOCK_URL })).rejects.toThrow("Map operation called on non-Map object")
   })
 
-  it("propagates error cleanly when Playwright throws a timeout", async () => {
+  it("throws a native failure when Playwright times out", async () => {
     installFetchMock(GH_SHELL_HTML)
     playwrightFetchImpl = async () => { throw new Error("Timeout 30000ms exceeded.") }
 
-    const result = await h.invokeTool("web_fetch", { url: MOCK_URL }) as { content: { text: string }[] }
-    const text = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
-    expect(text.error).toContain("Timeout")
+    await expect(h.invokeTool("web_fetch", { url: MOCK_URL })).rejects.toThrow("Timeout")
   })
 
-  it("propagates error cleanly when Playwright throws a non-Error value", async () => {
+  it("normalizes and throws non-Error Playwright failures", async () => {
     installFetchMock(GH_SHELL_HTML)
     playwrightFetchImpl = async () => { throw "chromium launch failed" }
 
-    const result = await h.invokeTool("web_fetch", { url: MOCK_URL }) as { content: { text: string }[] }
-    const text = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
+    await expect(h.invokeTool("web_fetch", { url: MOCK_URL })).rejects.toThrow("chromium launch failed")
   })
 
   it("does not call Playwright when direct fetch returns readable content", async () => {
@@ -232,17 +214,13 @@ describe("enhanced=true: Playwright used for initial fetch", () => {
     expect(text.wordCount).toBeGreaterThan(0)
   })
 
-  it("returns { error } when Playwright throws — does not crash", async () => {
+  it("throws a native failure when the browser executable is missing", async () => {
     installFetchMock()
     playwrightFetchImpl = async () => { throw new Error("executable doesn't exist at /nonexistent") }
 
-    const result = await h.invokeTool("web_fetch", {
+    await expect(h.invokeTool("web_fetch", {
       url: MOCK_URL,
       enhanced: true,
-    }) as { content: { text: string }[] }
-
-    const text = JSON.parse(result.content[0].text)
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
+    })).rejects.toThrow("executable doesn't exist")
   })
 })
