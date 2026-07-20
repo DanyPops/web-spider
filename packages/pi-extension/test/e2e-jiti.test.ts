@@ -123,42 +123,26 @@ describe("E2E: production jiti load (tryNative:true + alias)", () => {
     expect(text).toHaveProperty("title")
   }, 25000)
 
-  it("Playwright error propagates as { error } — auto-fallback path", async () => {
-    // enhanced:true forces Playwright regardless of jsRendered, exercising the
-    // same error-propagation code path as the jsRendered auto-fallback.
-    // GitHub's server-side HTML now has enough content for Readability (wordCount>0)
-    // so jsRendered stays false on plain fetch — enhanced:true is the reliable trigger.
+  it("Playwright error propagates through the native error event", async () => {
     const { events } = await runCli({
       params: { url: "https://example.com", enhanced: true },
       env:    { WEB_SPIDER_PLAYWRIGHT_EXECUTABLE: "/nonexistent" },
       timeoutMs: 20000,
     })
 
-    const end = events.find(e => e.type === "tool_execution_end")
-    expect(end).toBeDefined()
-
-    const result = (end as { result: { content: { text: string }[] } }).result
-    const text   = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
-    expect(text.error).toMatch(/executable|launch|nonexistent/i)
+    const error = events.find(e => e.type === "tool_execution_error")
+    expect(error).toBeDefined()
+    expect((error as { error: string }).error).toMatch(/executable|launch|nonexistent/i)
   }, 25000)
 
-  it("enhanced=true with missing binary returns { error } immediately", async () => {
+  it("enhanced=true with missing binary emits an error immediately", async () => {
     const { events } = await runCli({
       params: { url: "https://example.com", enhanced: true },
       env:    { WEB_SPIDER_PLAYWRIGHT_EXECUTABLE: "/nonexistent" },
       timeoutMs: 20000,
     })
 
-    const end = events.find(e => e.type === "tool_execution_end")
-    expect(end).toBeDefined()
-
-    const result = (end as { result: { content: { text: string }[] } }).result
-    const text   = JSON.parse(result.content[0].text)
-
-    expect(text).toHaveProperty("error")
+    expect(events.find(e => e.type === "tool_execution_error")).toBeDefined()
   }, 25000)
 
   it("process exits cleanly — does not hang", async () => {

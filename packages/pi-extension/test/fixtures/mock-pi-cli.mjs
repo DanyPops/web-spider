@@ -19,8 +19,8 @@
  */
 
 import { createJiti } from "jiti";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
 
 // ---------------------------------------------------------------------------
@@ -50,16 +50,12 @@ for (const [k, v] of Object.entries(envOverrides)) process.env[k] = v;
 
 // tryNative:true (default) — matches the real Pi Node.js binary.
 // The test harness uses tryNative:false, which breaks vi.mock interception.
-const __dirname  = dirname(fileURLToPath(import.meta.url));
-const piDistRoot = resolve(__dirname, "../../../../../pi-mono/packages/coding-agent/dist");
-const require    = createRequire(import.meta.url);
+const require = createRequire(import.meta.url);
 
 const alias = {
-  "@earendil-works/pi-coding-agent": resolve(piDistRoot, "index.js"),
-  "@earendil-works/pi-agent-core":   resolve(piDistRoot, "../../agent/dist/index.js"),
-  "@earendil-works/pi-tui":          resolve(piDistRoot, "../../tui/dist/index.js"),
-  "@earendil-works/pi-ai":           resolve(piDistRoot, "../../ai/dist/index.js"),
-  "typebox":                         require.resolve("typebox"),
+  "@earendil-works/pi-coding-agent": fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent")),
+  "@earendil-works/pi-tui": fileURLToPath(import.meta.resolve("@earendil-works/pi-tui")),
+  "typebox": require.resolve("typebox"),
 };
 
 const jiti = createJiti(import.meta.url, { moduleCache: false, alias });

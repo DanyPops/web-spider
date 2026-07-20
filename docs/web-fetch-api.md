@@ -32,7 +32,7 @@
 | `url` | `string` | Fully-qualified `http(s)://` URL to fetch or crawl. |
 | `searchQuery` | `string` | Web search query. Searches the web instead of fetching a URL. Requires at least one search API key (see [Search engines](#search-engines)). |
 
-Exactly one of `url` or `searchQuery` must be provided. Omitting both returns `{ error }`.
+Pass either `url` or `searchQuery` for network work. Omitting both queries the local materialized cache: `query` performs full-text search, while no query lists cached pages.
 
 ---
 
@@ -62,7 +62,7 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 |---|---|---|
 | `rootSelector` | `string` | CSS selector. Scope extraction to the matched element; everything outside is discarded. Example: `"article"`, `".main-content"`, `"#post-body"`. |
 | `excludeSelectors` | `string` | Comma-separated CSS selectors to strip before extraction. Example: `"nav, footer, .sidebar, #ads"`. |
-| `tokenBudget` | `number` | Approximate max tokens to return (`~4 chars/token`). Truncation is chunk-aware — whole chunks are selected up to the budget rather than slicing prose mid-sentence. |
+| `tokenBudget` | `number` | Approximate max tokens to return (`~4 chars/token`), capped at 10,000. Truncation is chunk-aware where possible and always carries an explicit completeness marker. |
 
 ---
 
@@ -278,11 +278,20 @@ Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"`.
 
 ---
 
+## Native presentation and output bounds
+
+Pi receives two independent result channels:
+
+- model-facing `content` is canonical JSON containing the requested prose, snippets, links, tree data, or search results. It is capped at 50,000 characters and includes deterministic `truncated`, `originalCharacters`, and guidance fields when incomplete;
+- renderer-facing `details` is a versioned, runtime-validated metadata DTO containing only operation, format, identity, counts, cache/browser state, completeness, and at most 20 URL/title identities.
+
+Fetched markdown, tree nodes, snippets, highlights, and provider responses are never copied into persisted `details`. Collapsed rendering uses details only. Expanded rendering presents the canonical model content directly, including themed Markdown for page bodies. Legacy or malformed details fall back to bounded content.
+
 ## Throttling & robots.txt
 
 - Requests are automatically rate-limited **per domain** (500 ms minimum delay).
 - On `429` / `503`, backs off exponentially and respects `Retry-After` headers (up to 3 retries).
-- `robots.txt` is fetched, parsed, and respected before each page fetch. Blocked URLs return `{ error }`.
+- `robots.txt` is fetched, parsed, and respected before each page fetch. Blocked URLs return a normal typed `{ "blocked": true, "reason": "robots.txt" }` outcome; they are not reported as successful fetches.
 
 ---
 
@@ -296,20 +305,16 @@ When `captureImages: true` is used (library API only), images >32 KB are stored 
 
 ## Error handling
 
-`web_fetch` never throws. All errors are returned as:
-
-```json
-{ "error": "Descriptive message explaining what went wrong" }
-```
+Invalid input, HTTP/network failures, search-provider failures, parser failures, and browser failures throw through Pi's native tool-error channel. Expected empty searches, missing tree paths, cache misses, and robots denial remain typed non-success outcomes.
 
 Common cases:
 
-| Condition | Error message pattern |
+| Condition | Native result |
 |---|---|
-| Non-HTTP URL | `Invalid URL` / `Unsupported protocol` |
-| HTTP error | `HTTP 404 Not Found — https://…` |
-| Timeout | `Timeout after 10000ms — https://…` |
-| robots.txt blocked | `Blocked by robots.txt: https://…` |
-| Missing required param | `highlights format requires a query` |
-| No search API key | `BRAVE_SEARCH_API_KEY not set` |
-| JS-rendered page | Page returned with `"jsRendered": true` — not an error; Playwright auto-fallback kicks in |
+| Non-HTTP URL | thrown `Invalid URL` / `Unsupported protocol` failure |
+| HTTP error | thrown `HTTP 404 Not Found — https://…` failure |
+| Timeout | thrown timeout failure |
+| robots.txt blocked | typed blocked result |
+| Missing highlights query | thrown validation failure before network access |
+| Search provider unavailable | thrown provider failure |
+| JS-rendered page | Playwright auto-fallback; a browser failure throws natively |

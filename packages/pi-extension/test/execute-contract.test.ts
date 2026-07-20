@@ -1,9 +1,4 @@
-/**
- * execute() contract: never throw, always return content.
- * Unhandled exceptions propagate to the Pi TUI and crash the session.
- */
-
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createExtensionHarness, type ExtensionHarness } from "./harness/index.ts"
 import piFactory from "../src/index.js"
 
@@ -24,46 +19,56 @@ describe("stream hygiene: extension must not write to stdout or stderr", () => {
   })
 })
 
-describe("execute() error contract: never throws, always returns content", () => {
-  it("invalid URL scheme returns error, does not throw", async () => {
-    const result = await h.invokeTool("web_fetch", { url: "ftp://not-supported.example.com" }) as any
-    expect(result).toHaveProperty("content")
-    const text = JSON.parse(result.content[0].text)
-    expect(text).toHaveProperty("error")
-    expect(typeof text.error).toBe("string")
+describe("execute() result and failure channels", () => {
+  it("registers native call and result renderers", () => {
+    const definition = h.tools.get("web_fetch")?.definition
+    expect(definition).toBeDefined()
+    expect(typeof definition?.renderCall).toBe("function")
+    expect(typeof definition?.renderResult).toBe("function")
   })
 
-  it("unreachable host returns error, does not throw", async () => {
-    const result = await h.invokeTool("web_fetch", {
+  it("throws invalid URL failures through Pi's native error channel", async () => {
+    await expect(h.invokeTool("web_fetch", { url: "ftp://not-supported.example.com" }))
+      .rejects.toThrow("Unsupported protocol")
+  })
+
+  it("throws unreachable-host failures through Pi's native error channel", async () => {
+    await expect(h.invokeTool("web_fetch", {
       url: "http://this-host-does-not-exist-pivi-test.invalid",
       timeoutMs: 3000,
-    }) as any
-    expect(result).toHaveProperty("content")
-    const text = JSON.parse(result.content[0].text)
-    expect(text).toHaveProperty("error")
+    })).rejects.toThrow("web_fetch failed")
   })
 
-  it("missing url returns cache listing (not error), does not throw", async () => {
-    // No url → local materialized view path: returns cache listing, not an error.
-    // This is intentional: omitting url is the way to query the session cache.
+  it("missing url returns a typed cache listing", async () => {
     const result = await h.invokeTool("web_fetch", {}) as any
     expect(result).toHaveProperty("content")
     const text = JSON.parse(result.content[0].text)
     expect(text).not.toHaveProperty("error")
     expect(text).toHaveProperty("total")
-    expect(typeof text.total).toBe("number")
-    expect(text).toHaveProperty("pages")
     expect(Array.isArray(text.pages)).toBe(true)
+    expect(result.details).toMatchObject({ kind: "web", operation: "cache-list", cache: "listing" })
   })
 
-  it("highlights without query returns error, does not throw", async () => {
-    const result = await h.invokeTool("web_fetch", {
+  it("validates highlights query before attempting a fetch", async () => {
+    await expect(h.invokeTool("web_fetch", {
       url: "http://127.0.0.1:1",
       format: "highlights",
-    }) as any
-    expect(result).toHaveProperty("content")
-    const text = JSON.parse(result.content[0].text)
-    expect(text).toHaveProperty("error")
+    })).rejects.toThrow("highlights format requires a query")
   })
 
+  it("returns robots denial as a typed blocked outcome", async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/robots.txt")) return new Response("User-agent: *\nDisallow: /private", { status: 200 })
+      throw new Error("page fetch should be blocked by robots.txt")
+    }
+    try {
+      const result = await h.invokeTool("web_fetch", { url: "https://robots-contract.test/private" }) as any
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ blocked: true, reason: "robots.txt" })
+      expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

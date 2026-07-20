@@ -234,10 +234,9 @@ describe("single-page path — highlights", () => {
   })
   afterEach(() => fetchSpy.mockRestore())
 
-  it("returns error when query is missing", async () => {
-    const result = await execute("1", { url: MOCK_URL, format: "highlights" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
+  it("throws when query is missing", async () => {
+    await expect(execute("1", { url: MOCK_URL, format: "highlights" }))
+      .rejects.toThrow("highlights format requires a query")
   })
 
   it("returns hits array when query is provided", async () => {
@@ -276,10 +275,10 @@ describe("crawl path — depth=1", () => {
     expect(Array.isArray(body.pages)).toBe(true)
   })
 
-  it("details includes depth and pagesFound", async () => {
+  it("details includes the crawl depth and bounded page count", async () => {
     const result = await execute("1", { url: MOCK_URL, depth: 1, maxPages: 2 })
-    expect(result.details.depth).toBe(1)
-    expect(typeof result.details.pagesFound).toBe("number")
+    expect(result.details).toMatchObject({ kind: "web", operation: "crawl", depth: 1 })
+    expect(typeof result.details.pages).toBe("number")
   })
 
   it("format=lean returns leanOutput per page", async () => {
@@ -293,10 +292,9 @@ describe("crawl path — depth=1", () => {
     }
   })
 
-  it("highlights format without query returns error", async () => {
-    const result = await execute("1", { url: MOCK_URL, depth: 1, format: "highlights" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
+  it("highlights format without query throws", async () => {
+    await expect(execute("1", { url: MOCK_URL, depth: 1, format: "highlights" }))
+      .rejects.toThrow("highlights format requires a query")
   })
 
   it("highlights format with query returns hits", async () => {
@@ -335,17 +333,14 @@ describe("single-page path — tree (full)", () => {
     expect(tree.children.length).toBeGreaterThan(0)
   })
 
-  it("details includes format=tree mode=full", async () => {
+  it("details identifies a full tree result", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree" })
-    expect(result.details.format).toBe("tree")
-    expect(result.details.mode).toBe("full")
+    expect(result.details).toMatchObject({ kind: "web", format: "tree", operation: "tree-full" })
   })
 
-  it("returns error for network failure", async () => {
+  it("throws network failures", async () => {
     fetchSpy.mockImplementation(async () => { throw new Error("ECONNREFUSED") })
-    const result = await execute("1", { url: MOCK_URL, format: "tree" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
+    await expect(execute("1", { url: MOCK_URL, format: "tree" })).rejects.toThrow("ECONNREFUSED")
   })
 })
 
@@ -384,9 +379,9 @@ describe("single-page path — tree + query", () => {
     expect(body.hits.length).toBeLessThanOrEqual(2)
   })
 
-  it("details includes mode=query and hit count", async () => {
+  it("details identifies a tree query and hit count", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree", query: "spider" })
-    expect(result.details.mode).toBe("query")
+    expect(result.details.operation).toBe("tree-query")
     expect(typeof result.details.hits).toBe("number")
   })
 })
@@ -401,10 +396,10 @@ describe("single-page path — tree + path (navigate)", () => {
   })
   afterEach(() => fetchSpy.mockRestore())
 
-  it("returns error for unknown path", async () => {
+  it("returns an empty typed result for unknown path", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article.nonexistent[99]" })
-    const body = JSON.parse(result.content[0].text)
-    expect(body.error).toBeDefined()
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ found: false })
+    expect(result.details.status).toBe("empty")
   })
 
   it("returns article root node for path=article", async () => {
@@ -414,10 +409,8 @@ describe("single-page path — tree + path (navigate)", () => {
     expect(body.path).toBe("article")
   })
 
-  it("details includes mode=navigate, tag, path", async () => {
+  it("details identifies tree path navigation", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article" })
-    expect(result.details.mode).toBe("navigate")
-    expect(result.details.tag).toBe("article")
-    expect(result.details.path).toBe("article")
+    expect(result.details).toMatchObject({ operation: "tree-path", path: "article" })
   })
 })
