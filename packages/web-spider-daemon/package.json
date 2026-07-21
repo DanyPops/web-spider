@@ -1,8 +1,13 @@
 {
 	"name": "@danypops/web-spider-daemon",
-	"version": "0.1.0",
+	"version": "0.11.0",
+	"license": "MIT",
 	"description": "Supervised Bun daemon for @danypops/web-spider: authenticated loopback fetch/crawl/search/cache operations",
 	"type": "module",
+	"files": [
+		"src",
+		"package.json"
+	],
 	"bin": {
 		"web-spider": "src/cli.ts"
 	},
@@ -14,7 +19,7 @@
 		"check": "bun x tsc --noEmit"
 	},
 	"dependencies": {
-		"@danypops/web-spider": "*"
+		"@danypops/web-spider": "^0.11.0"
 	},
 	"optionalDependencies": {
 		"@danypops/papyrus": "*",
