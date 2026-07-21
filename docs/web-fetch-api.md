@@ -19,7 +19,7 @@
 | Crawl a whole site | `{ url, depth: 2, maxPages: 20 }` |
 | Search the web | `{ searchQuery: "…" }` |
 | Search recent news | `{ searchQuery: "…", timeRange: "month", topic: "news" }` |
-| Search + auto-read results | `{ searchQuery: "…", searchEnrich: true }` |
+| Save a page to the Papyrus context mesh | `{ url, ingest: true }` |
 
 ---
 
@@ -30,7 +30,7 @@
 | Parameter | Type | Description |
 |---|---|---|
 | `url` | `string` | Fully-qualified `http(s)://` URL to fetch or crawl. |
-| `searchQuery` | `string` | Web search query. Searches the web instead of fetching a URL. Requires at least one search API key (see [Search engines](#search-engines)). |
+| `searchQuery` | `string` | Web search query. Searches the web instead of fetching a URL. Requires at least one search API key to be set in the **daemon's own environment** (see [Search engines](#search-engines)) — never passed by the caller. |
 
 Pass either `url` or `searchQuery` for network work. Omitting both queries the local materialized cache: `query` performs full-text search, while no query lists cached pages.
 
@@ -84,7 +84,6 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 | `numResults` | `number` | Number of search results (default `10`). |
 | `timeRange` | `"day"` \| `"week"` \| `"month"` \| `"year"` | Restrict results to content published within this window. Supported by Tavily and Brave. Use `"month"` when asked for recent or latest news. |
 | `topic` | `"news"` \| `"general"` | Search topic mode. `"news"` prioritises freshly indexed news articles (Tavily only). Combine with `timeRange: "month"` for the freshest results. |
-| `searchEnrich` | `boolean` | When `true`, auto-fetches each result in `lean` format and returns the lean page alongside the search result. Saves a round-trip for search-then-triage workflows. |
 
 ---
 
@@ -259,8 +258,6 @@ With `format: "lean"`, each entry in `pages` is a full lean page object.
 }
 ```
 
-With `searchEnrich: true`, each result also includes `wordCount`, `headings`, and `bodyLinks` from a lean fetch of that page.
-
 ---
 
 ## Search engines
@@ -275,6 +272,23 @@ Engines are tried in priority order; the first with a key set wins. DDG is alway
 | DDG | *(none)* | Instant Answers only. No key required. Best for well-known entities. |
 
 Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"`.
+
+---
+
+## Context mesh (Papyrus ingestion)
+
+| Parameter | Type | Description |
+|---|---|---|
+| `ingest` | `boolean` | When `true`, pushes the fetched page or search results into [Papyrus](https://github.com/DanyPops/papyrus) as Doc artifact(s) (`subtype: "web"` / `"web-search-result"`) after a successful single-page fetch (`depth: 0`) or a `searchQuery` search. **Explicit opt-in only** — never triggered by an ordinary fetch or search. Ignored for `depth > 0` crawls and local cache views (no `url`/`searchQuery`). |
+| `relatesTo` | `string` | Existing Papyrus artifact ID to link the ingested Doc(s) to via `references`. Only used with `ingest: true`. |
+
+When `ingest: true` succeeds, the response gains a `papyrus` field:
+
+```json
+{ "papyrus": { "ingested": [{ "url": "https://example.com", "docId": "example-abcd" }], "skipped": [] } }
+```
+
+Ingested Docs are immutable service output — a verbatim capture of what the source said at fetch time, never rewritten in place. Re-ingesting the same URL later creates a **new** Doc, not an edit. Ingestion requires a running, authenticated Papyrus daemon; if Papyrus isn't reachable, the call fails closed with Papyrus's own actionable error rather than silently doing nothing.
 
 ---
 
@@ -295,11 +309,13 @@ Fetched markdown, tree nodes, snippets, highlights, and provider responses are n
 
 ---
 
-## Disk cache
+## Cache
 
-Pages are persisted to `~/.cache/web-spider/pages.json` across extension reloads and pi restarts (TTL: 30 min, max 500 entries). Override with `WEB_SPIDER_CACHE_PATH`.
+Pages are cached by the **Web Spider daemon** — a supervised Bun process, not the Pi extension — in a SQLite database at `$XDG_DATA_HOME/web-spider/web-spider.db` (default `~/.local/share/web-spider/web-spider.db`; TTL 30 min, max 500 entries). The daemon auto-starts transparently on first `web_fetch` call if it isn't already running; see `packages/web-spider-daemon/README.md` for the full daemon/CLI reference and `service install` for making it survive reboots.
 
-When `captureImages: true` is used (library API only), images >32 KB are stored as binary files under `~/.cache/web-spider/images/`. Override with `WEB_SPIDER_IMAGES_PATH`.
+On the daemon's first-ever startup, a pre-daemon `~/.cache/web-spider/pages.json` (the old per-process JSON cache), if present, is imported once, then renamed to `pages.json.migrated` — nothing is lost, and the import never runs again once the cache is non-empty. `WEB_SPIDER_CACHE_PATH` still overrides where that legacy file is looked for, if it lived somewhere non-default.
+
+Large images (>32 KB) spill to `$XDG_DATA_HOME/web-spider/images/` automatically — there is no separate `WEB_SPIDER_IMAGES_PATH` override in the daemon architecture (that was a library-only `DiskCache` option that does not carry over).
 
 ---
 
