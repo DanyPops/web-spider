@@ -119,7 +119,11 @@ Every `session act` call needs the session's current `snapshotVersion` (from `se
 
 ### UI-audit toolkit (internal library, not yet a daemon operation)
 
-`src/layout-check.ts` measures real rendered geometry (`getBoundingClientRect()` + `getComputedStyle()` padding, via a session's page) for a set of CSS selectors and asserts a given layout property is consistent across all of them within a pixel tolerance — reporting the actual disagreeing values, not just pass/fail. Built to catch exactly the kind of bug that motivated this whole toolkit: agent-deck's message bubbles and tool-call card silently drifting to different padding. Not yet exposed as a `session.*`-style operation/CLI command — that lands with the WCAG contrast checker in the follow-up task that wires both into an actual regression gate run against agent-deck.
+`src/layout-check.ts` measures real rendered geometry (`getBoundingClientRect()` + `getComputedStyle()` padding, via a session's page) for a set of CSS selectors and asserts a given layout property is consistent across all of them within a pixel tolerance — reporting the actual disagreeing values, not just pass/fail. Built to catch exactly the kind of bug that motivated this whole toolkit: agent-deck's message bubbles and tool-call card silently drifting to different padding.
+
+`src/contrast-check.ts` measures each selector's real rendered foreground color and its *effective* background — resolved by walking up the ancestor chain and alpha-compositing every layer, so a `background: transparent` element correctly inherits whatever's actually painted behind it — and computes the WCAG 2.1 contrast ratio. Thresholds match doc `design-tokens-red-hat-informed-not-red-hat-branded-rm7c`: 4.5:1 for text under 18pt/24px, 3:1 for large text (18pt+, or 14pt+ bold) and informative icons/graphics. Catches the bug that motivated the whole toolkit: near-invisible dark-red text on a near-black background in agent-deck's Observability tab.
+
+Neither is yet exposed as a `session.*`-style operation/CLI command — that lands in the follow-up task that wires both checkers into an actual regression gate run against agent-deck.
 
 ## Health and readiness
 
