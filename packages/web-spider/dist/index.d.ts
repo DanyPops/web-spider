@@ -42,4 +42,6 @@ export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
 export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export type { NDJSONRecord } from "./scribe-bridge.js";
+export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 //# sourceMappingURL=index.d.ts.map

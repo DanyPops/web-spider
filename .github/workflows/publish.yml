@@ -1,8 +1,12 @@
 name: Publish Packages
 
 # Trusted publishing (OIDC) for the @danypops scope. npm CLI (>= 11.5.1)
-# detects OIDC automatically. Configure one trusted publisher per package on
-# npmjs.com: org=DanyPops repo=web-spider workflow=publish.yml
+# detects OIDC automatically. Configure one trusted publisher **per package**
+# on npmjs.com: org=DanyPops repo=web-spider workflow=publish.yml -- this
+# must be done once for each of @danypops/web-spider, @danypops/web-spider-daemon,
+# and @danypops/pi-web-spider individually before that package's first
+# trusted-publish run will succeed; a package with no trusted publisher
+# configured yet will fail its publish step with a 404/403, not silently skip.
 
 on:
   push:
@@ -29,12 +33,32 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; Node's bundled npm can be older.
       - run: npm install -g npm@latest && npm --version
 
+      - uses: oven-sh/setup-bun@v2 # web-spider-daemon is Bun-native (bun:sqlite, bun test) — Node alone cannot build/test/run it.
+        with:
+          bun-version: latest
+
       - run: npm ci
+
+      # Several tests (web-spider's lightpanda.test.ts, web-spider-daemon's
+      # session/layout-check/contrast-check/service-playwright-lifecycle
+      # suites) launch a real headless Chromium -- a fresh runner has no
+      # browser binary at all. --with-deps also installs the OS-level
+      # libraries (fonts, libnss3, etc.) headless Chromium needs to run,
+      # which a minimal Ubuntu image does not have preinstalled.
+      - run: npx playwright-core install --with-deps chromium
+
       - run: npm run build --workspace=packages/web-spider
       - run: npm test --workspace=packages/web-spider --workspace=packages/pi-extension
+      - run: bun test
+        working-directory: packages/web-spider-daemon
+      - run: bun x tsc --noEmit
+        working-directory: packages/web-spider-daemon
 
-      # Dependency order: the extension depends on the library.
+      # Dependency order: web-spider-daemon depends on web-spider; the
+      # extension depends on both.
       - run: npm publish --access public
         working-directory: packages/web-spider
+      - run: npm publish --access public
+        working-directory: packages/web-spider-daemon
       - run: npm publish --access public
         working-directory: packages/pi-extension

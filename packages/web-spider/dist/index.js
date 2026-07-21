@@ -35,7 +35,7 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
 export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
-// ---------------------------------------------------------------------------
+export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.
 // If you need lower-level DOM or markdown utilities, import from the
