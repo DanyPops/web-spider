@@ -103,8 +103,27 @@ describe("createApp — operation discovery and dispatch", () => {
 });
 
 describe("WebSpiderService.execute", () => {
-	test("throws UnknownOperationError for an unregistered operation", () => {
+	test("rejects with UnknownOperationError for an unregistered operation", async () => {
 		const { service } = app();
-		expect(() => service.execute("nope")).toThrow(UnknownOperationError);
+		await expect(service.execute("nope")).rejects.toThrow(UnknownOperationError);
+	});
+});
+
+describe("createApp — search", () => {
+	test("POST /api/v1/ops rejects search with a missing query as a 400", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/api/v1/ops", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+			body: JSON.stringify({ op: "search", input: {} }),
+		}));
+		expect(response.status).toBe(400);
+	});
+
+	test("GET /api/v1/ops lists search alongside cache.list/cache.search", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/api/v1/ops", { headers: { authorization: `Bearer ${TOKEN}` } }));
+		const body = await response.json() as { operations: string[] };
+		expect(body.operations).toContain("search");
 	});
 });

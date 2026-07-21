@@ -53,6 +53,8 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 
 			const operations = await client.operations();
 			expect(operations).toContain("cache.list");
+			expect(operations).toContain("cache.search");
+			expect(operations).toContain("search");
 
 			const listing = await client.call("cache.list", {});
 			expect(listing).toEqual({ total: 0, filtered: 0, offset: 0, limit: 20, pages: [] });
