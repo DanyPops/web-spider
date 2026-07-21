@@ -1,5 +1,19 @@
 import type { SessionInfo } from "../domain/session.ts";
 
+/**
+ * The minimal surface act() dispatch needs from a live page — deliberately
+ * not the full Playwright Page type. One SessionPage per session, created
+ * lazily and reused across every act() call (tmux-session semantics: a
+ * persistent page, not a fresh one per action).
+ */
+export interface SessionPage {
+	goto(url: string, opts?: { timeoutMs?: number }): Promise<void>;
+	click(selector: string, opts?: { timeoutMs?: number }): Promise<void>;
+	evaluate<T = unknown>(script: string): Promise<T>;
+	/** PNG bytes of the full page. */
+	screenshot(): Promise<Uint8Array>;
+}
+
 export interface CreateSessionOptions {
 	/**
 	 * Force the full installed chrome/chromium channel instead of Playwright's
@@ -31,8 +45,14 @@ export interface SessionRegistry {
 	create(name: string, opts?: CreateSessionOptions): Promise<SessionInfo>;
 	list(): SessionInfo[];
 	get(name: string): SessionInfo | undefined;
+	/** The session's one persistent page, for act() dispatch. Throws for an unknown session. */
+	page(name: string): Promise<SessionPage>;
 	/** Idempotent-in-error-shape: closing an unknown or already-closed session throws a clear, typed error. */
 	close(name: string): Promise<void>;
+	/** Bumps and returns the session's snapshot version (called after a successful navigate). Throws for an unknown session. */
+	bumpSnapshotVersion(name: string): SessionInfo;
+	/** Touches lastActivityAt without changing snapshotVersion (called after a successful click/eval/screenshot). Throws for an unknown session. */
+	touchActivity(name: string): SessionInfo;
 	/** Daemon-shutdown hygiene — tears down every live session. Never throws; best-effort. */
 	closeAll(): Promise<void>;
 }

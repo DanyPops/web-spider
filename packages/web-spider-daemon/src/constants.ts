@@ -17,7 +17,7 @@ export const SYSTEMD_UNIT_NAME = "web-spider.service";
 // ---------------------------------------------------------------------------
 // SQLite
 // ---------------------------------------------------------------------------
-export const SQLITE_SCHEMA_VERSION = 1;
+export const SQLITE_SCHEMA_VERSION = 2;
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -66,3 +66,10 @@ export const PAPYRUS_INGEST_MAX_BATCH = 20;
 /** Each session owns a full separate Playwright Browser process — local-dev-scale, not a hosted fleet. */
 export const SESSION_REGISTRY_MAX_CONCURRENT = 5;
 export const SESSION_NAME_MAX_LENGTH = 64;
+/** Bounded, content-free audit journal (Seeshell-derived principle) — never page text/secrets, just attempt/dispatch/result metadata. */
+export const SESSION_AUDIT_LOG_MAX_ROWS = 10_000;
+export const SESSION_ACT_SELECTOR_MAX_LENGTH = 200;
+export const SESSION_ACT_URL_MAX_LENGTH = 500;
+export const SESSION_JOURNAL_ERROR_MAX_LENGTH = 300;
+export const SESSION_ACT_SCRIPT_MAX_LENGTH = 10_000;
+export const SESSION_ACT_DEFAULT_TIMEOUT_MS = 30_000;

@@ -70,6 +70,10 @@ The current operation registry (see `src/service.ts`):
 | `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
 | `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
 | `papyrus.ingest` | Explicit opt-in: turns already-cached pages (`kind: "pages"`, by URL) or a caller-supplied search-result set (`kind: "search"`) into Papyrus `doc` artifacts (`subtype: "web"` / `"web-search-result"`), optionally linked to an existing artifact via `relatesTo`. Bounded to 20 items per call. Ingested Docs are immutable service output — never updated in place; re-ingesting the same URL creates a new Doc. Reaches Papyrus only through its own authenticated client, never its SQLite file directly. |
+| `session.create` | Launches a named, isolated Playwright browser **process** (not a shared-browser context) — tmux-style session semantics. Bounded to 5 concurrent sessions; rejects past the ceiling rather than queuing. Defaults to Playwright's own lighter `chromium-headless-shell` in headless mode; `forceChromeChannel: true` opts into the full installed Chrome for headed-rendering-exact fidelity. |
+| `session.list` | Lists active sessions with their `snapshotVersion` and activity timestamps. |
+| `session.close` | Tears a named session's browser process down. |
+| `session.act` | Dispatches one `navigate`/`click`/`eval`/`screenshot` action against a session's persistent page. Requires the caller's `snapshotVersion` to match the session's current one — fails closed (HTTP 409) if the page has navigated or changed since the caller last observed it, rather than silently acting on stale state. Only a successful `navigate` bumps `snapshotVersion`. Every call — successful, rejected, or failed — is recorded in an append-only, content-free audit journal (SQLite `session_audit_log`, bounded to the most recent 10,000 rows): action, outcome, and a redacted target (a sanitized URL for `navigate`, the selector for `click`, and a fixed `"<script>"`/`"<screenshot>"` placeholder for `eval`/`screenshot` — script source and image bytes are never written to the journal, only returned to the caller). |
 
 Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. DDG requires no key and is always the zero-cost fallback. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
@@ -91,7 +95,23 @@ web-spider search <query> [--num-results N] [--time-range day|week|month|year] [
 web-spider cache list [--grep TEXT] [--offset N] [--limit N] [--json]
 web-spider cache search <query> [--limit N] [--json]
 web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]
+web-spider session create <name> [--force-chrome-channel] [--json]
+web-spider session list [--json]
+web-spider session close <name> [--json]
+web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]
+web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]
+web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]
+web-spider session act <name> --action screenshot --snapshot-version N [--json]
 ```
+
+`session act --action eval` never accepts the script as a plain flag value (shell history and `ps` would leak it) — it reads the script from `--script-file PATH`, or from stdin if that's omitted:
+
+```bash
+echo "document.title" | web-spider session act agent1 --action eval --snapshot-version 0
+web-spider session act agent1 --action eval --snapshot-version 0 --script-file ./check.js
+```
+
+Every `session act` call needs the session's current `snapshotVersion` (from `session create`'s response or the previous `act` call's response) — an out-of-date version is rejected rather than silently acting against a page that may have already navigated elsewhere.
 
 `papyrus ingest` requires each URL to already be cached (`web-spider fetch <url>` first) and requires a running, authenticated Papyrus daemon — it fails closed with Papyrus's own actionable "daemon is not running" message when Papyrus isn't installed or started. It is never automatic: nothing is pushed to Papyrus except in direct response to this explicit call.
 

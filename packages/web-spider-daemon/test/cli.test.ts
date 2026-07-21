@@ -21,6 +21,7 @@ function fakeDeps(overrides: {
 		systemctl: (...args) => calls.push(`systemctl:${args.join(" ")}`),
 		installService: () => calls.push("install"),
 		serve: () => calls.push("serve"),
+		readEvalScript: () => "1+1",
 		...overrides,
 	};
 	return { deps, calls, operations };
@@ -254,5 +255,122 @@ describe("runCli papyrus ingest", () => {
 		const { deps, calls } = fakeDeps({ call: () => { throw new Error("Papyrus daemon is not running; install/start papyrus.service"); } });
 		expect(await runCli(["papyrus", "ingest", "https://x.test"], deps)).toBe(1);
 		expect(calls).toEqual(["stderr:Papyrus daemon is not running; install/start papyrus.service"]);
+	});
+});
+
+describe("runCli session create/list/close", () => {
+	test("create forwards the name and forceChromeChannel:undefined by default", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }) });
+		await runCli(["session", "create", "agent1"], deps);
+		expect(operations).toEqual([{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined } }]);
+	});
+
+	test("create forwards forceChromeChannel:true with --force-chrome-channel", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }) });
+		await runCli(["session", "create", "agent1", "--force-chrome-channel"], deps);
+		expect((operations[0]?.input as { forceChromeChannel: boolean }).forceChromeChannel).toBe(true);
+	});
+
+	test("create missing name prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "create"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("list calls session.list with no input and reports an empty registry clearly", async () => {
+		const { deps, calls, operations } = fakeDeps({ call: () => ({ sessions: [] }) });
+		await runCli(["session", "list"], deps);
+		expect(operations).toEqual([{ op: "session.list", input: {} }]);
+		expect(calls[0]).toContain("No active sessions");
+	});
+
+	test("close forwards the name and reports success", async () => {
+		const { deps, calls, operations } = fakeDeps({ call: () => ({ name: "agent1", closed: true }) });
+		await runCli(["session", "close", "agent1"], deps);
+		expect(operations).toEqual([{ op: "session.close", input: { name: "agent1" } }]);
+		expect(calls[0]).toContain("closed");
+	});
+
+	test("close missing name prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "close"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("unknown session subcommand prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "bogus"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+});
+
+describe("runCli session act", () => {
+	test("navigate forwards url/snapshotVersion/action, with no script field at all", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "navigate", snapshotVersion: 1 }) });
+		await runCli(["session", "act", "a", "--action", "navigate", "--snapshot-version", "0", "--url", "https://x.test"], deps);
+		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined } }]);
+	});
+
+	test("click forwards the selector", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "click", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "click", "--snapshot-version", "0", "--selector", "#go"], deps);
+		expect((operations[0]?.input as { selector: string }).selector).toBe("#go");
+	});
+
+	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
+		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);
+		expect((operations[0]?.input as { script: string }).script).toBe("script-from:/tmp/s.js");
+	});
+
+	test("eval with no --script-file reads from stdin via deps.readEvalScript(undefined)", async () => {
+		let seenArg: string | undefined = "unset";
+		const { deps } = fakeDeps({
+			call: () => ({ name: "a", action: "eval", snapshotVersion: 0 }),
+			readEvalScript: (file) => { seenArg = file; return "1+1"; },
+		});
+		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0"], deps);
+		expect(seenArg).toBeUndefined();
+	});
+
+	test("screenshot requires no url/selector/script", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGk=" }) });
+		await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], deps);
+		expect(operations).toHaveLength(1);
+	});
+
+	test("an invalid --action prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "bogus", "--snapshot-version", "0"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("a missing --snapshot-version prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "screenshot"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("a non-numeric --snapshot-version prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "nope"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("a stale-snapshot rejection from the daemon is reported to stderr with exit code 1", async () => {
+		const { deps, calls } = fakeDeps({ call: () => { throw new Error('session "a" snapshot version mismatch: caller supplied 0, current is 1'); } });
+		expect(await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], deps)).toBe(1);
+		expect(calls).toEqual(["stderr:session \"a\" snapshot version mismatch: caller supplied 0, current is 1"]);
+	});
+
+	test("human output for eval includes the result; for screenshot includes only a byte-length hint, never the image data", async () => {
+		const { deps: evalDeps, calls: evalCalls } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: { ok: true } }) });
+		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0"], evalDeps);
+		expect(evalCalls[0]).toContain('{"ok":true}');
+
+		const { deps: shotDeps, calls: shotCalls } = fakeDeps({ call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGVsbG8=" }) });
+		await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], shotDeps);
+		expect(shotCalls[0]).not.toContain("aGVsbG8=");
+		expect(shotCalls[0]).toContain("base64 characters");
 	});
 });

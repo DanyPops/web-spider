@@ -1,30 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-	defaultBrowserLauncher,
-	PlaywrightSessionRegistry,
-	type BrowserLauncher,
-	type LaunchedBrowser,
-} from "../src/adapters/playwright-session-registry.ts";
-
-/** A launcher that never touches a real browser — fast, deterministic, and lets tests control timing/failure. */
-function fakeLauncher(opts: { delayMs?: number; failClose?: boolean; onLaunch?: (forceChromeChannel: boolean) => void } = {}): {
-	launcher: BrowserLauncher;
-	launched: LaunchedBrowser[];
-} {
-	const launched: LaunchedBrowser[] = [];
-	const launcher: BrowserLauncher = async ({ forceChromeChannel }) => {
-		opts.onLaunch?.(forceChromeChannel);
-		if (opts.delayMs) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
-		const browser: LaunchedBrowser = {
-			close: async () => {
-				if (opts.failClose) throw new Error("simulated close failure");
-			},
-		};
-		launched.push(browser);
-		return browser;
-	};
-	return { launcher, launched };
-}
+import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
+import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
 describe("PlaywrightSessionRegistry — create", () => {
 	test("returns a fresh SessionInfo and forwards forceChromeChannel (default false)", async () => {
@@ -174,5 +150,22 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		expect(registry.list()).toHaveLength(1);
 		await registry.close("real-session");
 		expect(registry.list()).toHaveLength(0);
+	}, 30_000);
+
+	test("registry.page() returns the same persistent real page across calls, and can navigate/click/eval/screenshot", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-page-session");
+		const page1 = await registry.page("real-page-session");
+		const page2 = await registry.page("real-page-session");
+		expect(page2).toBe(page1);
+
+		await page1.goto("data:text/html,<button id='b'>click me</button>");
+		await page1.click("#b");
+		const title = await page1.evaluate<string>("document.querySelector('#b').textContent");
+		expect(title).toBe("click me");
+		const png = await page1.screenshot();
+		expect(png.length).toBeGreaterThan(0);
+
+		await registry.close("real-page-session");
 	}, 30_000);
 });
