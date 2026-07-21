@@ -91,10 +91,12 @@ export class CrawlService {
 		}
 
 		// markdown (default) — crawl summary, not full page bodies; see docs/web-fetch-api.md "Crawl output".
+		// No "note" field here: the historical "use web_fetch(depth=0, ...)" guidance
+		// names a specific Pi tool and is added by that tool's own adapter layer
+		// (packages/pi-extension), not by this daemon — a CLI caller has no such tool.
 		return {
 			pagesFound: result.pages.size,
 			...errorsObj,
-			note: "All pages cached — use fetch(depth=0, format=highlights, query=...) to search them.",
 			pages: pages.map((page) => omitEmpty({ url: page.url, title: page.title, description: page.description, wordCount: page.wordCount, tags: page.tags })),
 		};
 	}
