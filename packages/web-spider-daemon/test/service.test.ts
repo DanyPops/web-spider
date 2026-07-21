@@ -37,6 +37,7 @@ describe("createApp — operation discovery and dispatch", () => {
 		const response = await server.fetch(new Request("http://x/api/v1/ops", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		const body = await response.json() as { operations: string[] };
 		expect(body.operations).toContain("cache.list");
+		expect(body.operations).toContain("cache.search");
 	});
 
 	test("POST /api/v1/ops executes a real operation end-to-end (cache.list on an empty store)", async () => {
@@ -50,6 +51,28 @@ describe("createApp — operation discovery and dispatch", () => {
 		const body = await response.json() as { result: { total: number; pages: unknown[] } };
 		expect(body.result.total).toBe(0);
 		expect(body.result.pages).toEqual([]);
+	});
+
+	test("POST /api/v1/ops executes cache.search end-to-end (empty store, no hits)", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/api/v1/ops", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+			body: JSON.stringify({ op: "cache.search", input: { query: "anything" } }),
+		}));
+		expect(response.status).toBe(200);
+		const body = await response.json() as { result: { query: string; pagesSearched: number; hits: unknown[] } };
+		expect(body.result).toEqual({ query: "anything", pagesSearched: 0, hits: [] });
+	});
+
+	test("POST /api/v1/ops rejects cache.search with a missing query as a 400", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/api/v1/ops", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+			body: JSON.stringify({ op: "cache.search", input: {} }),
+		}));
+		expect(response.status).toBe(400);
 	});
 
 	test("POST /api/v1/ops rejects an unknown operation with 404", async () => {

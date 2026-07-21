@@ -6,6 +6,7 @@ import {
 	ensureAuthToken,
 	readDaemonHandle,
 	removeDaemonHandle,
+	resolveLegacyCachePath,
 	resolveWebSpiderPaths,
 	writeDaemonHandle,
 } from "../src/state.ts";
@@ -76,5 +77,15 @@ describe("daemon handle round-trip", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("resolveLegacyCachePath", () => {
+	test("defaults to ~/.cache/web-spider/pages.json — the pi-extension's historical default", () => {
+		expect(resolveLegacyCachePath({ env: {}, home: "/home/example" })).toBe(join("/home/example", ".cache", "web-spider", "pages.json"));
+	});
+
+	test("honors WEB_SPIDER_CACHE_PATH when set, matching the pi-extension's existing override", () => {
+		expect(resolveLegacyCachePath({ env: { WEB_SPIDER_CACHE_PATH: "/custom/pages.json" }, home: "/home/example" })).toBe("/custom/pages.json");
 	});
 });

@@ -4,13 +4,14 @@
  * after a successful bind, and removes it on clean shutdown.
  */
 import { DB_OPTIMIZE_INTERVAL_MS, LOOPBACK_HOST, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
-import { ensureAuthToken, removeDaemonHandle, resolveWebSpiderPaths, writeDaemonHandle } from "./state.ts";
+import { ensureAuthToken, removeDaemonHandle, resolveLegacyCachePath, resolveWebSpiderPaths, writeDaemonHandle } from "./state.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
 
 export function serveMain(): void {
 	const paths = resolveWebSpiderPaths();
 	const token = ensureAuthToken(paths);
 	const service = createWebSpiderService(paths.database);
+	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
 	const app = createApp({ service, token });
 	const server = Bun.serve({
 		hostname: LOOPBACK_HOST,

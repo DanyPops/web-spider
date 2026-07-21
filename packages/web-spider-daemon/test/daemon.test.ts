@@ -28,10 +28,18 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 		const root = mkdtempSync(join(tmpdir(), "web-spider-e2e-"));
 		const env = {
 			...process.env,
+			// HOME is overridden too, not just the XDG_* vars: resolveLegacyCachePath()
+			// falls back to the real home directory (os.homedir() honors $HOME on
+			// POSIX) when WEB_SPIDER_CACHE_PATH is unset. Without this, a spawned
+			// daemon would read — and rename — the operator's real
+			// ~/.cache/web-spider/pages.json as a one-time "legacy import" side
+			// effect. Both overrides are kept for defense in depth.
+			HOME: root,
 			XDG_DATA_HOME: join(root, "data"),
 			XDG_STATE_HOME: join(root, "state"),
 			XDG_RUNTIME_DIR: join(root, "run"),
 			XDG_CONFIG_HOME: join(root, "config"),
+			WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
 		};
 		const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 });
 
