@@ -163,6 +163,14 @@ export interface LeanPage {
 	 * Higher = more authoritative within the crawled corpus.
 	 */
 	inboundCount?: number;
+	/**
+	 * The response's raw Content-Type header, present only when the fetched
+	 * URL was not HTML (e.g. "text/plain", "application/json") — no HTML
+	 * extraction was attempted; markdown/headings/links are derived directly
+	 * from the raw body instead of a DOM. Omitted for ordinary HTML pages,
+	 * preserving the existing contract for the common case.
+	 */
+	contentType?: string;
 }
 
 // toLean() moved to views.ts. Import from there or from the package root.
@@ -222,4 +230,12 @@ export interface SpideredPage {
 	 * possible; chunks and markdown are empty.
 	 */
 	jsRendered?: boolean;
+	/**
+	 * The response's raw Content-Type header, present only when the fetched
+	 * URL was not HTML (e.g. "text/plain", "application/json") — no HTML
+	 * extraction was attempted; markdown/headings/links are derived directly
+	 * from the raw body instead of a DOM. Omitted for ordinary HTML pages,
+	 * preserving the existing contract for the common case.
+	 */
+	contentType?: string;
 }

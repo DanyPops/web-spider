@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
 import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
@@ -211,6 +212,101 @@ export interface TreePage extends SpideredPage {
 	tree: DOMNode;
 }
 
+// ---------------------------------------------------------------------------
+// Non-HTML content (text/plain, JSON, XML/RSS/Atom, ...)
+// ---------------------------------------------------------------------------
+
+/** Pretty-prints parseable JSON for readability; returns the raw text unchanged for anything else (invalid JSON, JSONL, ...) rather than guessing. */
+function prettyPrintIfJson(rawText: string): string {
+	try {
+		return JSON.stringify(JSON.parse(rawText), null, 2);
+	} catch {
+		return rawText;
+	}
+}
+
+/** A human-meaningful fallback title when there is no <title> tag to read — the URL's last path segment, or the hostname for a bare root URL. */
+function titleFromUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		return parsed.pathname.split("/").filter(Boolean).pop() ?? parsed.hostname;
+	} catch {
+		return url;
+	}
+}
+
+/**
+ * Extracts a heading outline from plain text using the same "#"/"##"/"###"
+ * convention chunk() already looks for — real signal for text/markdown
+ * content (READMEs, llms.txt-style docs), harmless (empty) for anything
+ * else that happens not to use it.
+ */
+function extractMarkdownHeadings(text: string): SpideredPage["headings"] {
+	const headings: SpideredPage["headings"] = [];
+	for (const line of text.split("\n")) {
+		const match = /^(#{1,3})\s+(.+)/.exec(line.trim());
+		if (match) headings.push({ level: match[1].length as 1 | 2 | 3, text: match[2].trim() });
+	}
+	return headings;
+}
+
+/**
+ * Builds a SpideredPage/LeanPage/TreePage directly from a non-HTML response
+ * body — no linkedom, no Readability; there is no DOM to parse. JSON is
+ * pretty-printed when it parses; everything else (plain text, XML/RSS/Atom,
+ * unparseable JSON) is returned as the server sent it. `contentType` is
+ * always set here (never on an HTML result) so callers can tell what
+ * actually happened rather than silently getting an empty-looking page.
+ */
+function buildNonHtmlPage(params: {
+	url: string;
+	domain: string;
+	fetchedAt: string;
+	contentTypeHeader: string | null;
+	rawText: string;
+	view: "lean" | "full" | "tree";
+	isJson: boolean;
+}): SpideredPage | LeanPage | TreePage {
+	const { url, domain, fetchedAt, contentTypeHeader, rawText, view, isJson } = params;
+	const text = isJson ? prettyPrintIfJson(rawText) : rawText;
+	const wordCount = text.split(/\s+/).filter(Boolean).length;
+	const headings = extractMarkdownHeadings(text);
+	const title = titleFromUrl(url);
+	const readingTimeMinutes = Math.ceil(wordCount / WORDS_PER_MINUTE);
+	const contentTypeField = contentTypeHeader ? { contentType: contentTypeHeader } : {};
+
+	if (view === "lean") {
+		return {
+			view: "lean",
+			url, domain, fetchedAt, title,
+			lang: "",
+			tags: [],
+			wordCount, readingTimeMinutes,
+			chunkCount: Math.max(0, Math.floor(wordCount / 150)),
+			headings: headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
+			links: [],
+			...contentTypeField,
+		};
+	}
+
+	const chunks = chunk(text, url);
+	const base = {
+		url, domain, fetchedAt, title,
+		description: "", author: "", publishedAt: "", lang: "",
+		tags: [],
+		wordCount, readingTimeMinutes,
+		headings, chunks, links: [],
+		markdown: text,
+		...contentTypeField,
+	};
+
+	if (view === "tree") {
+		return { ...base, view: "tree", tree: { tag: "text", path: "text", text } };
+	}
+
+	return base;
+}
+
 export async function spider(url: string, opts: SpiderOptions & { view: "lean" }): Promise<LeanPage>;
 export async function spider(url: string, opts: SpiderOptions & { view: "tree" }): Promise<TreePage>;
 export async function spider(url: string, opts?: SpiderOptions & { view?: "full" }): Promise<SpideredPage>;
@@ -256,6 +352,7 @@ export async function spider(
 	const maxRetries = throttle?.maxRetries ?? 0;
 	let html = "";
 	let fetchError: Error | null = null;
+	let contentTypeHeader: string | null = null;
 
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		if (throttle) await throttle.wait(url);
@@ -289,6 +386,14 @@ export async function spider(
 
 		if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
 
+		contentTypeHeader = res.headers.get("content-type");
+		const kind = classifyContentType(contentTypeHeader);
+		if (kind === "unsupported") {
+			throw new Error(
+				`Cannot extract content from "${url}" — server returned "${contentTypeHeader ?? "an unknown content type"}", which web-spider cannot parse as text or structure`,
+			);
+		}
+
 		throttle?.success(url);
 		html = await res.text();
 		fetchError = null;
@@ -296,6 +401,17 @@ export async function spider(
 	}
 
 	if (fetchError) throw fetchError;
+
+	const domain = new URL(url).hostname.replace(/^www\./, "");
+	const fetchedAt = new Date().toISOString();
+	const contentKind = classifyContentType(contentTypeHeader);
+
+	// Non-HTML content (text/plain, JSON, XML/RSS/Atom, ...) never reaches
+	// linkedom/Readability at all — there is no DOM to parse. Return the raw
+	// (or, for JSON, pretty-printed) body directly instead.
+	if (contentKind !== "html") {
+		return buildNonHtmlPage({ url, domain, fetchedAt, contentTypeHeader, rawText: html, view, isJson: contentKind === "json" });
+	}
 
 	// Parse DOM via parse.ts — keeps the JSDOM dependency in one module.
 	const doc = parseDom(html, url);
@@ -339,9 +455,6 @@ export async function spider(
 		publishedTime: null,
 		readingTimeMinutes: 0,
 	};
-
-	const domain = new URL(url).hostname.replace(/^www\./, "");
-	const fetchedAt = new Date().toISOString();
 
 	const meta = (name: string): string => {
 		const el =
