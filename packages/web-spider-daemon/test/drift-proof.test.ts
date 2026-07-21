@@ -29,6 +29,10 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"fetch": ["fetch", "https://drift-proof.test/article"],
 	"crawl": ["fetch", "https://drift-proof.test/article", "--depth", "1"],
 	"papyrus.ingest": ["papyrus", "ingest", "https://drift-proof.test/article"],
+	"session.create": ["session", "create", "drift-proof-session"],
+	"session.list": ["session", "list"],
+	"session.close": ["session", "close", "drift-proof-session"],
+	"session.act": ["session", "act", "drift-proof-session", "--action", "screenshot", "--snapshot-version", "0"],
 };
 
 function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
@@ -38,7 +42,10 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 			async call(op: OperationName) {
 				ops.push(op);
 				// Minimal shape satisfying every formatter without throwing.
-				return { pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [] } as never;
+				return {
+					pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [],
+					name: "drift-proof-session", createdAt: 0, lastActivityAt: 0, snapshotVersion: 0, closed: true, sessions: [], action: "screenshot",
+				} as never;
 			},
 		},
 		stdout: () => {},
@@ -46,6 +53,7 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 		systemctl: () => {},
 		installService: () => {},
 		serve: () => {},
+		readEvalScript: () => "1+1",
 	};
 	return { deps, ops };
 }
@@ -117,6 +125,7 @@ describe("--json output is the exact operation result, not a reformatted copy", 
 				systemctl: () => {},
 				installService: () => {},
 				serve: () => {},
+				readEvalScript: () => "1+1",
 			};
 			const args = [...OPERATION_CLI_INVOCATIONS[operation], "--json"];
 			const code = await runCli(args, deps);

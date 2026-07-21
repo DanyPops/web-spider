@@ -22,10 +22,18 @@ import { FetchService, type FetchOperationInput, type FetchOperationOutput } fro
 import { CrawlService, type CrawlOperationInput, type CrawlOperationOutput } from "./crawl-service.ts";
 import { PapyrusIngestService, type PapyrusIngestInput, type PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
 import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
+import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
+import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
+import { SessionNotFoundError, SessionService, StaleSnapshotError, type SessionActInput, type SessionActOutput, type SessionCloseInput } from "./session-service.ts";
+import type { SessionAction } from "./domain/session-audit.ts";
+import type { SessionInfo } from "./domain/session.ts";
 import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
-export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search", "fetch", "crawl", "papyrus.ingest"] as const;
+export const EXPECTED_OPERATION_NAMES = [
+	"cache.list", "cache.search", "search", "fetch", "crawl", "papyrus.ingest",
+	"session.create", "session.list", "session.close", "session.act",
+] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
 export interface OperationInputs {
@@ -35,6 +43,10 @@ export interface OperationInputs {
 	"fetch": FetchOperationInput;
 	"crawl": CrawlOperationInput;
 	"papyrus.ingest": PapyrusIngestInput;
+	"session.create": { name: string; forceChromeChannel?: boolean };
+	"session.list": Record<string, never>;
+	"session.close": SessionCloseInput;
+	"session.act": SessionActInput;
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
@@ -43,6 +55,10 @@ export interface OperationOutputs {
 	"fetch": FetchOperationOutput;
 	"crawl": CrawlOperationOutput;
 	"papyrus.ingest": PapyrusIngestOutput;
+	"session.create": SessionInfo;
+	"session.list": { sessions: SessionInfo[] };
+	"session.close": { name: string; closed: true };
+	"session.act": SessionActOutput;
 }
 
 type OperationInput = Record<string, unknown>;
@@ -93,6 +109,29 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "eval", "screenshot"]);
+
+function sessionActInput(input: OperationInput): SessionActInput {
+	const name = requireString(input, "name");
+	const snapshotVersionRaw = input.snapshotVersion;
+	if (typeof snapshotVersionRaw !== "number" || !Number.isInteger(snapshotVersionRaw) || snapshotVersionRaw < 0) {
+		throw new Error("snapshotVersion is required and must be a non-negative integer");
+	}
+	const action = requireString(input, "action");
+	if (!SESSION_ACTIONS.has(action as SessionAction)) {
+		throw new Error('action must be one of "navigate", "click", "eval", "screenshot"');
+	}
+	return {
+		name,
+		snapshotVersion: snapshotVersionRaw,
+		action: action as SessionAction,
+		url: optionalString(input, "url"),
+		selector: optionalString(input, "selector"),
+		script: optionalString(input, "script"),
+		timeoutMs: optionalNumber(input, "timeoutMs"),
+	};
+}
+
 function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
 	const kind = requireString(input, "kind");
 	const relatesTo = optionalString(input, "relatesTo");
@@ -115,7 +154,7 @@ function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
 	throw new Error('kind must be "pages" or "search"');
 }
 
-function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService): Record<OperationName, OperationHandler> {
+function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService, sessionService: SessionService): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
@@ -141,6 +180,10 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 			sameDomain: optionalBoolean(input, "sameDomain"),
 		}),
 		"papyrus.ingest": (input) => papyrusIngest.ingest(papyrusIngestInput(input)),
+		"session.create": (input) => sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
+		"session.list": () => ({ sessions: sessionService.list() }),
+		"session.close": (input) => sessionService.close({ name: requireString(input, "name") }),
+		"session.act": (input) => sessionService.act(sessionActInput(input)),
 	};
 }
 
@@ -189,7 +232,11 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// client (PapyrusHttpAdapter) — never opened as a database directly.
 	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());
 
-	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest);
+	const sessionRegistry = new PlaywrightSessionRegistry();
+	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
+	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal);
+
+	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
@@ -206,6 +253,8 @@ export function createWebSpiderService(path: string): WebSpiderService {
 		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
 		optimize: () => { db.exec("PRAGMA optimize"); },
 		close: () => {
+			// Best-effort — daemon shutdown must not hang or crash on a stuck browser process.
+			void sessionRegistry.closeAll();
 			db.exec("PRAGMA optimize");
 			db.close();
 		},
@@ -267,7 +316,10 @@ export function createApp(deps: { service: WebSpiderService; token: string }): {
 					}
 					return json({ result: await deps.service.execute(body.op, input as OperationInput) });
 				} catch (error) {
-					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : 400;
+					const status = error instanceof PayloadTooLargeError ? 413
+						: error instanceof UnknownOperationError || error instanceof SessionNotFoundError ? 404
+							: error instanceof StaleSnapshotError ? 409
+								: 400;
 					return json({ error: error instanceof Error ? error.message : String(error) }, { status });
 				}
 			}

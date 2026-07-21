@@ -65,6 +65,25 @@ CREATE TABLE images (
 CREATE INDEX images_page_idx ON images(page_id);
 `;
 
+// Append-only audit journal for session.act calls (Seeshell-derived "content-free
+// promoted evidence" principle) -- application code only ever INSERTs here, never
+// UPDATEs or DELETEs a row's own content (pruneOldest() only removes whole old
+// rows once the bound is exceeded, it never edits a kept row).
+const MIGRATION_2_SESSION_AUDIT_LOG = `
+CREATE TABLE session_audit_log (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	ts               INTEGER NOT NULL,
+	session_name     TEXT NOT NULL,
+	action           TEXT NOT NULL,
+	snapshot_version INTEGER NOT NULL,
+	target           TEXT NOT NULL DEFAULT '',
+	outcome          TEXT NOT NULL,
+	error            TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX session_audit_log_session_idx ON session_audit_log(session_name);
+CREATE INDEX session_audit_log_ts_idx ON session_audit_log(ts);
+`;
+
 function migrate(db: Database): void {
 	const row = db.query("PRAGMA user_version").get() as { user_version: number };
 	if (row.user_version > SQLITE_SCHEMA_VERSION) {
@@ -74,6 +93,13 @@ function migrate(db: Database): void {
 		const migration = db.transaction(() => {
 			db.exec(INITIAL_SCHEMA);
 			db.exec("PRAGMA user_version = 1");
+		});
+		migration.immediate();
+	}
+	if (row.user_version < 2) {
+		const migration = db.transaction(() => {
+			db.exec(MIGRATION_2_SESSION_AUDIT_LOG);
+			db.exec("PRAGMA user_version = 2");
 		});
 		migration.immediate();
 	}

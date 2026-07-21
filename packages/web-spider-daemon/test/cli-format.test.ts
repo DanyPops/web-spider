@@ -4,6 +4,10 @@ import {
 	formatCacheSearchResult,
 	formatFetchResult,
 	formatSearchResult,
+	formatSessionActResult,
+	formatSessionCloseResult,
+	formatSessionCreateResult,
+	formatSessionListResult,
 } from "../src/cli-format.ts";
 
 describe("formatFetchResult", () => {
@@ -126,5 +130,48 @@ describe("formatCacheSearchResult", () => {
 		expect(text).toContain("A");
 		expect(text).toContain("Intro");
 		expect(text).toContain("hello");
+	});
+});
+
+describe("formatSessionCreateResult / formatSessionListResult / formatSessionCloseResult", () => {
+	test("create reports the name and starting snapshotVersion", () => {
+		const text = formatSessionCreateResult({ name: "agent1", createdAt: 0, lastActivityAt: 0, snapshotVersion: 0, closed: false });
+		expect(text).toContain("agent1");
+		expect(text).toContain("snapshotVersion=0");
+	});
+
+	test("list reports an empty registry clearly", () => {
+		expect(formatSessionListResult({ sessions: [] })).toBe("No active sessions.");
+	});
+
+	test("list reports every active session with its snapshotVersion", () => {
+		const text = formatSessionListResult({ sessions: [{ name: "a", createdAt: 0, lastActivityAt: 0, snapshotVersion: 3, closed: false }] });
+		expect(text).toContain("1 active session(s)");
+		expect(text).toContain("a");
+		expect(text).toContain("snapshotVersion=3");
+	});
+
+	test("close confirms the named session was closed", () => {
+		expect(formatSessionCloseResult({ name: "a", closed: true })).toBe('Session "a" closed.');
+	});
+});
+
+describe("formatSessionActResult", () => {
+	test("navigate/click report only action, session, and the new snapshotVersion", () => {
+		const text = formatSessionActResult({ name: "a", action: "navigate", snapshotVersion: 1 });
+		expect(text).toContain("navigate");
+		expect(text).toContain("snapshotVersion=1");
+	});
+
+	test("eval includes the JSON-serialized result", () => {
+		const text = formatSessionActResult({ name: "a", action: "eval", snapshotVersion: 0, result: { ok: true, n: 3 } });
+		expect(text).toContain('{"ok":true,"n":3}');
+	});
+
+	test("screenshot reports a byte-length hint and never the actual base64 image data", () => {
+		const base64 = "aGVsbG8td29ybGQ=";
+		const text = formatSessionActResult({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: base64 });
+		expect(text).not.toContain(base64);
+		expect(text).toContain(`${base64.length} base64 characters`);
 	});
 });

@@ -6,8 +6,10 @@
  * output shape service.ts's fetch/crawl/search/cache.* handlers returned.
  */
 import type { CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
+import type { SessionInfo } from "./domain/session.ts";
 import type { PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
 import type { WebSearchOutput } from "./search-service.ts";
+import type { SessionActOutput } from "./session-service.ts";
 
 const PREVIEW_MARKDOWN_CHARACTERS = 500;
 const PREVIEW_ROW_LIMIT = 10;
@@ -130,4 +132,28 @@ export function formatCacheSearchResult(result: CachedPageSearchResult): string 
 		`${result.hits.length} hit(s) for "${result.query}" across ${result.pagesSearched} cached page(s)`,
 		...result.hits.map((hit) => `  [${hit.score.toFixed(2)}] ${hit.title} · ${hit.heading}\n    ${hit.text}`),
 	].join("\n");
+}
+
+function formatSessionInfoLine(session: SessionInfo): string {
+	return `${session.name}  snapshotVersion=${session.snapshotVersion}  createdAt=${new Date(session.createdAt).toISOString()}`;
+}
+
+export function formatSessionCreateResult(session: SessionInfo): string {
+	return `Session "${session.name}" created (snapshotVersion=${session.snapshotVersion}).`;
+}
+
+export function formatSessionListResult(result: { sessions: SessionInfo[] }): string {
+	if (result.sessions.length === 0) return "No active sessions.";
+	return [`${result.sessions.length} active session(s)`, ...result.sessions.map((s) => `  ${formatSessionInfoLine(s)}`)].join("\n");
+}
+
+export function formatSessionCloseResult(result: { name: string; closed: true }): string {
+	return `Session "${result.name}" closed.`;
+}
+
+export function formatSessionActResult(result: SessionActOutput): string {
+	const header = `${result.action} on "${result.name}" — ok (snapshotVersion=${result.snapshotVersion})`;
+	if (result.action === "eval") return `${header}\n  result: ${JSON.stringify(result.result)}`;
+	if (result.action === "screenshot") return `${header}\n  screenshot: ${result.screenshotBase64?.length ?? 0} base64 characters (use --json to capture the image data)`;
+	return header;
 }

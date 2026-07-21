@@ -8,22 +8,56 @@
  * automatically in headless mode — never force channel:"chrome" silently).
  */
 import { SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
-import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
-import type { CreateSessionOptions, SessionRegistry } from "../ports/session-registry.ts";
+import { createSessionInfo, isValidSessionName, withBumpedSnapshotVersion, withTouchedActivity, type SessionInfo } from "../domain/session.ts";
+import type { CreateSessionOptions, SessionPage, SessionRegistry } from "../ports/session-registry.ts";
 
-/** The minimal surface this module needs from a launched browser — deliberately not the full Playwright Browser type; action dispatch is a later task. */
+/** The minimal surface this module needs from a launched browser. */
 export interface LaunchedBrowser {
 	close(): Promise<void>;
+	/** Lazily creates the session's one persistent page on first call; returns the same page on every subsequent call. */
+	page(): Promise<SessionPage>;
 }
 
 export type BrowserLauncher = (opts: { forceChromeChannel: boolean }) => Promise<LaunchedBrowser>;
+
+function wrapPlaywrightBrowser(browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> }): LaunchedBrowser {
+	let pagePromise: Promise<SessionPage> | undefined;
+	return {
+		close: () => browser.close(),
+		page: () => {
+			if (!pagePromise) {
+				pagePromise = browser.newPage().then((playwrightPage) => wrapPlaywrightPage(playwrightPage));
+			}
+			return pagePromise;
+		},
+	};
+}
+
+// The minimal subset of Playwright's real Page type this module drives —
+// avoids a hard type dependency on playwright-core's own types package.
+interface PlaywrightPageLike {
+	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
+	click(selector: string, opts?: { timeout?: number }): Promise<void>;
+	evaluate(script: string): Promise<unknown>;
+	screenshot(): Promise<Uint8Array>;
+}
+
+function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
+	return {
+		goto: async (url, opts) => { await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined); },
+		click: (selector, opts) => page.click(selector, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
+		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
+		screenshot: () => page.screenshot(),
+	};
+}
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
 export function defaultBrowserLauncher(): BrowserLauncher {
 	return async ({ forceChromeChannel }) => {
 		const { chromium } = await import("playwright-core");
 		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { headless: true };
-		return chromium.launch(launchOpts);
+		const browser = await chromium.launch(launchOpts);
+		return wrapPlaywrightBrowser(browser);
 	};
 }
 
@@ -80,6 +114,26 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 
 	get(name: string): SessionInfo | undefined {
 		return this.sessions.get(name)?.info;
+	}
+
+	async page(name: string) {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		return entry.browser.page();
+	}
+
+	bumpSnapshotVersion(name: string): SessionInfo {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		entry.info = withBumpedSnapshotVersion(entry.info, this.now());
+		return entry.info;
+	}
+
+	touchActivity(name: string): SessionInfo {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		entry.info = withTouchedActivity(entry.info, this.now());
+		return entry.info;
 	}
 
 	async close(name: string): Promise<void> {

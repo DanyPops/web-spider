@@ -13,10 +13,13 @@
  * language for humans — never parsed from the human text).
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatCacheListResult, formatCacheSearchResult, formatFetchResult, formatPapyrusIngestResult, formatSearchResult } from "./cli-format.ts";
+import {
+	formatCacheListResult, formatCacheSearchResult, formatFetchResult, formatPapyrusIngestResult, formatSearchResult,
+	formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
+} from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
@@ -91,6 +94,23 @@ export interface CliDependencies {
 	systemctl(...args: string[]): void;
 	installService(): void;
 	serve(): void;
+	/**
+	 * Reads an eval script body from a file (if scriptFile is given) or stdin
+	 * otherwise. eval scripts are never accepted as a plain CLI flag value —
+	 * Seeshell-derived principle: a shell-history/process-list-visible flag is
+	 * the wrong channel for arbitrary, potentially sensitive script content.
+	 * Throws if scriptFile is unset and stdin is an interactive TTY (nothing
+	 * piped in) rather than hanging forever waiting for input.
+	 */
+	readEvalScript(scriptFile?: string): string;
+}
+
+function readEvalScript(scriptFile?: string): string {
+	if (scriptFile) return readFileSync(scriptFile, "utf-8");
+	if (process.stdin.isTTY) {
+		throw new Error("eval requires a script on stdin (pipe it in) or --script-file PATH — never as a plain CLI flag");
+	}
+	return readFileSync(0, "utf-8");
 }
 
 const DEFAULT_DEPENDENCIES: CliDependencies = {
@@ -100,6 +120,7 @@ const DEFAULT_DEPENDENCIES: CliDependencies = {
 	systemctl,
 	installService,
 	serve: serveMain,
+	readEvalScript,
 };
 
 function usage(stderr: (line: string) => void): number {
@@ -116,6 +137,14 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider cache search <query> [--limit N] [--json]",
 		"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
 		"                          (each url must already be cached — fetch it first)",
+		"       web-spider session create <name> [--force-chrome-channel] [--json]",
+		"       web-spider session list [--json]",
+		"       web-spider session close <name> [--json]",
+		"       web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
+		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
+		"       web-spider session act <name> --action screenshot --snapshot-version N [--json]",
 	].join("\n"));
 	return 2;
 }
@@ -274,6 +303,76 @@ async function runPapyrusIngest(rest: string[], deps: CliDependencies): Promise<
 	}
 }
 
+async function runSessionCreate(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], ["--force-chrome-channel"]);
+	const name = parsed?.positional[0];
+	if (!parsed || !name) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("session.create", { name, forceChromeChannel: parsed.flags.has("force-chrome-channel") || undefined });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionCreateResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runSessionList(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	if (!parsed) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("session.list", {});
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionListResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runSessionClose(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	const name = parsed?.positional[0];
+	if (!parsed || !name) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("session.close", { name });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionCloseResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [
+		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms",
+	], []);
+	const name = parsed?.positional[0];
+	if (!parsed || !name) return usage(deps.stderr);
+	const action = parsed.values.action;
+	if (action !== "navigate" && action !== "click" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
+	const snapshotVersion = parseIntFlag(parsed.values, "snapshot-version");
+	if (snapshotVersion === undefined || Number.isNaN(snapshotVersion)) return usage(deps.stderr);
+	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");
+	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
+
+	try {
+		const script = action === "eval" ? deps.readEvalScript(parsed.values["script-file"]) : undefined;
+		const result = await deps.client.call("session.act", {
+			name, action, snapshotVersion, timeoutMs,
+			url: parsed.values.url,
+			selector: parsed.values.selector,
+			script,
+		});
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionActResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
 export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEPENDENCIES): Promise<number> {
 	const [command, ...rest] = args;
 	if (command === "serve") { deps.serve(); return 0; }
@@ -288,6 +387,14 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	if (command === "papyrus") {
 		const [subcommand, ...papyrusRest] = rest;
 		if (subcommand === "ingest") return runPapyrusIngest(papyrusRest, deps);
+		return usage(deps.stderr);
+	}
+	if (command === "session") {
+		const [subcommand, ...sessionRest] = rest;
+		if (subcommand === "create") return runSessionCreate(sessionRest, deps);
+		if (subcommand === "list") return runSessionList(sessionRest, deps);
+		if (subcommand === "close") return runSessionClose(sessionRest, deps);
+		if (subcommand === "act") return runSessionAct(sessionRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command !== "service") return usage(deps.stderr);
