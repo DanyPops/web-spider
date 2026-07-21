@@ -165,6 +165,23 @@ describe("SQLiteCacheStore — list()", () => {
 		expect(result.limit).toBe(100);
 		expect(result.pages.length).toBe(3);
 	});
+
+	test("list() rows are leanOutput()-shaped — headings/bodyLinks present, chunks/markdown absent", () => {
+		// Locks in the tool-contract requirement (design doc §3): cache.list must match
+		// today's pi-extension handleCacheListing() exactly, not a bare summary row.
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({
+			url: "https://a.example/1",
+			headings: [{ level: 1, text: "One" }],
+			links: [{ href: "https://a.example/body", text: "Body link", isExternal: false, rel: "body" }],
+		}));
+		const result = store.list({});
+		const row = result.pages[0] as Record<string, unknown>;
+		expect(row.headings).toEqual(["# One"]);
+		expect(row.bodyLinks).toEqual([{ href: "https://a.example/body", text: "Body link" }]);
+		expect(row).not.toHaveProperty("chunks");
+		expect(row).not.toHaveProperty("markdown");
+	});
 });
 
 describe("SQLiteCacheStore — search()", () => {
