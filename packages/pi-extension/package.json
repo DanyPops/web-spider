@@ -13,7 +13,8 @@
 		]
 	},
 	"dependencies": {
-		"@danypops/web-spider": "*"
+		"@danypops/web-spider": "*",
+		"@danypops/web-spider-daemon": "*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",

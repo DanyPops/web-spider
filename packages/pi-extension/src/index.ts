@@ -1,17 +1,28 @@
 /**
  * @danypops/pi-web-spider — Pi extension exposing web_fetch.
  *
+ * Thin authenticated client of the Web Spider daemon (@danypops/web-spider-daemon):
+ * this file owns the tool contract (parameters, output shapes, presentation)
+ * and daemon connection lifecycle; it no longer performs any fetching,
+ * crawling, caching, throttling, robots.txt checking, or Playwright
+ * rendering itself — the daemon does all of that. See design doc
+ * web-spider-daemon-architecture-and-papyrus-integration-contr-5s14.
+ *
+ * The daemon's operations return tool-agnostic data (see e.g.
+ * fetch-service.ts/crawl-service.ts's own doc comments); this file
+ * reconstructs the exact historical web_fetch JSON content — hint/status
+ * text, cache-list compaction, the "cache" field split into the renderer
+ * details channel — so the tool's observable behavior is unchanged.
+ *
  * Install: pi install git:github.com/DanyPops/web-spider
  */
-import { existsSync, mkdirSync, appendFileSync } from "node:fs"
+import { appendFileSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import type { Static } from "typebox"
-import type { SpideredPage, DOMNode } from "@danypops/web-spider"
-import { bodyLinks, highlightHit, leanOutput, linksOutput, markdownOutput, omitEmpty } from "./format.js"
-import { DEFAULT_FETCH_TOKEN_BUDGET, MAX_FETCH_TOKEN_BUDGET, TREE_CACHE_MAX_ENTRIES } from "./constants.js"
+import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js"
 import {
   createWebDetails,
   createWebResult,
@@ -25,138 +36,45 @@ import {
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
-  // Dynamic import bypasses jiti/Bun CJS interop, which can silently lose
-  // class constructors when require()-ing ESM packages with "type":"module".
-  // Native import() always uses the "import" condition and returns proper ESM.
-  const lib = await import("@danypops/web-spider")
-  const { spider, crawl, searchPages, SpiderCache, PageGraph, PlaywrightHttpClient,
-          queryTree, navigateTree, defaultSearchEngine, DomainThrottle, RobotsCache } = lib
-
-  // Browser processes are expensive — one shared instance per session.
-  let playwrightClient: InstanceType<typeof PlaywrightHttpClient> | null = null
-  const getPlaywrightClient = () => {
-    if (!playwrightClient) {
-      // /nonexistent in tests forces an immediate launch failure rather than a hang.
-      const executablePath = process.env.WEB_SPIDER_PLAYWRIGHT_EXECUTABLE
-      playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined)
-    }
-    return playwrightClient
-  }
-
   // Diagnostics go only to a file — never to stdout/stderr, which belong to Pi's TUI.
   const diagPath = process.env.WEB_SPIDER_DIAG_PATH ?? join(homedir(), ".cache", "web-spider", "diag.log")
   const diag = (entry: Record<string, unknown>) => {
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry })
-    try { appendFileSync(diagPath, `${line}\n`) } catch { /* best-effort */ }
+    try {
+      mkdirSync(dirname(diagPath), { recursive: true })
+      appendFileSync(diagPath, `${line}\n`)
+    } catch { /* best-effort */ }
   }
   const log = (level: "info" | "warn" | "error", msg: string, extra?: unknown) => {
     diag({ level, msg, ...extra !== undefined ? { extra } : {} })
   }
 
-  // throttle.js and robots.js become undefined via the barrel under jiti
-  // tryNative:false (Bun binary mode) — they load as side-effects of crawl.js
-  // before index.js finishes its own re-exports. crawl() creates its own
-  // DomainThrottle / RobotsCache internally, so we don't need to import them.
-  //
-  // WEB_SPIDER_CACHE_PATH   — pages JSON index (default: ~/.cache/web-spider/pages.json)
-  // WEB_SPIDER_IMAGES_PATH  — large image files; DiskCache derives this from
-  //                           dirname(cachePath)/images, so set only to override.
-  // Falls back to in-memory SpiderCache if the cache path is not writable.
-  const cache = (() => {
-    const cachePath = process.env.WEB_SPIDER_CACHE_PATH
-      ?? join(homedir(), ".cache", "web-spider", "pages.json")
-    const imagesDir = process.env.WEB_SPIDER_IMAGES_PATH
-      ?? join(homedir(), ".cache", "web-spider", "images")
-    try {
-      const dir = dirname(cachePath)
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      if (!existsSync(imagesDir)) mkdirSync(imagesDir, { recursive: true })
-      return new lib.DiskCache(cachePath, { maxSize: 500, ttlMs: 30 * 60 * 1000 })
-    } catch {
-      return new SpiderCache({ maxSize: 200, ttlMs: 30 * 60 * 1000 })
+  // One shared connection attempt per session — connectOrStartWebSpiderClient()
+  // auto-starts the daemon transparently on first use if it isn't already
+  // running, so the tool "just works" without a manual `service install` step.
+  let clientPromise: Promise<WebSpiderClient> | null = null
+  const getClient = (): Promise<WebSpiderClient> => {
+    if (!clientPromise) {
+      clientPromise = connectOrStartWebSpiderClient().catch((error: unknown) => {
+        clientPromise = null // allow a retry on the next call rather than caching a permanent failure
+        const message = error instanceof Error ? error.message : String(error)
+        log("error", "daemon connection failed", { error: message })
+        throw error
+      })
     }
-  })()
-  const graph = new PageGraph()
-
-  {
-    const storeRaw = (cache as unknown as Record<string, unknown>).store ??
-                     (cache as unknown as Record<string, unknown>).map
-    diag({
-      tag: "boot-probe",
-      cacheClass:  cache.constructor.name,
-      storeTag:    Object.prototype.toString.call(storeRaw),
-      storeIsMap:  storeRaw instanceof Map,
-    })
+    return clientPromise
   }
-  // ---------------------------------------------------------------------------
-  // Per-request helpers
-  // ---------------------------------------------------------------------------
 
   type Params = Static<typeof paramsSchema>
 
-  // Shared throttle + robots checker for single-page spider() calls.
-  // (crawl() creates its own internally; these cover depth=0 fetches.)
-  const sharedThrottle = new DomainThrottle({ minDelayMs: 500 })
-  const sharedRobots = new RobotsCache()
-
-  function buildSpiderOpts(params: Params) {
-    return {
-      rootSelector: params.rootSelector,
-      excludeSelectors: params.excludeSelectors,
-      tokenBudget: Math.min(params.tokenBudget ?? DEFAULT_FETCH_TOKEN_BUDGET, MAX_FETCH_TOKEN_BUDGET),
-      timeoutMs: params.timeoutMs,
-      httpClient: params.enhanced ? getPlaywrightClient() : undefined,
-      throttle: sharedThrottle,
-      robotsCache: sharedRobots,
-    }
-  }
-
-  interface FetchPageResult {
-    page: SpideredPage
-    cache: "hit" | "miss"
-  }
-
-  function buildFetchPage(params: Params) {
-    const spiderOpts = buildSpiderOpts(params)
-    return async (url: string): Promise<FetchPageResult> => {
-      const cacheEligible = !params.rootSelector && !params.excludeSelectors && params.tokenBudget === undefined && !params.enhanced
-      let probe = "cache.get"
-      try {
-        const hit = cacheEligible ? cache.get(url) : undefined
-        if (hit) return { page: hit, cache: "hit" }
-
-        log("info", "fetching", { url, enhanced: params.enhanced ?? false })
-        probe = "spider"
-        let page = await spider(url, spiderOpts)
-        log("info", "plain fetch done", { url, wordCount: page.wordCount, jsRendered: page.jsRendered })
-
-        if (page.jsRendered && !params.enhanced) {
-          log("info", "jsRendered detected, retrying with Playwright", { url })
-          probe = "spider(playwright)"
-          try {
-            page = await spider(url, { ...spiderOpts, httpClient: getPlaywrightClient() })
-            log("info", "Playwright fetch done", { url, wordCount: page.wordCount })
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            log("error", "Playwright fallback failed", { url, error: msg })
-            throw new Error(`Playwright fallback failed: ${msg}`)
-          }
-        }
-
-        probe = "cache.set"
-        if (cacheEligible) cache.set(url, page)
-        probe = "graph.addPage"
-        graph.addPage(page)
-        return { page, cache: "miss" }
-      } catch (err) {
-        diag({
-          tag: "call-site-throw",
-          probe,
-          error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack?.split("\n").slice(0, 6).join(" | ") : undefined,
-        })
-        throw err
-      }
+  async function call<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
+    const client = await getClient()
+    try {
+      return await client.call<T>(operation, input)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log("error", "daemon operation failed", { operation, error: message })
+      throw error
     }
   }
 
@@ -164,149 +82,79 @@ export default async function (pi: ExtensionAPI) {
   // Local materialized view helpers
   // ---------------------------------------------------------------------------
 
-  function cachedPages(): SpideredPage[] {
-    return cache.values()
-  }
-
-  function pageWasTruncated(page: SpideredPage): boolean {
-    return page.chunks.reduce((total, chunk) => total + chunk.wordCount, 0) < page.wordCount
-  }
-
-  function pageItems(pages: SpideredPage[]) {
-    return pages.map((page) => ({ url: page.url, title: page.title }))
+  function pageItems(pages: Array<{ url: string; title?: string }>) {
+    return pages.map((page) => ({ url: page.url, title: page.title ?? "" }))
   }
 
   function output(payload: unknown, details: WebPresentationDetails) {
     return createWebResult(payload, details)
   }
 
+  /** Splits the daemon's "cache" hit/miss field out of a fetch result — historically renderer-only, never model content. */
+  function splitCache<T extends { cache?: "hit" | "miss" }>(result: T): { content: Omit<T, "cache">; cache: "hit" | "miss" | undefined } {
+    const { cache, ...content } = result
+    return { content, cache }
+  }
+
   // ---------------------------------------------------------------------------
   // Path handlers — each owns one execution branch. SRP: one reason to change.
   // ---------------------------------------------------------------------------
 
-  async function handleCrawl(params: Params) {
-    const spiderOpts = buildSpiderOpts(params)
-    const fmt = params.format ?? "markdown"
-    const depth = params.depth ?? 0
-    const url = params.url ?? ""
-
-    const result = await crawl(url, {
-      maxDepth: depth,
-      maxPages: params.maxPages ?? 10,
-      sameDomainOnly: params.sameDomain ?? true,
-      cache,
-      graph,
-      ...spiderOpts,
+  async function handleSearch(params: Params) {
+    const query = params.searchQuery ?? ""
+    const result = await call<{ query: string; results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }> }>("search", {
+      query,
+      numResults: params.limit ?? 10,
     })
-
-    const pages = [...result.pages.values()]
-    const errorsObj = result.errors.size
-      ? { errors: result.errors.size, errorUrls: [...result.errors.keys()] }
-      : {}
-
-    if (fmt === "highlights") {
-      if (!params.query?.trim()) throw new Error("highlights format requires a query")
-      const hits = searchPages(pages, params.query, { topN: 8, snippetRadius: 150 })
-      return output({
-        query: params.query,
-        pagesSearched: pages.length,
-        hits: hits.map((h) => ({
-          url: h.url,
-          ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
-        })),
-      }, createWebDetails({
-        operation: "crawl",
-        format: "highlights",
-        url,
-        query: params.query,
-        depth,
-        pages: pages.length,
-        hits: hits.length,
-        errors: result.errors.size,
-        items: pageItems(pages),
-      }))
-    }
-
-    const summary = fmt === "lean"
-      ? { pagesFound: result.pages.size, ...errorsObj, pages: pages.map(leanOutput) }
-      : {
-          pagesFound: result.pages.size,
-          ...errorsObj,
-          note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
-          pages: pages.map((p) => omitEmpty({ url: p.url, title: p.title, description: p.description, wordCount: p.wordCount, tags: p.tags })),
-        }
-
-    return output(summary, createWebDetails({
-      operation: "crawl",
-      format: fmt === "lean" ? "lean" : "markdown",
-      url,
-      depth,
-      pages: result.pages.size,
-      errors: result.errors.size,
-      items: pageItems(pages),
+    log("info", "web search done", { query, hits: result.results.length })
+    return output({
+      query: result.query,
+      results: result.results,
+      hint: "Use the url field from a result to fetch its full content with web_fetch(url=...).",
+    }, createWebDetails({
+      operation: "search",
+      format: "search",
+      status: result.results.length === 0 ? "empty" : "ok",
+      query,
+      hits: result.results.length,
+      items: result.results.map((r) => ({ url: r.url, title: r.title })),
     }))
   }
 
-  // Trees are too large and volatile for DiskCache — session-scoped only.
-  const treeCache = new Map<string, DOMNode>()
-
-  async function fetchTree(url: string, params: Params): Promise<DOMNode> {
-    const key = JSON.stringify([url, params.rootSelector ?? "", params.excludeSelectors ?? "", params.enhanced ?? false])
-    const hit = treeCache.get(key)
-    if (hit) return hit
-    const page = await spider(url, { ...buildSpiderOpts(params), view: "tree" })
-    if (treeCache.size >= TREE_CACHE_MAX_ENTRIES) {
-      const oldest = treeCache.keys().next().value
-      if (oldest) treeCache.delete(oldest)
-    }
-    treeCache.set(key, page.tree)
-    return page.tree
-  }
-
-  function handleCacheListing(params: Params) {
-    let pages = cachedPages()
-    const total = pages.length
-
-    if (params.grep?.trim()) {
-      const pat = params.grep.toLowerCase()
-      pages = pages.filter(
-        (p) =>
-          p.url.toLowerCase().includes(pat) ||
-          p.title.toLowerCase().includes(pat) ||
-          p.domain.toLowerCase().includes(pat) ||
-          (p.description ?? "").toLowerCase().includes(pat),
-      )
-    }
-
-    const filtered = pages.length
-    const offset = params.offset ?? 0
-    const limit = Math.min(params.limit ?? 20, 100) // hard cap at 100
-    const slice = pages.slice(offset, offset + limit)
-    const remaining = filtered - offset - slice.length
-
+  async function handleCacheListing(params: Params) {
+    const result = await call<{ total: number; filtered: number; offset: number; limit: number; pages: Array<Record<string, unknown>> }>("cache.list", {
+      grep: params.grep,
+      offset: params.offset,
+      limit: params.limit,
+    })
+    const remaining = result.filtered - result.offset - result.pages.length
     const meta = omitEmpty({
-      total,
-      filtered: filtered !== total ? filtered : undefined,
-      offset: offset || undefined,
-      limit,
+      total: result.total,
+      filtered: result.filtered !== result.total ? result.filtered : undefined,
+      offset: result.offset || undefined,
+      limit: result.limit,
       remaining: remaining > 0 ? remaining : undefined,
     })
-
-    return output({ ...meta, pages: slice.map(leanOutput) }, createWebDetails({
+    const items = pageItems(result.pages as Array<{ url: string; title?: string }>)
+    return output({ ...meta, pages: result.pages }, createWebDetails({
       operation: "cache-list",
       format: "lean",
-      status: slice.length === 0 ? "empty" : "ok",
-      pages: filtered,
+      status: result.pages.length === 0 ? "empty" : "ok",
+      pages: result.filtered,
       cache: "listing",
-      items: pageItems(slice),
+      items,
       truncated: remaining > 0,
       complete: remaining <= 0,
     }))
   }
 
-  function handleCacheSearch(params: Params) {
-    const pages = cachedPages()
-    if (pages.length === 0) {
+  async function handleCacheSearch(params: Params) {
+    const result = await call<{ query: string; pagesSearched: number; hits: Array<{ url: string; title: string; score: number; heading: string; text: string }> }>("cache.search", {
+      query: params.query ?? "",
+      limit: params.limit ?? 10,
+    })
+
+    if (result.pagesSearched === 0) {
       return output({
         status: "empty",
         hint: "Local cache is empty. Fetch some pages first with depth=0 or depth>0.",
@@ -321,162 +169,182 @@ export default async function (pi: ExtensionAPI) {
       }))
     }
 
-    const topN = params.limit ?? 10
-    const hits = searchPages(pages, params.query ?? "", { topN, snippetRadius: 150 })
+    // Historical content shape never included title on a hit — it stays daemon-side
+    // (useful operational metadata for other consumers) but is stripped here.
+    const hits = result.hits.map(({ url, heading, score, text }) => ({ url, heading, score, text }))
     return output({
-      ...omitEmpty({ query: params.query, pagesSearched: pages.length }),
-      hits: hits.map((h) => ({
-        url: h.url,
-        ...highlightHit(h, pages.find((p) => p.url === h.url)?.chunks ?? []),
-      })),
+      ...omitEmpty({ query: result.query, pagesSearched: result.pagesSearched }),
+      hits,
       ...(hits.length === 0 ? { hint: "No matches. Try broader terms, or list cached pages with web_fetch(format=lean) and no url." } : {}),
     }, createWebDetails({
       operation: "cache-search",
       format: "highlights",
       status: hits.length === 0 ? "empty" : "ok",
       query: params.query,
-      pages: pages.length,
+      pages: result.pagesSearched,
       hits: hits.length,
       cache: "search",
-      items: pageItems(pages.filter((page) => hits.some((hit) => hit.url === page.url))),
+      items: result.hits.map((h) => ({ url: h.url, title: h.title })),
     }))
   }
 
-  async function handleSinglePage(params: Params, fetchPage: ReturnType<typeof buildFetchPage>) {
+  async function handleCrawl(params: Params) {
+    const fmt = params.format ?? "markdown"
+    const depth = params.depth ?? 0
+    const url = params.url ?? ""
+
+    const result = await call<Record<string, unknown>>("crawl", {
+      url,
+      format: fmt,
+      depth,
+      maxPages: params.maxPages ?? 10,
+      sameDomain: params.sameDomain,
+      rootSelector: params.rootSelector,
+      excludeSelectors: params.excludeSelectors,
+      tokenBudget: params.tokenBudget,
+      enhanced: params.enhanced,
+      timeoutMs: params.timeoutMs,
+      query: params.query,
+    })
+    const errors = typeof result.errors === "number" ? result.errors : 0
+
+    if (fmt === "highlights") {
+      const hits = (result.hits as unknown[] | undefined) ?? []
+      return output(result, createWebDetails({
+        operation: "crawl",
+        format: "highlights",
+        url,
+        query: params.query,
+        depth,
+        pages: typeof result.pagesSearched === "number" ? result.pagesSearched : 0,
+        hits: hits.length,
+        errors,
+        items: pageItems(hits as Array<{ url: string; title?: string }>),
+      }))
+    }
+
+    const pages = (result.pages as Array<Record<string, unknown>> | undefined) ?? []
+    const content = fmt === "lean"
+      ? result
+      : {
+          ...result,
+          // Historical guidance names the web_fetch tool specifically — added here,
+          // not by the daemon, which also serves the tool-agnostic CLI.
+          note: "All pages cached — use web_fetch(depth=0, format=highlights, query=...) to search them.",
+        }
+
+    return output(content, createWebDetails({
+      operation: "crawl",
+      format: fmt === "lean" ? "lean" : "markdown",
+      url,
+      depth,
+      pages: typeof result.pagesFound === "number" ? result.pagesFound : pages.length,
+      errors,
+      items: pageItems(pages as Array<{ url: string; title?: string }>),
+    }))
+  }
+
+  async function handleTreeFormat(params: Params) {
+    const url = params.url ?? ""
+    try {
+      if (params.path) {
+        const node = await call<{ found?: false; path?: string; tag?: string } & Record<string, unknown>>("fetch", {
+          url, format: "tree", path: params.path, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced,
+        })
+        if (node.found === false) {
+          return output({ found: false, path: params.path, hint: "Inspect the full tree or query it to find a valid path." }, createWebDetails({
+            operation: "tree-path", format: "tree", status: "empty", url, path: params.path,
+          }))
+        }
+        return output(node, createWebDetails({ operation: "tree-path", format: "tree", url, path: String(node.path ?? params.path) }))
+      }
+
+      if (params.query?.trim()) {
+        const result = await call<{ url: string; query: string; hits: Array<{ path: string; tag: string; score: number; snippet: string }> }>("fetch", {
+          url, format: "tree", query: params.query, topN: params.topN, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced,
+        })
+        return output(omitEmpty({ url: result.url, query: result.query, hits: result.hits.map((h) => omitEmpty({ ...h })) }), createWebDetails({
+          operation: "tree-query",
+          format: "tree",
+          status: result.hits.length === 0 ? "empty" : "ok",
+          url,
+          query: params.query,
+          hits: result.hits.length,
+          items: result.hits.map((hit) => ({ url, title: `${hit.tag} · ${hit.path}` })),
+        }))
+      }
+
+      const tree = await call<Record<string, unknown>>("fetch", { url, format: "tree", rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced })
+      return output(tree, createWebDetails({ operation: "tree-full", format: "tree", url }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`tree fetch failed: ${message}`)
+    }
+  }
+
+  async function handleSinglePage(params: Params) {
     const fmt = params.format ?? "markdown"
     const url = params.url ?? ""
 
-    // ── Tree formats ───────────────────────────────────────────────────────────────
-    if (fmt === "tree") {
-      try {
-        const tree = await fetchTree(url, params)
+    if (fmt === "tree") return handleTreeFormat(params)
 
-        // path= → navigate to a specific node
-        if (params.path) {
-          const node = navigateTree(tree, params.path)
-          if (!node) {
-            return output({ found: false, path: params.path, hint: "Inspect the full tree or query it to find a valid path." }, createWebDetails({
-              operation: "tree-path",
-              format: "tree",
-              status: "empty",
-              url,
-              path: params.path,
-            }))
-          }
-          return output(node, createWebDetails({
-            operation: "tree-path",
-            format: "tree",
-            url,
-            path: node.path,
-          }))
-        }
+    const raw = await call<Record<string, unknown> & { cache?: "hit" | "miss"; blocked?: boolean }>("fetch", {
+      url,
+      format: fmt,
+      rootSelector: params.rootSelector,
+      excludeSelectors: params.excludeSelectors,
+      tokenBudget: params.tokenBudget,
+      enhanced: params.enhanced,
+      timeoutMs: params.timeoutMs,
+      query: params.query,
+    })
 
-        // query= → search the tree (atomic hits — whole code blocks, whole table rows)
-        if (params.query?.trim()) {
-          const hits = queryTree(tree, params.query, { topN: params.topN ?? 5 })
-          return output(omitEmpty({
-            url: params.url,
-            query: params.query,
-            hits: hits.map((h) => omitEmpty({
-              path: h.path,
-              tag: h.node.tag,
-              score: Math.round(h.score * 100) / 100,
-              snippet: h.snippet,
-              text: h.node.text,
-              childCount: h.node.children?.length,
-            })),
-          }), createWebDetails({
-            operation: "tree-query",
-            format: "tree",
-            status: hits.length === 0 ? "empty" : "ok",
-            url,
-            query: params.query,
-            hits: hits.length,
-            items: hits.map((hit) => ({ url, title: `${hit.node.tag} · ${hit.path}` })),
-          }))
-        }
-
-        // no query, no path → return the full tree
-        return output(tree, createWebDetails({
-          operation: "tree-full",
-          format: "tree",
-          url,
-        }))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        throw new Error(`tree fetch failed: ${message}`)
-      }
+    if (raw.blocked === true) {
+      return output({
+        blocked: true,
+        url,
+        reason: "robots.txt",
+        hint: "The site's robots.txt disallows crawling this URL. Try a different path or domain.",
+      }, createWebDetails({ operation: "fetch", format: fmt, status: "blocked", url, blockedBy: "robots.txt" }))
     }
 
-    if (fmt === "highlights" && !params.query?.trim()) throw new Error("highlights format requires a query")
-
-    const fetched = await fetchPage(url)
-    const page = fetched.page
+    const { content, cache } = splitCache(raw)
 
     if (fmt === "lean") {
-      return output(leanOutput(page), createWebDetails({
-        operation: "fetch",
-        format: "lean",
-        url: page.url,
-        title: page.title,
-        wordCount: page.wordCount,
-        cache: fetched.cache,
-        enhanced: params.enhanced,
+      return output(content, createWebDetails({
+        operation: "fetch", format: "lean", url,
+        title: String(content.title ?? ""), wordCount: Number(content.wordCount ?? 0), cache, enhanced: params.enhanced,
       }))
     }
 
     if (fmt === "links") {
-      const links = bodyLinks(page)
-      return output(linksOutput(page), createWebDetails({
-        operation: "fetch",
-        format: "links",
-        url: page.url,
-        title: page.title,
-        links: links.length,
-        cache: fetched.cache,
-        enhanced: params.enhanced,
-        items: links.map((link) => ({ url: link.href, title: link.text })),
+      const links = (content.bodyLinks as unknown[] | undefined) ?? []
+      return output(content, createWebDetails({
+        operation: "fetch", format: "links", url,
+        title: String(content.title ?? ""), links: links.length, cache, enhanced: params.enhanced,
+        items: links.map((link) => ({ url: (link as { href: string }).href, title: (link as { text: string }).text })),
       }))
     }
 
     if (fmt === "highlights") {
-      const query = params.query ?? ""
-      const hits = searchPages([page], query, { topN: 5, snippetRadius: 150 })
-      return output({
-        ...omitEmpty({ url: page.url, title: page.title, query: params.query }),
-        hits: hits.map((h) => highlightHit(h, page.chunks)),
-        ...(hits.length === 0 ? { hint: "No matches. Try broader terms or use format=markdown." } : {}),
-      }, createWebDetails({
-        operation: "fetch",
-        format: "highlights",
+      const hits = (content.hits as unknown[] | undefined) ?? []
+      const withHint = hits.length === 0 ? { ...content, hint: "No matches. Try broader terms or use format=markdown." } : content
+      return output(withHint, createWebDetails({
+        operation: "fetch", format: "highlights",
         status: hits.length === 0 ? "empty" : "ok",
-        url: page.url,
-        title: page.title,
-        query: params.query,
-        hits: hits.length,
-        cache: fetched.cache,
-        enhanced: params.enhanced,
+        url, title: String(content.title ?? ""), query: params.query, hits: hits.length, cache, enhanced: params.enhanced,
       }))
     }
 
     // markdown (default)
-    const truncated = pageWasTruncated(page)
-    return output({
-      ...markdownOutput(page),
-      ...(truncated ? {
-        truncated: true,
-        hint: "Content was bounded. Use highlights, tree query/path, rootSelector, or a more specific request for complete evidence.",
-      } : {}),
-    }, createWebDetails({
-      operation: "fetch",
-      format: "markdown",
-      url: page.url,
-      title: page.title,
-      wordCount: page.wordCount,
-      cache: fetched.cache,
-      enhanced: params.enhanced,
-      truncated,
-      complete: !truncated,
+    const truncated = content.truncated === true
+    const withHint = truncated
+      ? { ...content, hint: "Content was bounded. Use highlights, tree query/path, rootSelector, or a more specific request for complete evidence." }
+      : content
+    return output(withHint, createWebDetails({
+      operation: "fetch", format: "markdown", url,
+      title: String(content.title ?? ""), wordCount: Number(content.wordCount ?? 0), cache, enhanced: params.enhanced,
+      truncated, complete: !truncated,
     }))
   }
 
@@ -664,64 +532,38 @@ export default async function (pi: ExtensionAPI) {
 
     // -------------------------------------------------------------------------
     // Router — routes to the correct path handler. One reason to change: routing
-    // logic. Business logic lives in the handlers above.
+    // logic. Business logic lives in the daemon; this file's handlers only
+    // shape daemon operation results into the tool's historical contract.
     // -------------------------------------------------------------------------
     async execute(_id, params, _signal, _onUpdate, _ctx) {
       try {
-        const fetchPage = buildFetchPage(params)
+        if (params.searchQuery?.trim()) return await handleSearch(params)
 
-        // Web search path — searchQuery instead of url.
-        if (params.searchQuery?.trim()) {
-          try {
-            const engine = defaultSearchEngine()
-            const results = await engine.search({ query: params.searchQuery, numResults: params.limit ?? 10 })
-            log("info", "web search done", { query: params.searchQuery, hits: results.length })
-            return output({
-              query: params.searchQuery,
-              results,
-              hint: "Use the url field from a result to fetch its full content with web_fetch(url=...).",
-            }, createWebDetails({
-              operation: "search",
-              format: "search",
-              status: results.length === 0 ? "empty" : "ok",
-              query: params.searchQuery,
-              hits: results.length,
-              items: results.map((result) => ({ url: result.url, title: result.title })),
-            }))
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            throw new Error(`web search failed: ${message}`)
-          }
-        }
-
-        // Local materialized view path — no url: query the cache directly.
         if (!params.url) {
-          if (params.query?.trim()) return handleCacheSearch(params)
-          return handleCacheListing(params)
+          if (params.query?.trim()) return await handleCacheSearch(params)
+          return await handleCacheListing(params)
         }
 
         if ((params.depth ?? 0) > 0) return await handleCrawl(params)
 
-        return await handleSinglePage(params, fetchPage)
+        return await handleSinglePage(params)
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith("Blocked by robots.txt:")) {
-          return output({
-            blocked: true,
-            url: params.url,
-            reason: "robots.txt",
-            hint: "The site's robots.txt disallows crawling this URL. Try a different path or domain.",
-          }, createWebDetails({
-            operation: (params.depth ?? 0) > 0 ? "crawl" : "fetch",
-            format: params.format ?? "markdown",
-            status: "blocked",
-            url: params.url,
-            depth: params.depth,
-            blockedBy: "robots.txt",
-          }))
-        }
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(`web_fetch failed: ${message}`)
       }
     },
   })
+}
+
+// ---------------------------------------------------------------------------
+// Small local helper — omitEmpty was part of format.ts, which moved to the
+// daemon package; kept here as the one remaining consumer (detail/content
+// reshaping in this file only, not page formatting).
+// ---------------------------------------------------------------------------
+function omitEmpty(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(
+      ([, v]) => v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && v.length === 0),
+    ),
+  )
 }

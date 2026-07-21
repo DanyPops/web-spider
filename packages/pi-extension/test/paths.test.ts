@@ -1,19 +1,23 @@
 /**
  * Extension path tests — ablation coverage for each execute() branch.
  *
- * Tests the search, crawl, and single-page paths by:
- *   1. Loading the extension via jiti (same mode as pi loads it)
- *   2. Capturing the registered execute() function
- *   3. Mocking globalThis.fetch to serve fixture HTML without network access
+ * Tests the crawl and single-page paths against a real, isolated Web Spider
+ * daemon (auto-started by the extension itself, see daemon-isolation.ts)
+ * fetching a real local fixture HTTP server — not a mocked globalThis.fetch.
+ * That approach stopped working once fetching moved into the daemon's own
+ * (separate) process, which never sees this process's mocked fetch.
  *
- * Each describe block loads a fresh extension factory to avoid session-state
- * leakage between suites (cache, graph, corpus are per-factory).
+ * Each describe block loads a fresh extension factory (fresh in-memory tool
+ * registration) but all share one isolated daemon + fixture server for the
+ * file, matching the previous behavior of one shared on-disk cache file.
  */
 
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { isolatedDaemonEnv, type IsolatedDaemonEnv } from "./daemon-isolation.js"
+import { startFixtureServer, type FixtureServer } from "./helpers/fixture-server.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const EXTENSION_PATH = join(__dirname, "../src/index.ts")
@@ -25,8 +29,6 @@ const JITI_BASE = `file://${join(__dirname, "../src/index.ts")}`
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-
-const MOCK_URL = "https://test.example.com/article"
 
 const FIXTURE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -44,19 +46,28 @@ const FIXTURE_HTML = `<!DOCTYPE html>
     <h2>Section Two</h2>
     <p>The cost optimization strategies described here are illustrative.
        OpenAI API calls can be expensive; caching and chunking help.</p>
-    <a href="https://example.com/related">Related article</a>
-    <a href="https://example.com/other">Another link</a>
+    <a href="/related">Related article</a>
+    <a href="/other">Another link</a>
   </article>
 </body>
 </html>`
 
-const BRAVE_RESPONSE = JSON.stringify({
-  web: {
-    results: [
-      { url: "https://example.com/a", title: "Result A", description: "Snippet A" },
-      { url: "https://example.com/b", title: "Result B", description: "Snippet B" },
-    ],
-  },
+let isolated: IsolatedDaemonEnv
+let server: FixtureServer
+let MOCK_URL: string
+
+beforeAll(async () => {
+  isolated = isolatedDaemonEnv("pi-web-spider-paths-test-")
+  server = await startFixtureServer()
+  server.set("/article", FIXTURE_HTML)
+  server.set("/related", "<html><body><article><h1>Related</h1><p>Related page body text, long enough for Readability to extract as an article rather than treating it as empty content.</p></article></body></html>")
+  server.set("/other", "<html><body><article><h1>Other</h1><p>Other page body text, also long enough for Readability to extract as an article rather than treating it as empty content.</p></article></body></html>")
+  MOCK_URL = `${server.baseUrl}/article`
+})
+
+afterAll(async () => {
+  await server.close()
+  isolated.cleanup()
 })
 
 // ---------------------------------------------------------------------------
@@ -64,29 +75,6 @@ const BRAVE_RESPONSE = JSON.stringify({
 // ---------------------------------------------------------------------------
 
 type ExecuteFn = (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[]; details: Record<string, unknown> }>
-
-function mockResponse(body: string, status = 200): Response {
-  return {
-    ok: status < 400,
-    status,
-    statusText: status === 200 ? "OK" : "Not Found",
-    headers: { get: () => null },
-    text: async () => body,
-    json: async () => JSON.parse(body),
-  } as unknown as Response
-}
-
-/** Mock fetch that handles all the URLs spider/crawl may contact. */
-function makeFetchMock(pageHtml = FIXTURE_HTML) {
-  return vi.fn(async (input: RequestInfo | URL) => {
-    const url = input.toString()
-    if (url.includes("robots.txt"))    return mockResponse("User-agent: *\nAllow: /")
-    if (url.includes("sitemap"))       return mockResponse("", 404)
-    if (url.includes("brave.com"))     return mockResponse(BRAVE_RESPONSE)
-    if (url.startsWith(MOCK_URL))      return mockResponse(pageHtml)
-    return mockResponse("", 404)
-  })
-}
 
 /** Load a fresh extension and return the execute() for a specific tool name. */
 async function loadExecute(toolName = "web_fetch"): Promise<ExecuteFn> {
@@ -103,9 +91,10 @@ async function loadExecute(toolName = "web_fetch"): Promise<ExecuteFn> {
     registerFlag: vi.fn(), appendEntry: vi.fn(),
   }
 
-  process.env["WEB_SPIDER_CACHE_PATH"] = "/tmp/web-spider-test-cache.json"
+  // Isolated for the whole file's duration (set in beforeAll) — the daemon
+  // connection is lazy (first execute() call), so the env must still be set
+  // when execute() runs, not just during this factory() call.
   await factory(api)
-  delete process.env["WEB_SPIDER_CACHE_PATH"]
 
   const fn = tools.get(toolName)
   if (!fn) throw new Error(`Tool '${toolName}' not registered — got: ${[...tools.keys()].join(", ")}`)
@@ -118,13 +107,11 @@ async function loadExecute(toolName = "web_fetch"): Promise<ExecuteFn> {
 
 describe("single-page path — markdown", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns url, title, wordCount, markdown fields", async () => {
     const result = await execute("1", { url: MOCK_URL })
@@ -157,13 +144,11 @@ describe("single-page path — markdown", () => {
 
 describe("single-page path — lean", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns url, title, headings, bodyLinks — no markdown", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "lean" })
@@ -194,13 +179,11 @@ describe("single-page path — lean", () => {
 
 describe("single-page path — links", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns url, title, bodyLinks — no markdown", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "links" })
@@ -226,13 +209,11 @@ describe("single-page path — links", () => {
 
 describe("single-page path — highlights", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("throws when query is missing", async () => {
     await expect(execute("1", { url: MOCK_URL, format: "highlights" }))
@@ -259,13 +240,11 @@ describe("single-page path — highlights", () => {
 
 describe("crawl path — depth=1", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute()
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns pagesFound and pages array", async () => {
     const result = await execute("1", { url: MOCK_URL, depth: 1, maxPages: 3 })
@@ -285,7 +264,6 @@ describe("crawl path — depth=1", () => {
     const result = await execute("1", { url: MOCK_URL, depth: 1, maxPages: 2, format: "lean" })
     const body = JSON.parse(result.content[0].text)
     expect(Array.isArray(body.pages)).toBe(true)
-    // Each page in lean crawl has headings and url
     for (const page of body.pages) {
       expect(typeof page.url).toBe("string")
       expect(typeof page.wordCount).toBe("number")
@@ -311,13 +289,11 @@ describe("crawl path — depth=1", () => {
 
 describe("single-page path — tree (full)", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute("web_fetch")
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns a tree with tag=article at root", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree" })
@@ -338,21 +314,19 @@ describe("single-page path — tree (full)", () => {
     expect(result.details).toMatchObject({ kind: "web", format: "tree", operation: "tree-full" })
   })
 
-  it("throws network failures", async () => {
-    fetchSpy.mockImplementation(async () => { throw new Error("ECONNREFUSED") })
-    await expect(execute("1", { url: MOCK_URL, format: "tree" })).rejects.toThrow("ECONNREFUSED")
+  it("throws for a genuinely unreachable host", async () => {
+    await expect(execute("1", { url: "http://127.0.0.1:1", format: "tree", timeoutMs: 2000 }))
+      .rejects.toThrow("tree fetch failed")
   })
 })
 
 describe("single-page path — tree + query", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute("web_fetch")
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns hits array with url and query", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree", query: "spider fixture" })
@@ -388,13 +362,11 @@ describe("single-page path — tree + query", () => {
 
 describe("single-page path — tree + path (navigate)", () => {
   let execute: ExecuteFn
-  let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
+    Object.assign(process.env, isolated.env)
     execute = await loadExecute("web_fetch")
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(makeFetchMock())
   })
-  afterEach(() => fetchSpy.mockRestore())
 
   it("returns an empty typed result for unknown path", async () => {
     const result = await execute("1", { url: MOCK_URL, format: "tree", path: "article.nonexistent[99]" })
