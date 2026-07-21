@@ -16,23 +16,26 @@ import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
+import { createEngineResolver, WebSearchService, type WebSearchInput, type WebSearchOutput } from "./search-service.ts";
 import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
-export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search"] as const;
+export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search"] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
 export interface OperationInputs {
 	"cache.list": CachedPageListFilter;
 	"cache.search": { query: string; limit?: number };
+	"search": WebSearchInput;
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
 	"cache.search": CachedPageSearchResult;
+	"search": WebSearchOutput;
 }
 
 type OperationInput = Record<string, unknown>;
-type OperationHandler = (input: OperationInput) => unknown;
+type OperationHandler = (input: OperationInput) => unknown | Promise<unknown>;
 
 export class UnknownOperationError extends Error {}
 export class PayloadTooLargeError extends Error {}
@@ -57,7 +60,7 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 	return value;
 }
 
-function handlers(store: CacheStore): Record<OperationName, OperationHandler> {
+function handlers(store: CacheStore, webSearch: WebSearchService): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
@@ -66,6 +69,13 @@ function handlers(store: CacheStore): Record<OperationName, OperationHandler> {
 		}),
 		"cache.search": (input) => store.search(requireString(input, "query"), {
 			topN: optionalNumber(input, "limit"),
+		}),
+		"search": (input) => webSearch.search({
+			query: requireString(input, "query"),
+			numResults: optionalNumber(input, "numResults"),
+			timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
+			topic: optionalString(input, "topic") as WebSearchInput["topic"],
+			searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
 		}),
 	};
 }
@@ -78,7 +88,7 @@ export interface SchemaState {
 export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
-	execute(operation: string, input?: OperationInput): unknown;
+	execute(operation: string, input?: OperationInput): Promise<unknown>;
 	/** Best-effort, one-time import of a pre-daemon JSON DiskCache. No-op once the store already has rows. */
 	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
 	checkpoint(): void;
@@ -92,14 +102,17 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// use an isolated temp directory instead of guessing a path relative to cwd.
 	const imagesDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-images-")) : join(dirname(path), "images");
 	const store = new SQLiteCacheStore(db, { imagesDir });
-	const registry = handlers(store);
+	// Provider API keys are read from this (daemon) process's own environment only —
+	// never accepted as operation input, never logged.
+	const webSearch = new WebSearchService(createEngineResolver());
+	const registry = handlers(store, webSearch);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
-		execute(operation, input = {}) {
+		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
-			return handler(input);
+			return await handler(input);
 		},
 		importLegacyCacheIfEmpty(jsonPath) {
 			const { total } = store.list({ limit: 1 });
@@ -168,7 +181,7 @@ export function createApp(deps: { service: WebSpiderService; token: string }): {
 					if (typeof input !== "object" || input === null || Array.isArray(input)) {
 						return json({ error: "input must be an object" }, { status: 400 });
 					}
-					return json({ result: deps.service.execute(body.op, input as OperationInput) });
+					return json({ result: await deps.service.execute(body.op, input as OperationInput) });
 				} catch (error) {
 					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : 400;
 					return json({ error: error instanceof Error ? error.message : String(error) }, { status });
