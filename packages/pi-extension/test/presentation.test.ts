@@ -89,6 +89,26 @@ describe("web_fetch dual-channel presentation", () => {
     }
   })
 
+  it("surfaces papyrusDocs in the summary line and round-trips through parseWebDetails", () => {
+    const result = createWebResult(
+      { url: "https://example.com", title: "Example", markdown: "body", papyrus: { ingested: [{ url: "https://example.com", docId: "example-abcd" }], skipped: [] } },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com", title: "Example", wordCount: 1, papyrusDocs: 1 }),
+    )
+    expect(render(result)).toContain("1 \u2192 mesh")
+    expect(parseWebDetails(result.details)?.papyrusDocs).toBe(1)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ papyrus: { ingested: [{ docId: "example-abcd" }] } })
+  })
+
+  it("omits the mesh suffix and papyrusDocs field entirely when ingestion was not requested", () => {
+    const result = createWebResult(
+      { url: "https://example.com", title: "Example", markdown: "body" },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com", title: "Example", wordCount: 1 }),
+    )
+    expect(render(result)).not.toContain("mesh")
+    expect(result.details.papyrusDocs).toBeUndefined()
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("papyrus")
+  })
+
   it("represents robots denial without treating it as successful fetched content", () => {
     const result = createWebResult(
       { blocked: true, url: "https://example.com/private", reason: "robots.txt", hint: "Try another source." },
