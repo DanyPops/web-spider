@@ -1,5 +1,5 @@
 import { getMarkdownTheme, type AgentToolResult, type Theme } from "@earendil-works/pi-coding-agent"
-import { Markdown, Text, truncateToWidth, type MarkdownTheme } from "@earendil-works/pi-tui"
+import { Markdown, Text, truncateToWidth, type Component, type MarkdownTheme } from "@earendil-works/pi-tui"
 import {
   COLLAPSED_ITEM_PREVIEW,
   DETAILS_MAX_FIELD_CHARACTERS,
@@ -245,8 +245,21 @@ function callText(args: Record<string, unknown>): string {
   return `Fetch ${format} · ${domain}`
 }
 
-export function renderWebFetchCall(args: Record<string, unknown>, theme: Theme) {
-  return new Text(theme.fg("toolTitle", theme.bold(truncateToWidth(callText(args), 160))), 0, 0)
+export interface WebFetchCallContext {
+  /** The previously returned call-slot component, if any — reuse per Pi's documented best practice. */
+  lastComponent: Component | undefined
+}
+
+/**
+ * Reuses `context.lastComponent` (a `Text`) via `setText()` instead of allocating a new
+ * component on every render, per docs/extensions.md's own renderCall example — `Text`
+ * already caches its own rendered lines internally and only recomputes when the text
+ * actually changes.
+ */
+export function renderWebFetchCall(args: Record<string, unknown>, theme: Theme, context: WebFetchCallContext = { lastComponent: undefined }): Text {
+  const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0)
+  text.setText(theme.fg("toolTitle", theme.bold(truncateToWidth(callText(args), 160))))
+  return text
 }
 
 function summary(details: WebPresentationDetails): string {
@@ -313,12 +326,89 @@ function fallbackText(result: AgentToolResult<unknown>): string {
   return result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n")
 }
 
+/**
+ * Reusable width-cached result card — mirrors the documented Pi Component performance
+ * pattern (docs/tui.md "Performance": cache render lines per width, clear on invalidate())
+ * and Papyrus's ArtifactCard shape. Constructed once per tool-call result slot and
+ * updated in place via `update()` on subsequent renders of the same call
+ * (see docs/extensions.md: "Reuse context.lastComponent when the same component
+ * instance can be updated in place").
+ *
+ * Known limitation shared with every component that pre-bakes theme colors into
+ * cached lines (see docs/tui.md "Invalidation and Theme Changes"): a bare theme
+ * switch with no new tool result calls only `invalidate()`, not `update()`, so the
+ * next render recomputes from the *previous* theme reference until this call's
+ * result changes again. This is the same accepted trade-off Papyrus's ArtifactCard/
+ * ArtifactListCard/TaskHierarchyPreview already ship with in production.
+ */
+export class WebResultCard implements Component {
+  private result: AgentToolResult<unknown>
+  private details: WebPresentationDetails
+  private expanded: boolean
+  private theme: Theme
+  private cachedWidth: number | undefined
+  private cachedLines: string[] | undefined
+
+  constructor(result: AgentToolResult<unknown>, details: WebPresentationDetails, expanded: boolean, theme: Theme) {
+    this.result = result
+    this.details = details
+    this.expanded = expanded
+    this.theme = theme
+  }
+
+  update(result: AgentToolResult<unknown>, details: WebPresentationDetails, expanded: boolean, theme: Theme): void {
+    this.result = result
+    this.details = details
+    this.expanded = expanded
+    this.theme = theme
+    this.invalidate()
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width)
+    if (this.cachedLines && this.cachedWidth === safeWidth) return this.cachedLines
+
+    const details = this.details
+    const theme = this.theme
+    const expanded = this.expanded
+    const color = details.status === "blocked" ? "warning" : details.status === "empty" ? "muted" : "success"
+    const lines = [truncateToWidth(theme.fg(color, summary(details)), safeWidth)]
+    const shown = expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW)
+    for (const item of shown) {
+      lines.push(truncateToWidth(theme.fg("accent", `  ${item.title}`), safeWidth))
+      if (expanded) lines.push(truncateToWidth(theme.fg("dim", `    ${item.url}`), safeWidth))
+    }
+    if (!expanded && details.items.length > shown.length) lines.push(theme.fg("muted", `  … ${details.items.length - shown.length} more`))
+
+    let finalLines = lines
+    if (expanded) {
+      const text = fallbackText(this.result)
+      if (text) finalLines = [...lines, "", ...primaryLines(text, details, safeWidth, theme)]
+    }
+
+    this.cachedWidth = safeWidth
+    this.cachedLines = finalLines
+    return finalLines
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined
+    this.cachedLines = undefined
+  }
+}
+
+export interface WebFetchResultContext {
+  isPartial: boolean
+  /** The previously returned result-slot component, if any — reuse per Pi's documented best practice. */
+  lastComponent: Component | undefined
+}
+
 export function renderWebFetchResult(
   result: AgentToolResult<unknown>,
   options: { expanded: boolean; isPartial: boolean },
   theme: Theme,
-  context: { isPartial: boolean },
-) {
+  context: WebFetchResultContext,
+): Component {
   const details = parseWebDetails(result.details)
   if (options.isPartial || context.isPartial) {
     const activity = details?.operation === "search" ? "Searching the web…"
@@ -327,22 +417,11 @@ export function renderWebFetchResult(
     return new Text(theme.fg("accent", activity), 0, 0)
   }
   if (!details) return new Text(fallbackText(result), 0, 0)
-  return {
-    render(width: number): string[] {
-      const safeWidth = Math.max(1, width)
-      const color = details.status === "blocked" ? "warning" : details.status === "empty" ? "muted" : "success"
-      const lines = [truncateToWidth(theme.fg(color, summary(details)), safeWidth)]
-      const shown = options.expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW)
-      for (const item of shown) {
-        lines.push(truncateToWidth(theme.fg("accent", `  ${item.title}`), safeWidth))
-        if (options.expanded) lines.push(truncateToWidth(theme.fg("dim", `    ${item.url}`), safeWidth))
-      }
-      if (!options.expanded && details.items.length > shown.length) lines.push(theme.fg("muted", `  … ${details.items.length - shown.length} more`))
-      if (!options.expanded) return lines
-      const text = fallbackText(result)
-      if (!text) return lines
-      return [...lines, "", ...primaryLines(text, details, safeWidth, theme)]
-    },
-    invalidate() {},
+
+  const previous = context.lastComponent instanceof WebResultCard ? context.lastComponent : undefined
+  if (previous) {
+    previous.update(result, details, options.expanded, theme)
+    return previous
   }
+  return new WebResultCard(result, details, options.expanded, theme)
 }
