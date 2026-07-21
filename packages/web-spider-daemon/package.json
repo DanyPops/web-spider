@@ -17,7 +17,8 @@
 		"@danypops/web-spider": "*"
 	},
 	"optionalDependencies": {
-		"@danypops/papyrus": "*"
+		"@danypops/papyrus": "*",
+		"playwright-core": "^1.60.0"
 	},
 	"devDependencies": {
 		"@types/node": "^22.19.19",

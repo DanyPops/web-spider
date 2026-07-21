@@ -1,0 +1,96 @@
+/**
+ * Playwright-backed SessionRegistry — one owned Browser process per named
+ * session (full-process isolation, agent-browser's model, not
+ * browser.newContext()). See decision doc
+ * decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l and
+ * research doc research-lightweight-browser-engine-options-for-the-session--0z7r
+ * (default: Playwright's own chromium, letting chromium-headless-shell apply
+ * automatically in headless mode — never force channel:"chrome" silently).
+ */
+import { SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
+import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
+import type { CreateSessionOptions, SessionRegistry } from "../ports/session-registry.ts";
+
+/** The minimal surface this module needs from a launched browser — deliberately not the full Playwright Browser type; action dispatch is a later task. */
+export interface LaunchedBrowser {
+	close(): Promise<void>;
+}
+
+export type BrowserLauncher = (opts: { forceChromeChannel: boolean }) => Promise<LaunchedBrowser>;
+
+/** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
+export function defaultBrowserLauncher(): BrowserLauncher {
+	return async ({ forceChromeChannel }) => {
+		const { chromium } = await import("playwright-core");
+		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { headless: true };
+		return chromium.launch(launchOpts);
+	};
+}
+
+export interface PlaywrightSessionRegistryOptions {
+	launcher?: BrowserLauncher;
+	maxConcurrent?: number;
+	maxNameLength?: number;
+	now?: () => number;
+}
+
+export class PlaywrightSessionRegistry implements SessionRegistry {
+	private readonly sessions = new Map<string, { info: SessionInfo; browser: LaunchedBrowser }>();
+	/** Reserves a name synchronously before the launch await completes, so two concurrent create() calls for the same name (or racing the ceiling) can't both succeed. */
+	private readonly pending = new Set<string>();
+	private readonly launcher: BrowserLauncher;
+	private readonly maxConcurrent: number;
+	private readonly maxNameLength: number;
+	private readonly now: () => number;
+
+	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
+		this.launcher = opts.launcher ?? defaultBrowserLauncher();
+		this.maxConcurrent = opts.maxConcurrent ?? SESSION_REGISTRY_MAX_CONCURRENT;
+		this.maxNameLength = opts.maxNameLength ?? SESSION_NAME_MAX_LENGTH;
+		this.now = opts.now ?? Date.now;
+	}
+
+	async create(name: string, opts: CreateSessionOptions = {}): Promise<SessionInfo> {
+		if (!isValidSessionName(name, this.maxNameLength)) {
+			throw new Error(
+				`invalid session name ${JSON.stringify(name)} — use 1-${this.maxNameLength} letters, digits, "-", or "_", starting with a letter or digit`,
+			);
+		}
+		if (this.sessions.has(name) || this.pending.has(name)) {
+			throw new Error(`session already exists: "${name}"`);
+		}
+		if (this.sessions.size + this.pending.size >= this.maxConcurrent) {
+			throw new Error(`session limit reached (${this.maxConcurrent} concurrent sessions max) — close an existing session first`);
+		}
+
+		this.pending.add(name);
+		try {
+			const browser = await this.launcher({ forceChromeChannel: opts.forceChromeChannel ?? false });
+			const info = createSessionInfo(name, this.now());
+			this.sessions.set(name, { info, browser });
+			return info;
+		} finally {
+			this.pending.delete(name);
+		}
+	}
+
+	list(): SessionInfo[] {
+		return [...this.sessions.values()].map((entry) => entry.info);
+	}
+
+	get(name: string): SessionInfo | undefined {
+		return this.sessions.get(name)?.info;
+	}
+
+	async close(name: string): Promise<void> {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		this.sessions.delete(name);
+		await entry.browser.close();
+	}
+
+	async closeAll(): Promise<void> {
+		const names = [...this.sessions.keys()];
+		await Promise.allSettled(names.map((name) => this.close(name)));
+	}
+}
