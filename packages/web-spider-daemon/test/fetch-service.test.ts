@@ -1,14 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
+import type { HttpRequest, HttpResponse, IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
 import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
 import { FetchService } from "../src/fetch-service.ts";
 import { ARTICLE_HTML, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const URL = "https://fixture.test/article";
+
+// A minimal app shell with no extractable article content — Readability finds
+// nothing, so spider() reports jsRendered:true and FetchService retries with
+// the injected Playwright client. Same fixture packages/pi-extension used to
+// exercise this exact scenario before Playwright moved into this daemon.
+const FIXTURES_DIR = join(import.meta.dir, "../../web-spider/fixtures");
+const GH_SHELL_HTML = readFileSync(join(FIXTURES_DIR, "gh-shell.html"), "utf8");
 
 function noopThrottle(): IThrottle {
 	return { wait: async () => {}, success: () => {}, rateLimit: () => 0, setDomainDelay: () => {}, maxRetries: 0 };
@@ -110,5 +117,112 @@ describe("FetchService — robots.txt", () => {
 		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }), blockRobots());
 		const result = await service.fetch({ url: URL });
 		expect(result).toEqual({ blocked: true, url: URL, reason: "robots.txt" });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Playwright auto-fallback — this behavior lived in packages/pi-extension
+// before the extension-client task; it is exercised here now that Playwright
+// is a daemon-owned adapter, via the same getPlaywrightClient() injection
+// seam production code uses (see FetchServiceDeps).
+// ---------------------------------------------------------------------------
+
+function controllablePlaywrightClient(): { client: IHttpClient; setImpl: (fn: (req: HttpRequest) => Promise<HttpResponse>) => void; calls: number } {
+	let impl: (req: HttpRequest) => Promise<HttpResponse> = async () => {
+		throw new Error("playwright impl not set for this test");
+	};
+	let calls = 0;
+	return {
+		client: { fetch: async (req) => { calls += 1; return impl(req); } },
+		setImpl: (fn) => { impl = fn; },
+		get calls() { return calls; },
+	};
+}
+
+function okResponse(body: string): HttpResponse {
+	return {
+		ok: true, status: 200, statusText: "OK",
+		headers: { get: () => null },
+		text: async () => body,
+		arrayBuffer: async () => new TextEncoder().encode(body).buffer,
+	};
+}
+
+function serviceWithPlaywright(defaultBody: string | undefined) {
+	const db = openWebSpiderDb(":memory:");
+	const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+	const cache = new SQLiteCacheStore(db, { imagesDir });
+	const playwright = controllablePlaywrightClient();
+	const service = new FetchService({
+		cache,
+		throttle: noopThrottle(),
+		robotsCache: allowRobots(),
+		// undefined ⇒ no route registered at all, so any call throws — proves
+		// the default (non-Playwright) client was never consulted.
+		defaultHttpClient: fakeHttpClient(defaultBody === undefined ? {} : { [URL]: { body: defaultBody } }),
+		getPlaywrightClient: () => playwright.client,
+	});
+	return { service, playwright };
+}
+
+describe("FetchService — Playwright auto-fallback (jsRendered:true)", () => {
+	test("retries with Playwright and returns article content when it succeeds", async () => {
+		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
+		playwright.setImpl(async () => okResponse(ARTICLE_HTML));
+
+		const result = await service.fetch({ url: URL, format: "lean" });
+		expect(result.title).toBeTruthy();
+		expect((result.wordCount as number)).toBeGreaterThan(0);
+		expect(playwright.calls).toBe(1);
+	});
+
+	test("does not call Playwright when direct fetch already returns readable content", async () => {
+		const { service, playwright } = serviceWithPlaywright(ARTICLE_HTML); // real article — Readability succeeds directly
+		playwright.setImpl(async () => { throw new Error("Playwright should not have been called"); });
+
+		const result = await service.fetch({ url: URL, format: "lean" });
+		expect((result.wordCount as number)).toBeGreaterThan(0);
+		expect(playwright.calls).toBe(0);
+	});
+
+	test("propagates a Playwright failure (browser closed unexpectedly) as a rejected fetch", async () => {
+		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
+		playwright.setImpl(async () => { throw new Error("Browser closed unexpectedly"); });
+		await expect(service.fetch({ url: URL })).rejects.toThrow("Browser closed unexpectedly");
+	});
+
+	test("propagates the cross-realm Map defect message verbatim", async () => {
+		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
+		playwright.setImpl(async () => { throw new TypeError("Map operation called on non-Map object"); });
+		await expect(service.fetch({ url: URL })).rejects.toThrow("Map operation called on non-Map object");
+	});
+
+	test("propagates a Playwright timeout message", async () => {
+		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
+		playwright.setImpl(async () => { throw new Error("Timeout 30000ms exceeded."); });
+		await expect(service.fetch({ url: URL })).rejects.toThrow("Timeout");
+	});
+
+	test("normalizes a non-Error Playwright throw", async () => {
+		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
+		playwright.setImpl(async () => { throw "chromium launch failed"; });
+		await expect(service.fetch({ url: URL })).rejects.toThrow("chromium launch failed");
+	});
+});
+
+describe("FetchService — enhanced:true (Playwright for the first attempt, no fallback needed)", () => {
+	test("returns content when Playwright succeeds on the first attempt", async () => {
+		const { service, playwright } = serviceWithPlaywright(undefined); // default client must not be consulted at all
+		playwright.setImpl(async () => okResponse(ARTICLE_HTML));
+
+		const result = await service.fetch({ url: URL, format: "lean", enhanced: true });
+		expect((result.wordCount as number)).toBeGreaterThan(0);
+		expect(playwright.calls).toBe(1);
+	});
+
+	test("throws a native failure when the browser executable is missing", async () => {
+		const { service, playwright } = serviceWithPlaywright(undefined);
+		playwright.setImpl(async () => { throw new Error("executable doesn't exist at /nonexistent"); });
+		await expect(service.fetch({ url: URL, enhanced: true })).rejects.toThrow("executable doesn't exist");
 	});
 });
