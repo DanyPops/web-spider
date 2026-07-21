@@ -34,6 +34,42 @@ describe("renderSystemdUnit", () => {
 		expect(unit).toContain("NoNewPrivileges=true");
 		expect(unit).toContain("PrivateTmp=true");
 	});
+
+	test("omits Environment= lines entirely when no search API keys are supplied", () => {
+		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
+		expect(unit).not.toContain("Environment=");
+	});
+
+	test("omits Environment= lines for keys that are undefined or empty", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			searchApiKeys: { BRAVE_SEARCH_API_KEY: undefined, TAVILY_API_KEY: "", EXA_API_KEY: undefined },
+		});
+		expect(unit).not.toContain("Environment=");
+	});
+
+	test("renders one Environment= line per configured key, between ExecStart and Restart", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			searchApiKeys: { TAVILY_API_KEY: "test-tavily-key", EXA_API_KEY: "test-exa-key" },
+		});
+		expect(unit).toContain('Environment="TAVILY_API_KEY=test-tavily-key"');
+		expect(unit).toContain('Environment="EXA_API_KEY=test-exa-key"');
+		expect(unit).not.toContain("BRAVE_SEARCH_API_KEY");
+		const execStartIndex = unit.indexOf("ExecStart=");
+		const environmentIndex = unit.indexOf("Environment=");
+		const restartIndex = unit.indexOf("Restart=always");
+		expect(execStartIndex).toBeLessThan(environmentIndex);
+		expect(environmentIndex).toBeLessThan(restartIndex);
+	});
+
+	test("escapes backslashes and double quotes in a key value", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			searchApiKeys: { BRAVE_SEARCH_API_KEY: 'weird"value\\with-escapes' },
+		});
+		expect(unit).toContain('Environment="BRAVE_SEARCH_API_KEY=weird\\"value\\\\with-escapes"');
+	});
 });
 
 describe("runCli — serve / service (unchanged surface)", () => {

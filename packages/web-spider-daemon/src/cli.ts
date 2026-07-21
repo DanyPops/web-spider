@@ -22,12 +22,33 @@ import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
 
+/** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
+const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"] as const;
+
 export interface SystemdUnitOptions {
 	bunBin: string;
 	cliPath: string;
+	/**
+	 * Search provider API keys to forward into the unit's Environment= lines.
+	 * A systemd --user service does not inherit the installing shell's
+	 * environment, so without this, `search` silently falls back to DDG-only
+	 * even when a key is set in the shell that ran `service install` —
+	 * confirmed happening in practice during a real dogfood smoke test.
+	 * Only non-empty keys render a line; values are never logged anywhere.
+	 */
+	searchApiKeys?: Partial<Record<(typeof SEARCH_API_KEY_VARS)[number], string | undefined>>;
+}
+
+function escapeUnitValue(value: string): string {
+	return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 export function renderSystemdUnit(options: SystemdUnitOptions): string {
+	const environmentLines = SEARCH_API_KEY_VARS
+		.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]])
+		.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+		.map(([name, value]) => `Environment="${name}=${escapeUnitValue(value)}"\n`)
+		.join("");
 	return `[Unit]
 Description=Web Spider search, query, and scraping daemon
 After=default.target network-online.target
@@ -36,7 +57,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${options.bunBin} ${options.cliPath} serve
-Restart=always
+${environmentLines}Restart=always
 RestartSec=2
 NoNewPrivileges=true
 PrivateTmp=true
@@ -56,6 +77,7 @@ function installService(): void {
 	writeFileSync(unitPath, renderSystemdUnit({
 		bunBin: process.execPath,
 		cliPath: fileURLToPath(import.meta.url),
+		searchApiKeys: Object.fromEntries(SEARCH_API_KEY_VARS.map((name) => [name, process.env[name]])),
 	}));
 	systemctl("daemon-reload");
 	systemctl("enable", SYSTEMD_UNIT_NAME);
