@@ -659,7 +659,7 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet:
       "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
     parameters: paramsSchema,
-    renderCall(args, theme) { return renderWebFetchCall(args, theme) },
+    renderCall(args, theme, context) { return renderWebFetchCall(args, theme, context) },
     renderResult(result, options, theme, context) { return renderWebFetchResult(result, options, theme, context) },
 
     // -------------------------------------------------------------------------

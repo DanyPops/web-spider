@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { Theme } from "@earendil-works/pi-coding-agent"
-import { visibleWidth } from "@earendil-works/pi-tui"
+import { Text, visibleWidth } from "@earendil-works/pi-tui"
 import {
   createWebDetails,
   createWebResult,
   parseWebDetails,
   renderWebFetchCall,
   renderWebFetchResult,
+  WebResultCard,
 } from "../src/presentation.js"
 
 const theme = {
@@ -19,7 +20,7 @@ const theme = {
 } as unknown as Theme
 
 const render = (result: ReturnType<typeof createWebResult>, expanded = false, width = 80) =>
-  renderWebFetchResult(result, { expanded, isPartial: false }, theme, { isPartial: false }).render(width).join("\n")
+  renderWebFetchResult(result, { expanded, isPartial: false }, theme, { isPartial: false, lastComponent: undefined }).render(width).join("\n")
 
 describe("web_fetch dual-channel presentation", () => {
   it("keeps requested primary content only in the bounded model channel", () => {
@@ -107,8 +108,63 @@ describe("web_fetch dual-channel presentation", () => {
     expect(parseWebDetails(malformed)).toBeUndefined()
     const partial = renderWebFetchResult(
       { content: [{ type: "text" as const, text: "" }], details: createWebDetails({ operation: "search", format: "search", query: "q" }) },
-      { expanded: false, isPartial: true }, theme, { isPartial: true },
+      { expanded: false, isPartial: true }, theme, { isPartial: true, lastComponent: undefined },
     ).render(40).join("\n")
     expect(partial).toContain("Searching")
+  })
+
+  it("reuses context.lastComponent across renders (Pi's documented component-reuse best practice)", () => {
+    const first = createWebResult(
+      { url: "https://example.com/a", title: "Alpha", markdown: "alpha body" },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com/a", title: "Alpha", wordCount: 2 }),
+    )
+    const component = renderWebFetchResult(first, { expanded: false, isPartial: false }, theme, { isPartial: false, lastComponent: undefined })
+    expect(component).toBeInstanceOf(WebResultCard)
+    expect(component.render(80).join("\n")).toContain("Alpha")
+
+    const second = createWebResult(
+      { url: "https://example.com/b", title: "Beta", markdown: "beta body" },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com/b", title: "Beta", wordCount: 2 }),
+    )
+    const reused = renderWebFetchResult(second, { expanded: false, isPartial: false }, theme, { isPartial: false, lastComponent: component })
+    expect(reused).toBe(component) // same object identity — updated in place, not reallocated
+    expect(reused.render(80).join("\n")).toContain("Beta")
+    expect(reused.render(80).join("\n")).not.toContain("Alpha")
+  })
+
+  it("does not reuse a lastComponent of a different shape (falls back to constructing fresh)", () => {
+    const result = createWebResult(
+      { url: "https://example.com", title: "Example", markdown: "body" },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com", title: "Example" }),
+    )
+    const unrelated = new Text("unrelated", 0, 0)
+    const component = renderWebFetchResult(result, { expanded: false, isPartial: false }, theme, { isPartial: false, lastComponent: unrelated })
+    expect(component).not.toBe(unrelated)
+    expect(component).toBeInstanceOf(WebResultCard)
+  })
+
+  it("clears cached render lines on invalidate() so a later render reflects updated state", () => {
+    const result = createWebResult(
+      { url: "https://example.com", title: "Cached", markdown: "body" },
+      createWebDetails({ operation: "fetch", format: "markdown", url: "https://example.com", title: "Cached" }),
+    )
+    const component = renderWebFetchResult(result, { expanded: false, isPartial: false }, theme, { isPartial: false, lastComponent: undefined }) as WebResultCard
+    const first = component.render(80)
+    const second = component.render(80) // same width — must return the cached array, not merely equal content
+    expect(second).toBe(first)
+    component.invalidate()
+    const third = component.render(80)
+    expect(third).not.toBe(first) // cache was cleared; a fresh array was computed
+    expect(third.join("\n")).toBe(first.join("\n")) // content is unchanged — only identity differs
+  })
+
+  it("renderWebFetchCall reuses a lastComponent Text instance instead of allocating a new one", () => {
+    const previous = new Text("", 0, 0)
+    const reused = renderWebFetchCall({ url: "https://example.com" }, theme, { lastComponent: previous })
+    expect(reused).toBe(previous)
+    expect(reused.render(100).join("\n")).toContain("example.com")
+
+    const fresh = renderWebFetchCall({ url: "https://example.com" }, theme, { lastComponent: undefined })
+    expect(fresh).not.toBe(previous)
   })
 })
