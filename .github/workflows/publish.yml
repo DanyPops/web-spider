@@ -56,9 +56,37 @@ jobs:
 
       # Dependency order: web-spider-daemon depends on web-spider; the
       # extension depends on both.
-      - run: npm publish --access public
+      #
+      # Idempotent by design, not just "best effort" -- if a prior run of this
+      # same tag already published one package (e.g. a later package's first
+      # trusted-publisher config was missing on npmjs.com, so the job stopped
+      # partway through), re-running the workflow must be able to pick up
+      # cleanly instead of hard-failing on "cannot publish over previously
+      # published version" for the package(s) that already succeeded.
+      - run: |
+          version=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published, skipping"
+          else
+            npm publish --access public
+          fi
         working-directory: packages/web-spider
-      - run: npm publish --access public
+      - run: |
+          version=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published, skipping"
+          else
+            npm publish --access public
+          fi
         working-directory: packages/web-spider-daemon
-      - run: npm publish --access public
+      - run: |
+          version=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published, skipping"
+          else
+            npm publish --access public
+          fi
         working-directory: packages/pi-extension
