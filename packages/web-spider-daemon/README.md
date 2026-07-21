@@ -117,6 +117,10 @@ Every `session act` call needs the session's current `snapshotVersion` (from `se
 
 `fetch` and `crawl` share one command: `--depth N` (N > 0) routes to the `crawl` operation, matching the `web_fetch` tool's own single-entry-point shape. Bounds (`depth` ≤ 5, `maxPages` ≤ 200, etc.) are enforced by the daemon regardless of what the CLI requests.
 
+### UI-audit toolkit (internal library, not yet a daemon operation)
+
+`src/layout-check.ts` measures real rendered geometry (`getBoundingClientRect()` + `getComputedStyle()` padding, via a session's page) for a set of CSS selectors and asserts a given layout property is consistent across all of them within a pixel tolerance — reporting the actual disagreeing values, not just pass/fail. Built to catch exactly the kind of bug that motivated this whole toolkit: agent-deck's message bubbles and tool-call card silently drifting to different padding. Not yet exposed as a `session.*`-style operation/CLI command — that lands with the WCAG contrast checker in the follow-up task that wires both into an actual regression gate run against agent-deck.
+
 ## Health and readiness
 
 Both endpoints require the bearer token:
