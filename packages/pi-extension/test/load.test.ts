@@ -9,14 +9,23 @@
 
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   createExtensionHarness,
   loadExtensionViaJiti,
 } from "./harness/index.ts"
+import { isolatedDaemonEnv, type IsolatedDaemonEnv } from "./daemon-isolation.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const EXTENSION_PATH = join(__dirname, "../src/index.ts")
+
+// Any test that calls h.invokeTool() can reach getClient(), which
+// auto-starts a real daemon using ambient XDG paths unless isolated.
+let isolated: IsolatedDaemonEnv | undefined
+afterEach(() => {
+  isolated?.cleanup()
+  isolated = undefined
+})
 
 // ── tryNative:false — Bun binary simulation ───────────────────────────────────
 
@@ -59,8 +68,9 @@ describe("extension load — tryNative:true (Node ESM baseline)", () => {
     // The Map realm bug only surfaces on the first execute() call, not at
     // construction time. The e2e-jiti tests cover the production jiti context;
     // this guards the simpler failure of execute() crashing at all.
+    isolated = isolatedDaemonEnv("pi-web-spider-load-test-")
     const { default: factory } = await import("../src/index.js")
-    const h = createExtensionHarness(factory, { cwd: "/tmp" })
+    const h = createExtensionHarness(factory, { cwd: "/tmp", env: isolated.env })
     await h.boot()
 
     const result = await h.invokeTool("web_fetch", {}) as { content: { text: string }[] }

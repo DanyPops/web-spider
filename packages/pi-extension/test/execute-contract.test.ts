@@ -1,16 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createExtensionHarness, type ExtensionHarness } from "./harness/index.ts"
+import { isolatedDaemonEnv, type IsolatedDaemonEnv } from "./daemon-isolation.js"
+import { startFixtureServer, type FixtureServer } from "./helpers/fixture-server.js"
 import piFactory from "../src/index.js"
 
 let h: ExtensionHarness
+let isolated: IsolatedDaemonEnv
+let server: FixtureServer
 
 beforeAll(async () => {
-  h = createExtensionHarness(piFactory, { cwd: "/tmp" })
+  isolated = isolatedDaemonEnv("pi-web-spider-execute-contract-test-")
+  server = await startFixtureServer()
+  h = createExtensionHarness(piFactory, { cwd: "/tmp", env: isolated.env })
   await h.boot()
 })
 
 afterAll(async () => {
   await h.shutdown()
+  await server.close()
+  isolated.cleanup()
 })
 
 describe("stream hygiene: extension must not write to stdout or stderr", () => {
@@ -57,18 +65,14 @@ describe("execute() result and failure channels", () => {
   })
 
   it("returns robots denial as a typed blocked outcome", async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = async (input) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-      if (url.endsWith("/robots.txt")) return new Response("User-agent: *\nDisallow: /private", { status: 200 })
-      throw new Error("page fetch should be blocked by robots.txt")
-    }
-    try {
-      const result = await h.invokeTool("web_fetch", { url: "https://robots-contract.test/private" }) as any
-      expect(JSON.parse(result.content[0].text)).toMatchObject({ blocked: true, reason: "robots.txt" })
-      expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" })
-    } finally {
-      globalThis.fetch = originalFetch
-    }
+    // A real robots.txt served by the real (isolated) daemon's own RobotsCache
+    // fetch — replaces mocking globalThis.fetch, which the daemon (a separate
+    // process) never sees.
+    server.set("/robots.txt", "User-agent: *\nDisallow: /private", "text/plain")
+    server.set("/private", "<html><body><article><h1>Secret</h1><p>Should never be fetched.</p></article></body></html>")
+
+    const result = await h.invokeTool("web_fetch", { url: `${server.baseUrl}/private` }) as any
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ blocked: true, reason: "robots.txt" })
+    expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" })
   })
 })

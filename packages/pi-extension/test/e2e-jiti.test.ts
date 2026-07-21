@@ -6,11 +6,12 @@
  * via mock-pi-cli.mjs so the real jiti context is exercised end-to-end.
  */
 
-import { readFileSync, mkdirSync } from "node:fs"
+import { mkdirSync } from "node:fs"
 import { spawn }  from "node:child_process"
-import { resolve, dirname } from "node:path"
+import { resolve, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { readDaemonHandle, resolveWebSpiderPaths } from "../src/daemon-client.js"
 
 const __dirname   = dirname(fileURLToPath(import.meta.url))
 const CLI         = resolve(__dirname, "fixtures/mock-pi-cli.mjs")
@@ -25,7 +26,24 @@ interface Event { type: string; [k: string]: unknown }
 interface RunResult {
   events: Event[]
   diagPath: string
+  /** XDG_RUNTIME_DIR used for this run — read the daemon handle from here for cleanup. */
+  xdgRuntimeDir: string
 }
+
+// Every run's spawned daemon (auto-started by the extension, detached + unref'd
+// so it survives this test's own subprocess exit) is killed in afterEach —
+// otherwise every single test run in this file leaks a real, permanently
+// running `web-spider serve` process.
+const runtimeDirsToClean: string[] = []
+afterEach(() => {
+  for (const xdgRuntimeDir of runtimeDirsToClean.splice(0)) {
+    const paths = resolveWebSpiderPaths({ env: { XDG_RUNTIME_DIR: xdgRuntimeDir } })
+    const handle = readDaemonHandle(paths)
+    if (handle) {
+      try { process.kill(handle.pid, "SIGTERM") } catch { /* already gone */ }
+    }
+  }
+})
 
 function runCli(opts: {
   tool?: string
@@ -40,10 +58,20 @@ function runCli(opts: {
   return new Promise((resolve, reject) => {
     mkdirSync(CACHE_DIR, { recursive: true })
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    // Unique cache per run — prevents cross-test hits from masking errors.
-    const cachePath = `${CACHE_DIR}/cache-${tag}.json`
-    // Unique diag path — lets tests read and assert the boot probe.
+    // Unique diag path — lets tests read diagnostics.
     const diagPath  = `${CACHE_DIR}/diag-${tag}.log`
+    // Isolated XDG roots (+ HOME + WEB_SPIDER_CACHE_PATH) per run — without
+    // ALL of these, the extension's daemon auto-start uses the operator's
+    // real ~/.local/share, ~/.local/state, $XDG_RUNTIME_DIR, and (for the
+    // one-time legacy-cache importer, which falls back to the real home
+    // directory when WEB_SPIDER_CACHE_PATH is unset) the operator's real
+    // ~/.cache/web-spider/pages.json — every one of these verified happening
+    // in practice, more than once, before this fix covered all of them.
+    const xdgRoot = `${CACHE_DIR}/xdg-${tag}`
+    const xdgDataHome = join(xdgRoot, "data")
+    const xdgStateHome = join(xdgRoot, "state")
+    const xdgRuntimeDir = join(xdgRoot, "run")
+    runtimeDirsToClean.push(xdgRuntimeDir)
 
     const invocations = opts.paramsList ?? [opts.params ?? {}]
 
@@ -53,8 +81,12 @@ function runCli(opts: {
       // Each element becomes a separate --params flag; mock-pi-cli.mjs
       // invokes the tool once per flag in the same process.
       ...invocations.flatMap(p => ["--params", JSON.stringify(p)]),
-      "--env",       `WEB_SPIDER_CACHE_PATH=${cachePath}`,
       "--env",       `WEB_SPIDER_DIAG_PATH=${diagPath}`,
+      "--env",       `HOME=${xdgRoot}`,
+      "--env",       `WEB_SPIDER_CACHE_PATH=${join(xdgRoot, "no-legacy-cache-here.json")}`,
+      "--env",       `XDG_DATA_HOME=${xdgDataHome}`,
+      "--env",       `XDG_STATE_HOME=${xdgStateHome}`,
+      "--env",       `XDG_RUNTIME_DIR=${xdgRuntimeDir}`,
       ...Object.entries(opts.env ?? {}).flatMap(([k, v]) => ["--env", `${k}=${v}`]),
     ]
 
@@ -77,25 +109,12 @@ function runCli(opts: {
     proc.on("close", () => {
       clearTimeout(timer)
       try {
-        resolve({ events: lines.map(l => JSON.parse(l) as Event), diagPath })
+        resolve({ events: lines.map(l => JSON.parse(l) as Event), diagPath, xdgRuntimeDir })
       } catch (e) {
         reject(new Error(`failed to parse NDJSON: ${e}\nlines: ${lines.join("\n")}\nstderr: ${stderr.join("")}`))
       }
     })
   })
-}
-
-/** Read and parse the boot-probe line from a diag log written by the extension. */
-function readBootProbe(diagPath: string): Record<string, unknown> | null {
-  let raw: string
-  try { raw = readFileSync(diagPath, "utf8") } catch { return null }
-  for (const line of raw.split("\n")) {
-    try {
-      const obj = JSON.parse(line) as Record<string, unknown>
-      if (obj["tag"] === "boot-probe") return obj
-    } catch { /* skip malformed lines */ }
-  }
-  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -177,18 +196,5 @@ describe("E2E: production jiti load (tryNative:true + alias)", () => {
     const exit = events.find(e => e.type === "exit")
     expect(exit).toBeDefined()
     expect((exit as { code: number }).code).toBe(0)
-  }, 30000)
-
-  it("boot probe: storeIsMap===false and cacheClass===DiskCache (realm-safe storage)", async () => {
-    const { diagPath } = await runCli({
-      params: { url: "https://example.com", format: "lean" },
-      timeoutMs: 25000,
-    })
-
-    const probe = readBootProbe(diagPath)
-    expect(probe).not.toBeNull()
-    expect(probe!["cacheClass"]).toBe("DiskCache")
-    expect(probe!["storeIsMap"]).toBe(false)
-    expect(probe!["storeTag"]).toBe("[object Object]")
   }, 30000)
 })
