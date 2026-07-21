@@ -1,14 +1,3 @@
-/** Lean summary row — used by cache.list. Never carries markdown/chunks/images. */
-export interface CachedPageSummary {
-	url: string;
-	domain: string;
-	title: string;
-	description: string;
-	wordCount: number;
-	fetchedAt: number;
-	expiresAt: number;
-}
-
 export interface CachedPageListFilter {
 	/** Case-insensitive substring match against url/title/domain/description. */
 	grep?: string;
@@ -16,12 +5,20 @@ export interface CachedPageListFilter {
 	limit?: number;
 }
 
+/**
+ * cache.list's per-page shape is format.ts's leanOutput() — matching today's
+ * pi-extension handleCacheListing() exactly (headings/bodyLinks/tags, not a
+ * bare summary), a hard requirement of "preserve the existing web_fetch tool
+ * contract exactly" (this is a backend swap, not a tool API change). This is
+ * still cheap: headings/links/tags are inline JSON columns on `pages` — no
+ * chunks/images child-table join is needed for a listing.
+ */
 export interface CachedPageListResult {
 	total: number;
 	filtered: number;
 	offset: number;
 	limit: number;
-	pages: CachedPageSummary[];
+	pages: Array<Record<string, unknown>>;
 }
 
 /** cache.search result shape — mirrors today's pi-extension highlightHit() output (full chunk text, not a snippet). */

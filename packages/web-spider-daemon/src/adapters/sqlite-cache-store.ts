@@ -24,7 +24,8 @@ import {
 	CACHE_SEARCH_DEFAULT_LIMIT,
 	CACHE_SEARCH_SNIPPET_RADIUS,
 } from "../constants.ts";
-import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult, CachedPageSummary } from "../domain/page.ts";
+import { leanOutput } from "../format.ts";
+import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "../domain/page.ts";
 import type { CacheStore } from "../ports/cache-store.ts";
 
 export interface SQLiteCacheStoreOptions {
@@ -59,14 +60,44 @@ interface PageRow {
 	expires_at: number;
 }
 
-interface PageSummaryRow {
+/**
+ * cache.list's row shape — enough columns to build format.ts's leanOutput()
+ * without a chunks/images join (headings/links/tags are inline JSON columns
+ * on `pages` already; markdown/chunks/images are deliberately not selected).
+ */
+interface PageListRow {
 	url: string;
-	domain: string;
 	title: string;
 	description: string;
+	author: string;
+	published_at: string;
+	tags: string;
 	word_count: number;
-	fetched_at: number;
-	expires_at: number;
+	headings: string;
+	links: string;
+	js_rendered: number;
+}
+
+/** Builds just enough of a SpideredPage for leanOutput() — the fields it doesn't read are left blank/empty. */
+function toLeanInput(row: PageListRow): SpideredPage {
+	return {
+		url: row.url,
+		domain: "",
+		fetchedAt: "",
+		title: row.title,
+		description: row.description,
+		author: row.author,
+		publishedAt: row.published_at,
+		lang: "",
+		tags: JSON.parse(row.tags) as string[],
+		wordCount: row.word_count,
+		readingTimeMinutes: 0,
+		headings: JSON.parse(row.headings) as SpideredPage["headings"],
+		chunks: [],
+		links: JSON.parse(row.links) as SpideredPage["links"],
+		markdown: "",
+		...(row.js_rendered ? { jsRendered: true } : {}),
+	};
 }
 
 interface ChunkRow {
@@ -203,14 +234,14 @@ export class SQLiteCacheStore implements CacheStore {
 		const offset = Math.max(0, Math.floor(filter.offset ?? 0));
 		const limit = Math.max(1, Math.min(CACHE_LIST_MAX_LIMIT, Math.floor(filter.limit ?? CACHE_LIST_DEFAULT_LIMIT)));
 		const rows = this.db.query(`
-			SELECT url, domain, title, description, word_count, fetched_at, expires_at
+			SELECT url, title, description, author, published_at, tags, word_count, headings, links, js_rendered
 			FROM pages
 			${where}
 			ORDER BY fetched_at DESC
 			LIMIT ? OFFSET ?
-		`).all(...parameters, limit, offset) as PageSummaryRow[];
+		`).all(...parameters, limit, offset) as PageListRow[];
 
-		return { total, filtered, offset, limit, pages: rows.map(fromSummaryRow) };
+		return { total, filtered, offset, limit, pages: rows.map((row) => leanOutput(toLeanInput(row))) };
 	}
 
 	search(query: string, opts: { topN?: number; snippetRadius?: number } = {}): CachedPageSearchResult {
@@ -307,16 +338,4 @@ export class SQLiteCacheStore implements CacheStore {
 			...(row.js_rendered ? { jsRendered: true } : {}),
 		};
 	}
-}
-
-function fromSummaryRow(row: PageSummaryRow): CachedPageSummary {
-	return {
-		url: row.url,
-		domain: row.domain,
-		title: row.title,
-		description: row.description,
-		wordCount: row.word_count,
-		fetchedAt: row.fetched_at,
-		expiresAt: row.expires_at,
-	};
 }
