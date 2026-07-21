@@ -16,6 +16,9 @@
 	"dependencies": {
 		"@danypops/web-spider": "*"
 	},
+	"optionalDependencies": {
+		"@danypops/papyrus": "*"
+	},
 	"devDependencies": {
 		"@types/node": "^22.19.19",
 		"bun-types": "latest",

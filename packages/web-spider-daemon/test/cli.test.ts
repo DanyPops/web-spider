@@ -181,3 +181,42 @@ describe("runCli cache list/search", () => {
 		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
 	});
 });
+
+describe("runCli papyrus ingest", () => {
+	test("forwards urls as kind:pages and an optional --relates-to", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ ingested: [{ url: "https://x.test", docId: "doc-1" }], skipped: [] }) });
+		await runCli(["papyrus", "ingest", "https://x.test", "--relates-to", "task-123"], deps);
+		expect(operations).toEqual([{ op: "papyrus.ingest", input: { kind: "pages", urls: ["https://x.test"], relatesTo: "task-123" } }]);
+	});
+
+	test("supports multiple urls in one call", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ ingested: [], skipped: [] }) });
+		await runCli(["papyrus", "ingest", "https://a.test", "https://b.test"], deps);
+		expect((operations[0]?.input as { urls: string[] }).urls).toEqual(["https://a.test", "https://b.test"]);
+	});
+
+	test("missing url prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["papyrus", "ingest"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("unknown papyrus subcommand prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["papyrus", "bogus"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
+	test("human output reports ingested and skipped urls", async () => {
+		const { deps, calls } = fakeDeps({ call: () => ({ ingested: [{ url: "https://x.test", docId: "doc-1" }], skipped: [{ url: "https://y.test", reason: "not cached — fetch it first, then ingest" }] }) });
+		await runCli(["papyrus", "ingest", "https://x.test", "https://y.test"], deps);
+		expect(calls[0]).toContain("doc-1");
+		expect(calls[0]).toContain("not cached");
+	});
+
+	test("a Papyrus-unreachable error is reported to stderr with exit code 1", async () => {
+		const { deps, calls } = fakeDeps({ call: () => { throw new Error("Papyrus daemon is not running; install/start papyrus.service"); } });
+		expect(await runCli(["papyrus", "ingest", "https://x.test"], deps)).toBe(1);
+		expect(calls).toEqual(["stderr:Papyrus daemon is not running; install/start papyrus.service"]);
+	});
+});

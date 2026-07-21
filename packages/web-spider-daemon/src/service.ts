@@ -11,7 +11,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient } from "@danypops/web-spider";
+import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
@@ -20,10 +20,12 @@ import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy
 import { createEngineResolver, WebSearchService, type WebSearchInput, type WebSearchOutput } from "./search-service.ts";
 import { FetchService, type FetchOperationInput, type FetchOperationOutput } from "./fetch-service.ts";
 import { CrawlService, type CrawlOperationInput, type CrawlOperationOutput } from "./crawl-service.ts";
+import { PapyrusIngestService, type PapyrusIngestInput, type PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
+import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
 import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
-export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search", "fetch", "crawl"] as const;
+export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search", "fetch", "crawl", "papyrus.ingest"] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
 export interface OperationInputs {
@@ -32,6 +34,7 @@ export interface OperationInputs {
 	"search": WebSearchInput;
 	"fetch": FetchOperationInput;
 	"crawl": CrawlOperationInput;
+	"papyrus.ingest": PapyrusIngestInput;
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
@@ -39,6 +42,7 @@ export interface OperationOutputs {
 	"search": WebSearchOutput;
 	"fetch": FetchOperationOutput;
 	"crawl": CrawlOperationOutput;
+	"papyrus.ingest": PapyrusIngestOutput;
 }
 
 type OperationInput = Record<string, unknown>;
@@ -89,7 +93,29 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService): Record<OperationName, OperationHandler> {
+function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
+	const kind = requireString(input, "kind");
+	const relatesTo = optionalString(input, "relatesTo");
+	if (kind === "pages") {
+		const urls = input.urls;
+		if (!Array.isArray(urls) || urls.some((u) => typeof u !== "string")) throw new Error("urls must be an array of strings");
+		return { kind: "pages", urls: urls as string[], relatesTo };
+	}
+	if (kind === "search") {
+		const results = input.results;
+		if (!Array.isArray(results)) throw new Error("results must be an array");
+		return {
+			kind: "search",
+			query: requireString(input, "query"),
+			engine: optionalString(input, "engine"),
+			results: results as WebSearchResult[],
+			relatesTo,
+		};
+	}
+	throw new Error('kind must be "pages" or "search"');
+}
+
+function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
@@ -114,6 +140,7 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 			maxPages: optionalNumber(input, "maxPages"),
 			sameDomain: optionalBoolean(input, "sameDomain"),
 		}),
+		"papyrus.ingest": (input) => papyrusIngest.ingest(papyrusIngestInput(input)),
 	};
 }
 
@@ -158,8 +185,11 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	};
 	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient });
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient });
+	// Papyrus is a peer daemon, reached only through its own authenticated
+	// client (PapyrusHttpAdapter) — never opened as a database directly.
+	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());
 
-	const registry = handlers(store, webSearch, fetchService, crawlService);
+	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
