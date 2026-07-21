@@ -74,6 +74,23 @@ Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`) and 
 
 `tree.query`/`tree.path` as standalone operations (today folded into `fetch(format: "tree")`), `robots.status`, `throttle.status`, `searchEnrich` composition, and `papyrus.ingest` land in follow-up tasks — see the design doc `web-spider-daemon-architecture-and-papyrus-integration-contr-5s14` for the full contract before they're implemented.
 
+## CLI
+
+Every registered operation has a CLI route using the authenticated client only — the CLI never opens SQLite directly. Human-readable output by default; `--json` prints the exact operation result for scripting.
+
+```bash
+web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]
+                        [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]
+                        [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]
+                        [--top-n N] [--json]
+web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]
+                        [--engine brave|tavily|exa|ddg] [--json]
+web-spider cache list [--grep TEXT] [--offset N] [--limit N] [--json]
+web-spider cache search <query> [--limit N] [--json]
+```
+
+`fetch` and `crawl` share one command: `--depth N` (N > 0) routes to the `crawl` operation, matching the `web_fetch` tool's own single-entry-point shape. Bounds (`depth` ≤ 5, `maxPages` ≤ 200, etc.) are enforced by the daemon regardless of what the CLI requests.
+
 ## Health and readiness
 
 Both endpoints require the bearer token:
