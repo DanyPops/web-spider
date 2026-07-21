@@ -76,3 +76,24 @@ describe("execute() result and failure channels", () => {
     expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" })
   })
 })
+
+describe("ingest: explicit opt-in Papyrus wiring", () => {
+  it("never calls papyrus.ingest when ingest is omitted (default behavior unchanged)", async () => {
+    server.set("/plain", "<html><body><article><h1>Plain</h1><p>No mesh.</p></article></body></html>")
+    const result = await h.invokeTool("web_fetch", { url: `${server.baseUrl}/plain`, format: "lean" }) as any
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("papyrus")
+    expect(result.details.papyrusDocs).toBeUndefined()
+  })
+
+  it("forwards ingest:true for a single-page fetch to the daemon's papyrus.ingest op, which fails closed with no Papyrus daemon reachable in this isolated test environment", async () => {
+    server.set("/ingest-me", "<html><body><article><h1>Ingest me</h1><p>Worth keeping.</p></article></body></html>")
+    await expect(h.invokeTool("web_fetch", { url: `${server.baseUrl}/ingest-me`, format: "lean", ingest: true }))
+      .rejects.toThrow(/Papyrus daemon is not running|Papyrus daemon state is stale/)
+  })
+
+  // The search-path wiring (maybeIngestSearch) uses the exact same call() helper and
+  // papyrus.ingest operation as the fetch path exercised above; a live-network search-
+  // engine round trip isn't repeated here to avoid a flaky, network-dependent test.
+  // Search-specific mapping/bounding is covered by web-spider-daemon's
+  // papyrus-mapping.test.ts and papyrus-ingest-service.test.ts.
+})
