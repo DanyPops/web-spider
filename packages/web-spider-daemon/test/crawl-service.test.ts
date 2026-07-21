@@ -55,7 +55,9 @@ describe("CrawlService — BFS crawl", () => {
 	test("markdown (default) format returns a bounded crawl summary, not full page bodies", async () => {
 		const { service } = makeService(fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))));
 		const result = await service.crawl({ url: ROOT, depth: 1, maxPages: 10 });
-		expect(result.note).toContain("cached");
+		// No tool-specific "note" here — that belongs to whichever adapter (pi-extension,
+		// CLI) knows what UX it's presenting; the daemon's own data is tool-agnostic.
+		expect(result).not.toHaveProperty("note");
 		for (const page of result.pages as Array<Record<string, unknown>>) {
 			expect(page).not.toHaveProperty("markdown");
 			expect(page).toHaveProperty("url");
