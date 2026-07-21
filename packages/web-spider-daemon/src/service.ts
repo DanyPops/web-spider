@@ -218,7 +218,9 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// daemon is now the sole process performing fetches.
 	const throttle = new DomainThrottle({ minDelayMs: 500 });
 	const robotsCache = new RobotsCache();
-	let playwrightClient: IHttpClient | undefined;
+	// Typed as PlaywrightHttpClient (not the generic IHttpClient) specifically so
+	// close() below can release it — IHttpClient itself declares no close() method.
+	let playwrightClient: PlaywrightHttpClient | undefined;
 	const getPlaywrightClient = (): IHttpClient => {
 		if (!playwrightClient) {
 			const executablePath = process.env["WEB_SPIDER_PLAYWRIGHT_EXECUTABLE"];
@@ -254,6 +256,11 @@ export function createWebSpiderService(path: string): WebSpiderService {
 		optimize: () => { db.exec("PRAGMA optimize"); },
 		close: () => {
 			// Best-effort — daemon shutdown must not hang or crash on a stuck browser process.
+			// playwrightClient (the enhanced:true fetch/crawl browser) is launched lazily
+			// once and reused for the daemon's whole lifetime (see getPlaywrightClient()
+			// above) -- found via a real leaked Chrome process still running hours after
+			// the fetch that launched it: nothing ever closed it, including on shutdown.
+			void playwrightClient?.close?.();
 			void sessionRegistry.closeAll();
 			db.exec("PRAGMA optimize");
 			db.close();
