@@ -1,0 +1,29 @@
+{
+	"name": "@danypops/web-spider-daemon",
+	"version": "0.1.0",
+	"description": "Supervised Bun daemon for @danypops/web-spider: authenticated loopback fetch/crawl/search/cache operations",
+	"type": "module",
+	"bin": {
+		"web-spider": "src/cli.ts"
+	},
+	"scripts": {
+		"test": "bun test",
+		"cli": "bun src/cli.ts",
+		"serve": "bun src/cli.ts serve",
+		"service:install": "bun src/cli.ts service install",
+		"check": "bun x tsc --noEmit"
+	},
+	"dependencies": {
+		"@danypops/web-spider": "*"
+	},
+	"devDependencies": {
+		"@types/node": "^22.19.19",
+		"bun-types": "latest",
+		"typescript": "^5.9.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/DanyPops/web-spider.git",
+		"directory": "packages/web-spider-daemon"
+	}
+}
