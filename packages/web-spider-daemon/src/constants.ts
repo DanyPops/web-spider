@@ -50,4 +50,11 @@ export const SEARCH_DEFAULT_NUM_RESULTS = 10;
 export const SEARCH_MAX_NUM_RESULTS_CEILING = 50;
 export const FETCH_DEFAULT_TOKEN_BUDGET = 4_000;
 export const FETCH_MAX_TOKEN_BUDGET = 10_000;
+export const FETCH_DEFAULT_TIMEOUT_MS = 30_000;
+export const FETCH_HIGHLIGHTS_DEFAULT_TOP_N = 5;
+export const FETCH_HIGHLIGHTS_SNIPPET_RADIUS = 150;
+export const CRAWL_HIGHLIGHTS_DEFAULT_TOP_N = 8;
+export const TREE_QUERY_DEFAULT_TOP_N = 5;
+/** Session-scoped tree cache — matches the pi-extension's existing bound (constants.ts TREE_CACHE_MAX_ENTRIES). */
+export const TREE_CACHE_MAX_ENTRIES = 20;
 export const PAPYRUS_INGEST_MAX_BATCH = 20;

@@ -11,27 +11,34 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient } from "@danypops/web-spider";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
 import { createEngineResolver, WebSearchService, type WebSearchInput, type WebSearchOutput } from "./search-service.ts";
+import { FetchService, type FetchOperationInput, type FetchOperationOutput } from "./fetch-service.ts";
+import { CrawlService, type CrawlOperationInput, type CrawlOperationOutput } from "./crawl-service.ts";
 import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
-export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search"] as const;
+export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search", "search", "fetch", "crawl"] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
 export interface OperationInputs {
 	"cache.list": CachedPageListFilter;
 	"cache.search": { query: string; limit?: number };
 	"search": WebSearchInput;
+	"fetch": FetchOperationInput;
+	"crawl": CrawlOperationInput;
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
 	"cache.search": CachedPageSearchResult;
 	"search": WebSearchOutput;
+	"fetch": FetchOperationOutput;
+	"crawl": CrawlOperationOutput;
 }
 
 type OperationInput = Record<string, unknown>;
@@ -60,7 +67,29 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 	return value;
 }
 
-function handlers(store: CacheStore, webSearch: WebSearchService): Record<OperationName, OperationHandler> {
+function optionalBoolean(input: OperationInput, key: string): boolean | undefined {
+	const value = input[key];
+	if (value === undefined) return undefined;
+	if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
+	return value;
+}
+
+function fetchInput(input: OperationInput): FetchOperationInput {
+	return {
+		url: requireString(input, "url"),
+		format: optionalString(input, "format") as FetchOperationInput["format"],
+		rootSelector: optionalString(input, "rootSelector"),
+		excludeSelectors: optionalString(input, "excludeSelectors"),
+		tokenBudget: optionalNumber(input, "tokenBudget"),
+		enhanced: optionalBoolean(input, "enhanced"),
+		timeoutMs: optionalNumber(input, "timeoutMs"),
+		query: optionalString(input, "query"),
+		path: optionalString(input, "path"),
+		topN: optionalNumber(input, "topN"),
+	};
+}
+
+function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
@@ -76,6 +105,14 @@ function handlers(store: CacheStore, webSearch: WebSearchService): Record<Operat
 			timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
 			topic: optionalString(input, "topic") as WebSearchInput["topic"],
 			searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
+		}),
+		"fetch": (input) => fetchService.fetch(fetchInput(input)),
+		"crawl": (input) => crawlService.crawl({
+			...fetchInput(input),
+			format: optionalString(input, "format") as CrawlOperationInput["format"],
+			depth: optionalNumber(input, "depth"),
+			maxPages: optionalNumber(input, "maxPages"),
+			sameDomain: optionalBoolean(input, "sameDomain"),
 		}),
 	};
 }
@@ -105,7 +142,24 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// Provider API keys are read from this (daemon) process's own environment only —
 	// never accepted as operation input, never logged.
 	const webSearch = new WebSearchService(createEngineResolver());
-	const registry = handlers(store, webSearch);
+
+	// Daemon-process-wide throttle/robots singletons — replaces the pi-extension's
+	// per-session instances with per-daemon ones, a more correct scope since the
+	// daemon is now the sole process performing fetches.
+	const throttle = new DomainThrottle({ minDelayMs: 500 });
+	const robotsCache = new RobotsCache();
+	let playwrightClient: IHttpClient | undefined;
+	const getPlaywrightClient = (): IHttpClient => {
+		if (!playwrightClient) {
+			const executablePath = process.env["WEB_SPIDER_PLAYWRIGHT_EXECUTABLE"];
+			playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined);
+		}
+		return playwrightClient;
+	};
+	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient });
+	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient });
+
+	const registry = handlers(store, webSearch, fetchService, crawlService);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),

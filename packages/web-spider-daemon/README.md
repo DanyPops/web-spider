@@ -67,10 +67,12 @@ The current operation registry (see `src/service.ts`):
 | `cache.list` | Paginated, `grep`-filterable listing of cached pages (bounded: limit ≤ 100) |
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
 | `search` | Live web search via Brave/Tavily/Exa/DDG, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine` |
+| `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
+| `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
 
-Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`) are read once from the **daemon's own environment** — set them in the systemd unit's `Environment=` lines, never pass them through an operation input. DDG requires no key and is always the zero-cost fallback.
+Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — set them in the systemd unit's `Environment=` lines, never pass them through an operation input. DDG requires no key and is always the zero-cost fallback. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
-`fetch`, `crawl`, `tree.query`/`tree.path`, `robots.status`, `throttle.status`, `searchEnrich` composition, and `papyrus.ingest` land in follow-up tasks — see the design doc `web-spider-daemon-architecture-and-papyrus-integration-contr-5s14` for the full contract before they're implemented.
+`tree.query`/`tree.path` as standalone operations (today folded into `fetch(format: "tree")`), `robots.status`, `throttle.status`, `searchEnrich` composition, and `papyrus.ingest` land in follow-up tasks — see the design doc `web-spider-daemon-architecture-and-papyrus-integration-contr-5s14` for the full contract before they're implemented.
 
 ## Health and readiness
 
