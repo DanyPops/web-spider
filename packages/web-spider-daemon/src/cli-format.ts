@@ -6,6 +6,7 @@
  * output shape service.ts's fetch/crawl/search/cache.* handlers returned.
  */
 import type { CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
+import type { PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
 import type { WebSearchOutput } from "./search-service.ts";
 
 const PREVIEW_MARKDOWN_CHARACTERS = 500;
@@ -113,6 +114,14 @@ export function formatCacheListResult(result: CachedPageListResult): string {
 		`${result.pages.length} cached page(s)${suffix}`,
 		...result.pages.map((page) => `  ${page.title || page.url}  ${page.url}`),
 	].join("\n");
+}
+
+export function formatPapyrusIngestResult(result: PapyrusIngestOutput): string {
+	const lines: string[] = [];
+	for (const item of result.ingested) lines.push(`✓ ${item.url} → ${item.docId}`);
+	for (const item of result.skipped) lines.push(`✗ ${item.url} — ${item.reason}`);
+	if (lines.length === 0) return "Nothing to ingest.";
+	return lines.join("\n");
 }
 
 export function formatCacheSearchResult(result: CachedPageSearchResult): string {

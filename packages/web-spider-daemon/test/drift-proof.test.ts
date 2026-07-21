@@ -28,6 +28,7 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"search": ["search", "drift-proof-query"],
 	"fetch": ["fetch", "https://drift-proof.test/article"],
 	"crawl": ["fetch", "https://drift-proof.test/article", "--depth", "1"],
+	"papyrus.ingest": ["papyrus", "ingest", "https://drift-proof.test/article"],
 };
 
 function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
@@ -37,7 +38,7 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 			async call(op: OperationName) {
 				ops.push(op);
 				// Minimal shape satisfying every formatter without throwing.
-				return { pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [] } as never;
+				return { pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [] } as never;
 			},
 		},
 		stdout: () => {},

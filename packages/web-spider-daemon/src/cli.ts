@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatCacheListResult, formatCacheSearchResult, formatFetchResult, formatSearchResult } from "./cli-format.ts";
+import { formatCacheListResult, formatCacheSearchResult, formatFetchResult, formatPapyrusIngestResult, formatSearchResult } from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
@@ -92,6 +92,8 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--engine brave|tavily|exa|ddg] [--json]",
 		"       web-spider cache list [--grep TEXT] [--offset N] [--limit N] [--json]",
 		"       web-spider cache search <query> [--limit N] [--json]",
+		"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
+		"                          (each url must already be cached — fetch it first)",
 	].join("\n"));
 	return 2;
 }
@@ -232,6 +234,24 @@ async function runCacheSearch(rest: string[], deps: CliDependencies): Promise<nu
 	}
 }
 
+async function runPapyrusIngest(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, ["--relates-to"], []);
+	if (!parsed || parsed.positional.length === 0) return usage(deps.stderr);
+
+	try {
+		const result = await deps.client.call("papyrus.ingest", {
+			kind: "pages",
+			urls: parsed.positional,
+			relatesTo: parsed.values["relates-to"],
+		});
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatPapyrusIngestResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
 export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEPENDENCIES): Promise<number> {
 	const [command, ...rest] = args;
 	if (command === "serve") { deps.serve(); return 0; }
@@ -241,6 +261,11 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 		const [subcommand, ...cacheRest] = rest;
 		if (subcommand === "list") return runCacheList(cacheRest, deps);
 		if (subcommand === "search") return runCacheSearch(cacheRest, deps);
+		return usage(deps.stderr);
+	}
+	if (command === "papyrus") {
+		const [subcommand, ...papyrusRest] = rest;
+		if (subcommand === "ingest") return runPapyrusIngest(papyrusRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command !== "service") return usage(deps.stderr);
