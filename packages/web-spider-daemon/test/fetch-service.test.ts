@@ -58,14 +58,14 @@ describe("FetchService — markdown/lean/links (default cache-eligible path)", (
 		expect(Array.isArray(result.bodyLinks)).toBe(true);
 	});
 
-	test("links format returns only body links plus a links count", async () => {
+	test("links format returns only body links — no top-level count (that is renderer-only metadata)", async () => {
 		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));
 		const result = await service.fetch({ url: URL, format: "links" });
 		expect(result.bodyLinks).toEqual([
 			{ href: "https://fixture.test/related", text: "Related article" },
 			{ href: "https://fixture.test/other", text: "Another link" },
 		]);
-		expect(result.links).toBe(2);
+		expect(result).not.toHaveProperty("links");
 	});
 
 	test("rootSelector/excludeSelectors/tokenBudget/enhanced bypass the cache on every call", async () => {
