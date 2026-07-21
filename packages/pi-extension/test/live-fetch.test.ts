@@ -23,11 +23,25 @@ import {
   loadExtensionViaJiti,
   type ExtensionHarness,
 } from "./harness/index.ts"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const EXTENSION_PATH = join(__dirname, "../src/index.ts")
+
+/**
+ * Isolated per-suite cache path. Without this, the extension falls back to
+ * its real default (~/.cache/web-spider/pages.json) and this suite's live
+ * Wikipedia fetch would read/write/flush the operator's actual cache file —
+ * verified to happen in practice (a real run dropped several already-expired
+ * entries via DiskCache's load-then-flush cycle).
+ */
+function isolatedCacheEnv(): Record<string, string> {
+  const dir = mkdtempSync(join(tmpdir(), "web-spider-live-fetch-test-"))
+  return { WEB_SPIDER_CACHE_PATH: join(dir, "pages.json") }
+}
 
 // ---------------------------------------------------------------------------
 // Shared assertion — both loader modes must produce the same shape
@@ -67,7 +81,7 @@ describe("live fetch — native ESM (pi Node.js runtime path)", () => {
     // Direct import — no jiti. This is how pi loads extensions in Node.js dev
     // mode: the factory is imported natively, then wrapped in createExtensionHarness.
     const { default: factory } = await import("../src/index.js")
-    h = createExtensionHarness(factory, { cwd: "/tmp" })
+    h = createExtensionHarness(factory, { cwd: "/tmp", env: isolatedCacheEnv() })
     await h.boot()
   })
 
@@ -112,7 +126,7 @@ describe("live fetch — jiti tryNative:false (Bun binary path)", () => {
 
   beforeAll(async () => {
     const factory = await loadExtensionViaJiti(EXTENSION_PATH)
-    h = createExtensionHarness(factory, { cwd: "/tmp" })
+    h = createExtensionHarness(factory, { cwd: "/tmp", env: isolatedCacheEnv() })
     await h.boot()
   })
 
