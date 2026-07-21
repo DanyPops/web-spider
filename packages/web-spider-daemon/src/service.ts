@@ -2,26 +2,33 @@
  * Authenticated operation registry — mirrors papyrus/src/service.ts's
  * EXPECTED_OPERATION_NAMES + typed OperationInputs/OperationOutputs pattern.
  *
- * The walking skeleton ships exactly one real operation, `cache.list`,
- * proving the full path: HTTP → auth → SQLite → typed response. Later
- * tasks (fetch/crawl/search) add operations here without touching the
- * auth/transport shape.
+ * `cache.list` and `cache.search` are the first two real operations,
+ * proving the full path: HTTP → auth → SQLite → typed response, and
+ * preserving the grep/offset/limit/query semantics of today's pi-extension
+ * handleCacheListing/handleCacheSearch. Later tasks (fetch/crawl/search)
+ * add operations here without touching the auth/transport shape.
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
-import { SQLitePageStore } from "./adapters/sqlite-page-store.ts";
-import type { CachedPageListFilter, CachedPageListResult } from "./domain/page.ts";
-import type { PageStore } from "./ports/page-store.ts";
+import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
+import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
+import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
+import type { CacheStore } from "./ports/cache-store.ts";
 
-export const EXPECTED_OPERATION_NAMES = ["cache.list"] as const;
+export const EXPECTED_OPERATION_NAMES = ["cache.list", "cache.search"] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
 export interface OperationInputs {
 	"cache.list": CachedPageListFilter;
+	"cache.search": { query: string; limit?: number };
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
+	"cache.search": CachedPageSearchResult;
 }
 
 type OperationInput = Record<string, unknown>;
@@ -29,6 +36,12 @@ type OperationHandler = (input: OperationInput) => unknown;
 
 export class UnknownOperationError extends Error {}
 export class PayloadTooLargeError extends Error {}
+
+function requireString(input: OperationInput, key: string): string {
+	const value = input[key];
+	if (typeof value !== "string") throw new Error(`${key} is required`);
+	return value;
+}
 
 function optionalString(input: OperationInput, key: string): string | undefined {
 	const value = input[key];
@@ -44,12 +57,15 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 	return value;
 }
 
-function handlers(pages: PageStore): Record<OperationName, OperationHandler> {
+function handlers(store: CacheStore): Record<OperationName, OperationHandler> {
 	return {
-		"cache.list": (input) => pages.list({
+		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
 			offset: optionalNumber(input, "offset"),
 			limit: optionalNumber(input, "limit"),
+		}),
+		"cache.search": (input) => store.search(requireString(input, "query"), {
+			topN: optionalNumber(input, "limit"),
 		}),
 	};
 }
@@ -63,6 +79,8 @@ export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): unknown;
+	/** Best-effort, one-time import of a pre-daemon JSON DiskCache. No-op once the store already has rows. */
+	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
 	checkpoint(): void;
 	optimize(): void;
 	close(): void;
@@ -70,8 +88,11 @@ export interface WebSpiderService {
 
 export function createWebSpiderService(path: string): WebSpiderService {
 	const db = openWebSpiderDb(path);
-	const pages = new SQLitePageStore(db);
-	const registry = handlers(pages);
+	// :memory: databases (tests) have no sibling directory to spill large images into —
+	// use an isolated temp directory instead of guessing a path relative to cwd.
+	const imagesDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-images-")) : join(dirname(path), "images");
+	const store = new SQLiteCacheStore(db, { imagesDir });
+	const registry = handlers(store);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
@@ -79,6 +100,11 @@ export function createWebSpiderService(path: string): WebSpiderService {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
 			return handler(input);
+		},
+		importLegacyCacheIfEmpty(jsonPath) {
+			const { total } = store.list({ limit: 1 });
+			if (total > 0) return { imported: 0, skipped: true };
+			return importLegacyJsonCache(store, jsonPath);
 		},
 		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
 		optimize: () => { db.exec("PRAGMA optimize"); },

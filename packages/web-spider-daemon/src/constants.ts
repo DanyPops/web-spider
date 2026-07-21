@@ -33,9 +33,15 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 // Bounded resources (design doc §5 — never trust a client-only cap)
 // ---------------------------------------------------------------------------
 export const CACHE_DEFAULT_MAX_ENTRIES = 500;
+export const CACHE_DEFAULT_TTL_MS = 30 * 60 * 1_000;
+/** Base64 length above which an image is spilled to a file instead of stored inline — matches DiskCache's default. */
+export const CACHE_DEFAULT_INLINE_IMAGE_THRESHOLD = 32 * 1_024;
 export const CACHE_LIST_DEFAULT_LIMIT = 20;
 export const CACHE_LIST_MAX_LIMIT = 100;
 export const CACHE_SEARCH_DEFAULT_LIMIT = 10;
+export const CACHE_SEARCH_SNIPPET_RADIUS = 150;
+/** Default legacy JSON cache path — same default the pi-extension has used to date. */
+export const LEGACY_CACHE_DEFAULT_RELATIVE_PATH = [".cache", "web-spider", "pages.json"];
 export const CRAWL_DEFAULT_MAX_DEPTH = 0;
 export const CRAWL_MAX_DEPTH_CEILING = 5;
 export const CRAWL_DEFAULT_MAX_PAGES = 10;

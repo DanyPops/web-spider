@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import {
 	DATABASE_FILENAME,
 	HANDLE_FILENAME,
+	LEGACY_CACHE_DEFAULT_RELATIVE_PATH,
 	LOOPBACK_HOST,
 	SYSTEMD_UNIT_NAME,
 	TOKEN_FILENAME,
@@ -83,4 +84,16 @@ export function readDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()
 
 export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): void {
 	rmSync(paths.handle, { force: true });
+}
+
+/**
+ * Path to the pre-daemon JSON DiskCache, for the one-time legacy import.
+ * Respects WEB_SPIDER_CACHE_PATH (the same override the pi-extension has
+ * used to date) so an existing custom cache location is still found.
+ */
+export function resolveLegacyCachePath(options: PathEnvironment = {}): string {
+	const env = options.env ?? process.env;
+	if (env["WEB_SPIDER_CACHE_PATH"]) return env["WEB_SPIDER_CACHE_PATH"];
+	const home = options.home ?? homedir();
+	return join(home, ...LEGACY_CACHE_DEFAULT_RELATIVE_PATH);
 }
