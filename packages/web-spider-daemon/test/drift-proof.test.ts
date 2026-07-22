@@ -92,14 +92,14 @@ const DOCUMENTED_TOOL_PARAMETERS = new Set([
 	"url", "searchQuery", "format", "depth", "maxPages", "sameDomain",
 	"rootSelector", "excludeSelectors", "tokenBudget", "query", "path", "topN",
 	"searchEngine", "numResults", "timeRange", "topic", "searchEnrich",
-	"enhanced", "timeoutMs", "grep", "offset", "limit",
+	"enhanced", "timeoutMs", "grep", "offset", "limit", "ignoreRobots",
 ]);
 
 /** Field names the daemon's fetch/crawl/search operations actually accept (service.ts's fetchInput()/handlers()). */
 const DAEMON_OPERATION_FIELDS = [
 	"url", "format", "rootSelector", "excludeSelectors", "tokenBudget", "enhanced",
 	"timeoutMs", "query", "path", "topN", "depth", "maxPages", "sameDomain",
-	"numResults", "timeRange", "topic", "searchEngine", "grep", "offset", "limit",
+	"numResults", "timeRange", "topic", "searchEngine", "grep", "offset", "limit", "ignoreRobots",
 ];
 
 describe("daemon operation fields → documented tool parameter surface", () => {

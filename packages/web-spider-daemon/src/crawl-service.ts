@@ -6,6 +6,7 @@
  * not be able to request an unbounded crawl.
  */
 import { crawl, searchPages, type IHttpClient, type IRobotsChecker, type IThrottle } from "@danypops/web-spider";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import {
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,
@@ -32,6 +33,14 @@ export interface CrawlOperationInput {
 	enhanced?: boolean;
 	timeoutMs?: number;
 	query?: string;
+	/**
+	 * Explicit, opt-in bypass of the robots.txt check for every page this
+	 * crawl visits. Never a default -- every use is logged. A crawl is
+	 * exactly the case autonomous-bulk-scraping concerns are usually about,
+	 * so this is a heavier decision than the single-fetch equivalent; still
+	 * the operator's own explicit choice on their own infrastructure.
+	 */
+	ignoreRobots?: boolean;
 }
 
 export type CrawlOperationOutput = Record<string, unknown>;
@@ -43,6 +52,8 @@ export interface CrawlServiceDeps {
 	getPlaywrightClient: () => IHttpClient;
 	/** Overrides crawl()'s built-in real-fetch() adapter for every (non-enhanced) request. See FetchServiceDeps. */
 	defaultHttpClient?: IHttpClient;
+	/** Logs every ignoreRobots use. Optional so existing tests/wiring that don't care about audit logging keep working unchanged. */
+	logger?: Logger;
 }
 
 function clamp(value: number | undefined, fallback: number, ceiling: number, floor = 0): number {
@@ -54,6 +65,9 @@ export class CrawlService {
 	constructor(private readonly deps: CrawlServiceDeps) {}
 
 	async crawl(input: CrawlOperationInput): Promise<CrawlOperationOutput> {
+		if (input.ignoreRobots) {
+			this.deps.logger?.warn("robots_txt_ignored", { url: input.url, operation: "crawl" });
+		}
 		const format = input.format ?? "markdown";
 		const depth = clamp(input.depth, CRAWL_DEFAULT_MAX_DEPTH, CRAWL_MAX_DEPTH_CEILING);
 		const maxPages = clamp(input.maxPages, CRAWL_DEFAULT_MAX_PAGES, CRAWL_MAX_PAGES_CEILING, 1);
@@ -68,7 +82,8 @@ export class CrawlService {
 			tokenBudget: input.tokenBudget,
 			timeoutMs: input.timeoutMs ?? FETCH_DEFAULT_TIMEOUT_MS,
 			throttle: this.deps.throttle,
-			robotsCache: this.deps.robotsCache,
+			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
+			respectRobots: !input.ignoreRobots,
 			httpClient: input.enhanced ? this.deps.getPlaywrightClient() : this.deps.defaultHttpClient,
 		});
 

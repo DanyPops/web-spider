@@ -239,6 +239,7 @@ export default async function (pi: ExtensionAPI) {
       enhanced: params.enhanced,
       timeoutMs: params.timeoutMs,
       query: params.query,
+      ignoreRobots: params.ignoreRobots,
     })
     const errors = typeof result.errors === "number" ? result.errors : 0
 
@@ -283,7 +284,7 @@ export default async function (pi: ExtensionAPI) {
     try {
       if (params.path) {
         const node = await call<{ found?: false; path?: string; tag?: string } & Record<string, unknown>>("fetch", {
-          url, format: "tree", path: params.path, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced,
+          url, format: "tree", path: params.path, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced, ignoreRobots: params.ignoreRobots,
         })
         if (node.found === false) {
           return output({ found: false, path: params.path, hint: "Inspect the full tree or query it to find a valid path." }, createWebDetails({
@@ -295,7 +296,7 @@ export default async function (pi: ExtensionAPI) {
 
       if (params.query?.trim()) {
         const result = await call<{ url: string; query: string; hits: Array<{ path: string; tag: string; score: number; snippet: string }> }>("fetch", {
-          url, format: "tree", query: params.query, topN: params.topN, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced,
+          url, format: "tree", query: params.query, topN: params.topN, rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced, ignoreRobots: params.ignoreRobots,
         })
         return output(omitEmpty({ url: result.url, query: result.query, hits: result.hits.map((h) => omitEmpty({ ...h })) }), createWebDetails({
           operation: "tree-query",
@@ -308,7 +309,7 @@ export default async function (pi: ExtensionAPI) {
         }))
       }
 
-      const tree = await call<Record<string, unknown>>("fetch", { url, format: "tree", rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced })
+      const tree = await call<Record<string, unknown>>("fetch", { url, format: "tree", rootSelector: params.rootSelector, excludeSelectors: params.excludeSelectors, enhanced: params.enhanced, ignoreRobots: params.ignoreRobots })
       return output(tree, createWebDetails({ operation: "tree-full", format: "tree", url }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -331,6 +332,7 @@ export default async function (pi: ExtensionAPI) {
       enhanced: params.enhanced,
       timeoutMs: params.timeoutMs,
       query: params.query,
+      ignoreRobots: params.ignoreRobots,
     })
 
     if (raw.blocked === true) {
@@ -518,6 +520,14 @@ export default async function (pi: ExtensionAPI) {
         description: "Existing Papyrus artifact id to link the ingested Doc(s) to via 'references'. Only used with ingest=true.",
       })
     ),
+    ignoreRobots: Type.Optional(
+      Type.Boolean({
+        description:
+          "Explicit, audited opt-out of the robots.txt check for this one request. Never use by default — " +
+          "only when a site's blanket disallow is a bandwidth/scraping-abuse guard rather than genuinely " +
+          "private content, and you (a human) have directed this specific fetch. Every use is logged.",
+      })
+    ),
   })
 
   pi.registerTool({
@@ -577,6 +587,8 @@ export default async function (pi: ExtensionAPI) {
       "  Requests are automatically rate-limited per domain (500ms min delay).",
       "  On 429/503, backs off exponentially and respects Retry-After headers.",
       "  robots.txt is checked and respected before each fetch (depth=0 and depth>0).",
+      "  ignoreRobots=true  — explicit, audited bypass for this one request. Never default;",
+      "                       use only for a human-directed one-off fetch, not bulk crawling.",
       "",
       "CONTEXT MESH",
       "  ingest=true    — push this fetch's page or this search's results into Papyrus as Doc",

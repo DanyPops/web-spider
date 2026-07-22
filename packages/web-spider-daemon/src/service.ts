@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
+import { createLogger } from "@danypops/daemon-kit/logging";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
@@ -107,6 +108,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 		query: optionalString(input, "query"),
 		path: optionalString(input, "path"),
 		topN: optionalNumber(input, "topN"),
+		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
 	};
 }
 
@@ -229,8 +231,9 @@ export function createWebSpiderService(path: string): WebSpiderService {
 		}
 		return playwrightClient;
 	};
-	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient });
-	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient });
+	const logger = createLogger("web-spider-daemon");
+	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
+	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	// Papyrus is a peer daemon, reached only through its own authenticated
 	// client (PapyrusHttpAdapter) — never opened as a database directly.
 	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());

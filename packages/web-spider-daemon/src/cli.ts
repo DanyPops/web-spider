@@ -130,7 +130,7 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]",
 		"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
 		"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
-		"                          [--top-n N] [--json]",
+		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 		"                          [--engine brave|tavily|exa|ddg] [--json]",
 		"       web-spider cache list [--grep TEXT] [--offset N] [--limit N] [--json]",
@@ -190,7 +190,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 	const parsed = parseArgs(rest, [
 		"--format", "--depth", "--max-pages", "--root-selector", "--exclude-selectors",
 		"--token-budget", "--timeout-ms", "--query", "--path", "--top-n",
-	], ["--enhanced", "--no-same-domain"]);
+	], ["--enhanced", "--no-same-domain", "--ignore-robots"]);
 	const url = parsed?.positional[0];
 	if (!parsed || !url) return usage(deps.stderr);
 
@@ -215,6 +215,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			enhanced: parsed.flags.has("enhanced") || undefined,
 			timeoutMs,
 			query: parsed.values.query,
+			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
 		};
 		const result = (depth ?? 0) > 0
 			? await deps.client.call("crawl", { ...shared, depth, maxPages, sameDomain: parsed.flags.has("no-same-domain") ? false : undefined })

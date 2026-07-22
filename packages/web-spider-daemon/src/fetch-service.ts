@@ -27,6 +27,7 @@ import {
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "./constants.ts";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { highlightHit, leanOutput, linksOutput, markdownOutput } from "./format.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
@@ -43,6 +44,13 @@ export interface FetchOperationInput {
 	query?: string;
 	path?: string;
 	topN?: number;
+	/**
+	 * Explicit, opt-in bypass of the robots.txt check for this one request.
+	 * Never a default -- every use is logged (structured, not silent) since
+	 * it's a deliberate policy override, even on the operator's own
+	 * infrastructure fetching as themselves for a human-directed request.
+	 */
+	ignoreRobots?: boolean;
 }
 
 export type FetchOperationOutput = Record<string, unknown>;
@@ -60,6 +68,8 @@ export interface FetchServiceDeps {
 	 * established "swap for tests" pattern — never mock globalThis.fetch.
 	 */
 	defaultHttpClient?: IHttpClient;
+	/** Logs every ignoreRobots use. Optional so existing tests/wiring that don't care about audit logging keep working unchanged. */
+	logger?: Logger;
 }
 
 const ROBOTS_BLOCKED_PREFIX = "Blocked by robots.txt:";
@@ -70,6 +80,9 @@ export class FetchService {
 	constructor(private readonly deps: FetchServiceDeps) {}
 
 	async fetch(input: FetchOperationInput): Promise<FetchOperationOutput> {
+		if (input.ignoreRobots) {
+			this.deps.logger?.warn("robots_txt_ignored", { url: input.url, operation: "fetch" });
+		}
 		try {
 			return await this.dispatch(input);
 		} catch (error) {
@@ -87,7 +100,7 @@ export class FetchService {
 			tokenBudget: input.tokenBudget !== undefined ? Math.min(input.tokenBudget, FETCH_MAX_TOKEN_BUDGET) : undefined,
 			timeoutMs: input.timeoutMs ?? FETCH_DEFAULT_TIMEOUT_MS,
 			throttle: this.deps.throttle,
-			robotsCache: this.deps.robotsCache,
+			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
 			httpClient: httpClient ?? (input.enhanced ? this.deps.getPlaywrightClient() : this.deps.defaultHttpClient),
 		};
 	}
