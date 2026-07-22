@@ -43,12 +43,13 @@ describe("extension load — tryNative:false (Bun binary simulation)", () => {
     await h.shutdown()
   })
 
-  it("registers exactly one tool", async () => {
+  it("registers exactly the two tools this extension owns", async () => {
     const factory = await loadExtensionViaJiti(EXTENSION_PATH)
     const h = createExtensionHarness(factory, { cwd: "/tmp" })
     await h.boot()
-    expect(h.tools.size).toBe(1)
+    expect(h.tools.size).toBe(2)
     expect(h.tools.has("web_fetch")).toBe(true)
+    expect(h.tools.has("web_session")).toBe(true)
     await h.shutdown()
   })
 })

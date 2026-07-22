@@ -626,6 +626,187 @@ export default async function (pi: ExtensionAPI) {
       }
     },
   })
+
+  // ---------------------------------------------------------------------------
+  // web_session — tmux-style persistent browser sessions. A thin, faithful
+  // pass-through to the daemon's session.create/list/close/act operations,
+  // deliberately kept separate from web_fetch rather than overloading its
+  // contract (web_fetch's contract must never change). See daemon-side
+  // session-service.ts for the actual behavior/safety guarantees this tool
+  // exposes but does not reimplement:
+  //   - one owned Playwright browser process per named session, isolated
+  //     from the operator's own browser and every other session.
+  //   - snapshotVersion is a deliberate safety mechanism, not busywork: the
+  //     daemon fails closed (a StaleSnapshotError) if the page navigated or
+  //     changed since the caller last observed it. This tool does NOT track
+  //     snapshotVersion on the caller's behalf — every act() response
+  //     returns the current value; pass it back on the next call. Removing
+  //     this friction here would silently undermine the reason it exists.
+  //   - every act() call is journaled (content-free — selectors and enum
+  //     values only, never typed text, scripts, or page content).
+  // ---------------------------------------------------------------------------
+  const sessionParamsSchema = Type.Object({
+    operation: Type.Union(
+      [Type.Literal("create"), Type.Literal("list"), Type.Literal("close"), Type.Literal("act")],
+      { description: "create/list/close a named persistent browser session, or act on one." },
+    ),
+    name: Type.Optional(Type.String({ description: "Session name. Required for create/close/act." })),
+    forceChromeChannel: Type.Optional(
+      Type.Boolean({ description: "create only: force the full installed Chrome channel instead of Playwright's own default headless shell (default false)." }),
+    ),
+    snapshotVersion: Type.Optional(
+      Type.Number({
+        description:
+          "act only, required. The session's snapshot version this action expects — read it off the previous " +
+          "response (create returns 0; every act() response returns the current value). Acting with a stale " +
+          "value fails closed rather than silently acting against a page that may have navigated underneath you.",
+      }),
+    ),
+    action: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("navigate"), Type.Literal("click"), Type.Literal("type"), Type.Literal("select"),
+          Type.Literal("waitFor"), Type.Literal("queryText"), Type.Literal("readTable"),
+          Type.Literal("eval"), Type.Literal("screenshot"),
+        ],
+        {
+          description:
+            "act only, required. navigate/click/type/select act on the page (bump/consult snapshotVersion per " +
+            "above). waitFor blocks until a condition is true — use this instead of guessing a delay. " +
+            "queryText/readTable return structured data — use these instead of eval + hand-parsing text. " +
+            "eval runs arbitrary JavaScript and returns its JSON-serializable result. screenshot returns a PNG.",
+        },
+      ),
+    ),
+    url: Type.Optional(Type.String({ description: "navigate: the URL to load." })),
+    selector: Type.Optional(Type.String({ description: "click/type/select/waitFor/queryText/readTable: a CSS selector." })),
+    text: Type.Optional(
+      Type.String({
+        description:
+          "type: the text to type (real per-key keyboard input, not a directly-set value — works with pages that " +
+          "have their own JS-bound keyboard handling). waitFor: text to wait for (Playwright's own text locator).",
+      }),
+    ),
+    clear: Type.Optional(Type.Boolean({ description: "type only: clear existing content first (default true). Set false to append." })),
+    value: Type.Optional(Type.String({ description: "select: match an option by its value attribute. Exactly one of value/label." })),
+    label: Type.Optional(Type.String({ description: "select: match an option by its visible label. Exactly one of value/label." })),
+    loadState: Type.Optional(
+      Type.Union(
+        [Type.Literal("load"), Type.Literal("domcontentloaded"), Type.Literal("networkidle")],
+        { description: "waitFor: wait for a page navigation state instead of a selector/text condition." },
+      ),
+    ),
+    state: Type.Optional(
+      Type.Union(
+        [Type.Literal("visible"), Type.Literal("hidden"), Type.Literal("attached"), Type.Literal("detached")],
+        { description: "waitFor: element state to wait for alongside selector/text (default visible). Not valid alongside loadState." },
+      ),
+    ),
+    script: Type.Optional(Type.String({ description: "eval: JavaScript to evaluate in the page; returns its JSON-serializable result." })),
+    timeoutMs: Type.Optional(
+      Type.Number({ description: "Per-action timeout in milliseconds. Playwright's own default (bounded, never unbounded) applies when omitted." }),
+    ),
+  })
+
+  type SessionParams = Static<typeof sessionParamsSchema>
+
+  interface SessionActResult {
+    name: string
+    action: string
+    snapshotVersion: number
+    result?: unknown
+    screenshotBase64?: string
+  }
+
+  pi.registerTool({
+    name: "web_session",
+    label: "Web Session",
+    description: [
+      "Persistent, named browser sessions for pages that need real interaction — typing into search boxes,",
+      "selecting dropdowns, waiting on async results, reading a results table — rather than a single fetch.",
+      "tmux-session semantics: create once, act on the same page repeatedly, close when done.",
+      "",
+      "LIFECYCLE",
+      "  operation=create  — launches an isolated, single-use Playwright browser process for this name.",
+      "  operation=act     — dispatches one action against the session's one persistent page.",
+      "  operation=list    — lists live sessions.",
+      "  operation=close   — tears the session's browser down. Always close sessions you no longer need.",
+      "",
+      "SNAPSHOT VERSION (act only, required)",
+      "  Every act() response includes snapshotVersion — pass it back on your next call for that session.",
+      "  A stale value is rejected (the page may have navigated or changed since you last observed it) rather",
+      "  than silently acting on out-of-date state. create returns snapshotVersion:0 to start with.",
+      "",
+      "ACTIONS (act only)",
+      "  navigate  — load a URL.",
+      "  click     — click selector.",
+      "  type      — type text into selector (real per-key input; clear=false to append instead of replace).",
+      "  select    — choose a <select> option by value or label.",
+      "  waitFor   — block until selector/text appears, or a load state is reached. Use this instead of",
+      "              guessing a delay — a page's own async round-trip time is never something to assume.",
+      "  queryText — trimmed text per element matching selector — structured data, not innerText + parsing.",
+      "  readTable — rows/cells of a <table> matching selector — structured data, not innerText + parsing.",
+      "  eval      — arbitrary JavaScript, returns its JSON-serializable result. Prefer the actions above when",
+      "              they fit — eval is the least structured, least auditable option.",
+      "  screenshot — returns a PNG of the full page.",
+    ].join("\n"),
+    promptSnippet:
+      "Persistent browser sessions: create/act(navigate|click|type|select|waitFor|queryText|readTable|eval|screenshot)/list/close",
+    parameters: sessionParamsSchema,
+    async execute(_id, params: SessionParams, _signal, _onUpdate, _ctx) {
+      try {
+        if (params.operation === "create") {
+          if (!params.name) throw new Error("name is required for operation=create")
+          const result = await call("session.create", { name: params.name, forceChromeChannel: params.forceChromeChannel })
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+        }
+        if (params.operation === "list") {
+          const result = await call("session.list", {})
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+        }
+        if (params.operation === "close") {
+          if (!params.name) throw new Error("name is required for operation=close")
+          const result = await call("session.close", { name: params.name })
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+        }
+
+        // act
+        if (!params.name) throw new Error("name is required for operation=act")
+        if (params.snapshotVersion === undefined) throw new Error("snapshotVersion is required for operation=act")
+        if (!params.action) throw new Error("action is required for operation=act")
+        const result = await call<SessionActResult>("session.act", {
+          name: params.name,
+          snapshotVersion: params.snapshotVersion,
+          action: params.action,
+          url: params.url,
+          selector: params.selector,
+          script: params.script,
+          timeoutMs: params.timeoutMs,
+          text: params.text,
+          clear: params.clear,
+          value: params.value,
+          label: params.label,
+          loadState: params.loadState,
+          state: params.state,
+        })
+
+        if (params.action === "screenshot" && typeof result.screenshotBase64 === "string") {
+          const summary = { name: result.name, action: result.action, snapshotVersion: result.snapshotVersion }
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify(summary) },
+              { type: "image" as const, data: result.screenshotBase64, mimeType: "image/png" },
+            ],
+            details: summary,
+          }
+        }
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as unknown as Record<string, unknown> }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new Error(`web_session failed: ${message}`)
+      }
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------
