@@ -1,17 +1,26 @@
 /**
- * Process/storage layout and authenticated discovery — mirrors
- * jittor/src/state.ts exactly (XDG_DATA_HOME db, XDG_STATE_HOME token,
- * XDG_RUNTIME_DIR daemon handle, XDG_CONFIG_HOME systemd unit).
+ * Process/storage layout and authenticated discovery. Delegates to
+ * @danypops/daemon-kit's generic paths module (XDG_DATA_HOME db,
+ * XDG_STATE_HOME token, XDG_RUNTIME_DIR daemon handle, XDG_CONFIG_HOME
+ * systemd unit) -- this file used to duplicate that logic byte-for-byte
+ * with jittor's/papyrus's own copies. Kept as a thin WebSpiderPaths-object
+ * wrapper so every existing call site (daemon.ts, client.ts, cli.ts,
+ * tests) is unaffected by the migration.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import {
+	ensureAuthToken as daemonKitEnsureAuthToken,
+	readDaemonHandle as daemonKitReadDaemonHandle,
+	removeDaemonHandle as daemonKitRemoveDaemonHandle,
+	resolveDaemonPaths,
+	writeDaemonHandle as daemonKitWriteDaemonHandle,
+	type DaemonHandle as DaemonKitHandle,
+} from "@danypops/daemon-kit/paths";
 import {
 	DATABASE_FILENAME,
 	HANDLE_FILENAME,
 	LEGACY_CACHE_DEFAULT_RELATIVE_PATH,
-	LOOPBACK_HOST,
 	SYSTEMD_UNIT_NAME,
 	TOKEN_FILENAME,
 	WEB_SPIDER_STATE_DIRECTORY,
@@ -24,11 +33,10 @@ export interface WebSpiderPaths {
 	systemdUnit: string;
 }
 
-export interface DaemonHandle {
-	host: typeof LOOPBACK_HOST;
-	port: number;
-	pid: number;
-}
+// daemon-kit's DaemonHandle is structurally { host: "127.0.0.1"; port; pid },
+// identical to what this module has always exposed -- re-exported under the
+// existing name so no consumer needs to change its import.
+export type DaemonHandle = DaemonKitHandle;
 
 export interface PathEnvironment {
 	env?: Record<string, string | undefined>;
@@ -37,59 +45,40 @@ export interface PathEnvironment {
 }
 
 export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderPaths {
-	const env = options.env ?? process.env;
-	const home = options.home ?? homedir();
-	const uid = options.uid ?? process.getuid?.() ?? 0;
-	const dataHome = env["XDG_DATA_HOME"] ?? join(home, ".local", "share");
-	const stateHome = env["XDG_STATE_HOME"] ?? join(home, ".local", "state");
-	const runtimeHome = env["XDG_RUNTIME_DIR"] ?? join("/run", "user", String(uid));
-	const configHome = env["XDG_CONFIG_HOME"] ?? join(home, ".config");
-	return {
-		database: join(dataHome, WEB_SPIDER_STATE_DIRECTORY, DATABASE_FILENAME),
-		token: join(stateHome, WEB_SPIDER_STATE_DIRECTORY, TOKEN_FILENAME),
-		handle: join(runtimeHome, WEB_SPIDER_STATE_DIRECTORY, HANDLE_FILENAME),
-		systemdUnit: join(configHome, "systemd", "user", SYSTEMD_UNIT_NAME),
-	};
+	return resolveDaemonPaths(
+		{
+			stateDirectoryName: WEB_SPIDER_STATE_DIRECTORY,
+			databaseFilename: DATABASE_FILENAME,
+			tokenFilename: TOKEN_FILENAME,
+			handleFilename: HANDLE_FILENAME,
+			systemdUnitName: SYSTEMD_UNIT_NAME,
+		},
+		options,
+	);
 }
 
 export function ensureAuthToken(paths: WebSpiderPaths = resolveWebSpiderPaths()): string {
-	mkdirSync(dirname(paths.token), { recursive: true, mode: 0o700 });
-	if (existsSync(paths.token)) {
-		chmodSync(paths.token, 0o600);
-		const token = readFileSync(paths.token, "utf8").trim();
-		if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("invalid Web Spider authentication token");
-		return token;
-	}
-	const token = randomBytes(32).toString("hex");
-	writeFileSync(paths.token, `${token}\n`, { mode: 0o600 });
-	return token;
+	return daemonKitEnsureAuthToken(paths.token, "Web Spider");
 }
 
 export function writeDaemonHandle(paths: WebSpiderPaths, handle: DaemonHandle): void {
-	mkdirSync(dirname(paths.handle), { recursive: true, mode: 0o700 });
-	const temporary = `${paths.handle}.${process.pid}.tmp`;
-	writeFileSync(temporary, `${JSON.stringify(handle)}\n`, { mode: 0o600 });
-	renameSync(temporary, paths.handle);
+	daemonKitWriteDaemonHandle(paths.handle, handle);
 }
 
 export function readDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): DaemonHandle | null {
-	try {
-		const value = JSON.parse(readFileSync(paths.handle, "utf8")) as Partial<DaemonHandle>;
-		if (value.host !== LOOPBACK_HOST || !Number.isInteger(value.port) || value.port! < 1 || value.port! > 65_535 || !Number.isInteger(value.pid)) return null;
-		return value as DaemonHandle;
-	} catch {
-		return null;
-	}
+	return daemonKitReadDaemonHandle(paths.handle);
 }
 
 export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): void {
-	rmSync(paths.handle, { force: true });
+	daemonKitRemoveDaemonHandle(paths.handle);
 }
 
 /**
  * Path to the pre-daemon JSON DiskCache, for the one-time legacy import.
  * Respects WEB_SPIDER_CACHE_PATH (the same override the pi-extension has
  * used to date) so an existing custom cache location is still found.
+ * Web-Spider-specific, not a generic daemon concern -- stays here rather
+ * than moving into daemon-kit.
  */
 export function resolveLegacyCachePath(options: PathEnvironment = {}): string {
 	const env = options.env ?? process.env;
