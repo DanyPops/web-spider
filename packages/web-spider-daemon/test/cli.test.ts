@@ -324,7 +324,7 @@ describe("runCli session act", () => {
 	test("navigate forwards url/snapshotVersion/action, with no script/text/select fields at all", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "navigate", snapshotVersion: 1 }) });
 		await runCli(["session", "act", "a", "--action", "navigate", "--snapshot-version", "0", "--url", "https://x.test"], deps);
-		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined, text: undefined, clear: undefined, value: undefined, label: undefined } }]);
+		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined, text: undefined, clear: undefined, value: undefined, label: undefined, loadState: undefined, state: undefined } }]);
 	});
 
 	test("click forwards the selector", async () => {
@@ -355,6 +355,21 @@ describe("runCli session act", () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "select", snapshotVersion: 0 }) });
 		await runCli(["session", "act", "a", "--action", "select", "--snapshot-version", "0", "--selector", "#wg", "--label", "WG3"], deps);
 		expect(operations[0]?.input).toMatchObject({ selector: "#wg", value: undefined, label: "WG3" });
+	});
+
+	test("waitFor forwards selector", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "waitFor", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "waitFor", "--snapshot-version", "0", "--selector", "#results"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#results", text: undefined, loadState: undefined });
+	});
+
+	test("waitFor forwards --load-state and --state", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "waitFor", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "waitFor", "--snapshot-version", "0", "--selector", "#x", "--state", "hidden"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#x", state: "hidden" });
+
+		await runCli(["session", "act", "a", "--action", "waitFor", "--snapshot-version", "0", "--load-state", "networkidle"], deps);
+		expect(operations[1]?.input).toMatchObject({ loadState: "networkidle" });
 	});
 
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {

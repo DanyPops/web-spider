@@ -6,6 +6,7 @@ export interface FakePageOptions {
 	failClick?: boolean;
 	failType?: boolean;
 	failSelect?: boolean;
+	failWaitFor?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
@@ -17,6 +18,7 @@ export interface FakeSessionPage extends SessionPage {
 	clickCalls: Array<{ selector: string; timeoutMs?: number }>;
 	typeCalls: Array<{ selector: string; text: string; timeoutMs?: number; clear?: boolean }>;
 	selectCalls: Array<{ selector: string; target: { value?: string; label?: string }; timeoutMs?: number }>;
+	waitForCalls: Array<{ target: { selector?: string; text?: string; loadState?: string }; timeoutMs?: number; state?: string }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 }
@@ -26,6 +28,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const clickCalls: FakeSessionPage["clickCalls"] = [];
 	const typeCalls: FakeSessionPage["typeCalls"] = [];
 	const selectCalls: FakeSessionPage["selectCalls"] = [];
+	const waitForCalls: FakeSessionPage["waitForCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	return {
@@ -33,6 +36,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		clickCalls,
 		typeCalls,
 		selectCalls,
+		waitForCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		async goto(url, callOpts) {
@@ -50,6 +54,10 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async select(selector, target, callOpts) {
 			selectCalls.push({ selector, target, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failSelect) throw new Error("simulated select failure: option not found");
+		},
+		async waitFor(target, callOpts) {
+			waitForCalls.push({ target, timeoutMs: callOpts?.timeoutMs, state: callOpts?.state });
+			if (opts.failWaitFor) throw new Error("simulated waitFor failure: timeout exceeded");
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

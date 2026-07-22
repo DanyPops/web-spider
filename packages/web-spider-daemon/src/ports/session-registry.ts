@@ -19,6 +19,17 @@ export interface SessionPage {
 	type(selector: string, text: string, opts?: { timeoutMs?: number; clear?: boolean }): Promise<void>;
 	/** Selects a <select> option by its value attribute or visible label — exactly one of target.value/target.label is set. */
 	select(selector: string, target: { value?: string; label?: string }, opts?: { timeoutMs?: number }): Promise<void>;
+	/**
+	 * Waits for a real condition before returning — replaces blind sleeps.
+	 * Exactly one of target.selector/target.text/target.loadState is set.
+	 * Bounded the same way every other action here is: Playwright's own
+	 * default timeout applies when opts.timeoutMs is omitted, never an
+	 * unbounded wait.
+	 */
+	waitFor(
+		target: { selector?: string; text?: string; loadState?: "load" | "domcontentloaded" | "networkidle" },
+		opts?: { timeoutMs?: number; state?: "visible" | "hidden" | "attached" | "detached" },
+	): Promise<void>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/** PNG bytes of the full page. */
 	screenshot(): Promise<Uint8Array>;

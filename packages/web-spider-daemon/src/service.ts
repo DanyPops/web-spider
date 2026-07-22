@@ -112,7 +112,9 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "eval", "screenshot"]);
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "eval", "screenshot"]);
+const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
+const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 
 function sessionActInput(input: OperationInput): SessionActInput {
 	const name = requireString(input, "name");
@@ -122,7 +124,15 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	}
 	const action = requireString(input, "action");
 	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "type", "select", "eval", "screenshot"');
+		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "eval", "screenshot"');
+	}
+	const loadState = optionalString(input, "loadState");
+	if (loadState !== undefined && !LOAD_STATES.has(loadState)) {
+		throw new Error('loadState must be one of "load", "domcontentloaded", "networkidle"');
+	}
+	const state = optionalString(input, "state");
+	if (state !== undefined && !ELEMENT_STATES.has(state)) {
+		throw new Error('state must be one of "visible", "hidden", "attached", "detached"');
 	}
 	return {
 		name,
@@ -136,6 +146,8 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		clear: optionalBoolean(input, "clear"),
 		value: optionalString(input, "value"),
 		label: optionalString(input, "label"),
+		loadState: loadState as SessionActInput["loadState"],
+		state: state as SessionActInput["state"],
 	};
 }
 

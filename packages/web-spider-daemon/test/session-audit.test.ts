@@ -53,6 +53,18 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("select", { selector: "a".repeat(1_000) }).length).toBeLessThanOrEqual(200);
 	});
 
+	test("waitFor: the selector, bounded, when waiting on a selector", () => {
+		expect(journalTargetFor("waitFor", { selector: "#results" })).toBe("#results");
+	});
+
+	test("waitFor: a load-state placeholder including the actual state name (not sensitive)", () => {
+		expect(journalTargetFor("waitFor", { loadState: "networkidle" })).toBe("<load-state:networkidle>");
+	});
+
+	test("waitFor: a fixed placeholder for a text wait — never the waited-for text itself", () => {
+		expect(journalTargetFor("waitFor", { text: "super-secret-marker" })).toBe("<text-wait>");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

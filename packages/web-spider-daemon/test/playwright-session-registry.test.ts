@@ -217,4 +217,55 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-select-session");
 	}, 30_000);
+
+	test("real waitFor() waits on a selector that appears asynchronously (replaces a blind sleep)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-waitfor-selector-session");
+		const page = await registry.page("real-waitfor-selector-session");
+
+		// The element does not exist at load; a script inserts it after a delay.
+		// A blind sleep shorter than the delay would miss it — waitFor must not.
+		await page.goto(
+			"data:text/html,<div id='root'></div><script>setTimeout(() => { const d = document.createElement('div'); d.id = 'late'; d.textContent = 'arrived'; document.getElementById('root').appendChild(d); }, 200);</script>",
+		);
+		await page.waitFor({ selector: "#late" }, { timeoutMs: 5_000 });
+		expect(await page.evaluate<string>("document.querySelector('#late').textContent")).toBe("arrived");
+
+		await registry.close("real-waitfor-selector-session");
+	}, 30_000);
+
+	test("real waitFor() times out (bounded, not unbounded) when the condition never becomes true", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-waitfor-timeout-session");
+		const page = await registry.page("real-waitfor-timeout-session");
+
+		await page.goto("data:text/html,<div id='root'></div>");
+		await expect(page.waitFor({ selector: "#never-appears" }, { timeoutMs: 300 })).rejects.toThrow();
+
+		await registry.close("real-waitfor-timeout-session");
+	}, 30_000);
+
+	test("real waitFor() waits on visible text without a caller-supplied selector", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-waitfor-text-session");
+		const page = await registry.page("real-waitfor-text-session");
+
+		await page.goto(
+			"data:text/html,<div id='root'></div><script>setTimeout(() => { document.getElementById('root').textContent = 'WG3: Near-real-time RIC and E2 Interface Workgroup'; }, 200);</script>",
+		);
+		await page.waitFor({ text: "Near-real-time RIC" }, { timeoutMs: 5_000 });
+
+		await registry.close("real-waitfor-text-session");
+	}, 30_000);
+
+	test("real waitFor() waits on a load state (domcontentloaded resolves immediately for an already-loaded page)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-waitfor-loadstate-session");
+		const page = await registry.page("real-waitfor-loadstate-session");
+
+		await page.goto("data:text/html,<p>ready</p>");
+		await page.waitFor({ loadState: "domcontentloaded" }, { timeoutMs: 5_000 });
+
+		await registry.close("real-waitfor-loadstate-session");
+	}, 30_000);
 });
