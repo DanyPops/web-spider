@@ -7,7 +7,6 @@
 // ---------------------------------------------------------------------------
 // Process / storage layout
 // ---------------------------------------------------------------------------
-export const LOOPBACK_HOST = "127.0.0.1";
 export const WEB_SPIDER_STATE_DIRECTORY = "web-spider";
 export const DATABASE_FILENAME = "web-spider.db";
 export const TOKEN_FILENAME = "auth-token";
@@ -26,8 +25,6 @@ export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
 // HTTP service
 // ---------------------------------------------------------------------------
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
-export const DAEMON_CLIENT_TIMEOUT_MS = 15_000;
-export const DAEMON_PROBE_TIMEOUT_MS = 800;
 
 // ---------------------------------------------------------------------------
 // Bounded resources (design doc §5 — never trust a client-only cap)
