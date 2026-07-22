@@ -171,6 +171,14 @@ export interface LeanPage {
 	 * preserving the existing contract for the common case.
 	 */
 	contentType?: string;
+	/**
+	 * Name of the query strategy that produced this page instead of the
+	 * generic fetch+Readability path (e.g. "llms.txt"). `url` reflects the
+	 * resource actually fetched (which may differ from the URL originally
+	 * requested — a strategy can resolve to a different, more structured
+	 * resource at the same origin). Omitted when no strategy applied.
+	 */
+	viaStrategy?: string;
 }
 
 // toLean() moved to views.ts. Import from there or from the package root.
@@ -238,4 +246,12 @@ export interface SpideredPage {
 	 * preserving the existing contract for the common case.
 	 */
 	contentType?: string;
+	/**
+	 * Name of the query strategy that produced this page instead of the
+	 * generic fetch+Readability path (e.g. "llms.txt"). `url` reflects the
+	 * resource actually fetched (which may differ from the URL originally
+	 * requested — a strategy can resolve to a different, more structured
+	 * resource at the same origin). Omitted when no strategy applied.
+	 */
+	viaStrategy?: string;
 }
