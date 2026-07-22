@@ -1,6 +1,8 @@
 /**
- * SQLite composition root — bun:sqlite, WAL, versioned migration via
- * PRAGMA user_version. Mirrors jittor/src/db.ts.
+ * SQLite composition root. Bootstrap (pragmas, PRAGMA user_version
+ * migration runner) delegates to @danypops/daemon-kit's storage module --
+ * this file used to duplicate that skeleton with jittor's/papyrus's own
+ * copies byte-for-byte. Web Spider's actual schema stays entirely here.
  *
  * Schema (design doc §2 — FTS5 candidate-prefiltering is explicitly
  * deferred; bounded `values()`/`search()` over the already-bounded
@@ -10,10 +12,9 @@
  *   chunks — RAG chunks, child of pages, cascade-deleted with their page
  *   images — scraped images, child of pages, inline base64 or file_path
  */
-import { Database } from "bun:sqlite";
-import { dirname } from "node:path";
-import { mkdirSync } from "node:fs";
-import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
+import type { Database } from "bun:sqlite";
+import { openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { SQLITE_BUSY_TIMEOUT_MS } from "./constants.ts";
 
 const INITIAL_SCHEMA = `
 CREATE TABLE pages (
@@ -84,40 +85,15 @@ CREATE INDEX session_audit_log_session_idx ON session_audit_log(session_name);
 CREATE INDEX session_audit_log_ts_idx ON session_audit_log(ts);
 `;
 
-function migrate(db: Database): void {
-	const row = db.query("PRAGMA user_version").get() as { user_version: number };
-	if (row.user_version > SQLITE_SCHEMA_VERSION) {
-		throw new Error(`database schema ${row.user_version} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
-	}
-	if (row.user_version < 1) {
-		const migration = db.transaction(() => {
-			db.exec(INITIAL_SCHEMA);
-			db.exec("PRAGMA user_version = 1");
-		});
-		migration.immediate();
-	}
-	if (row.user_version < 2) {
-		const migration = db.transaction(() => {
-			db.exec(MIGRATION_2_SESSION_AUDIT_LOG);
-			db.exec("PRAGMA user_version = 2");
-		});
-		migration.immediate();
-	}
-	const migrated = db.query("PRAGMA user_version").get() as { user_version: number };
-	if (migrated.user_version !== SQLITE_SCHEMA_VERSION) {
-		throw new Error(`missing migration from schema ${migrated.user_version} to ${SQLITE_SCHEMA_VERSION}`);
-	}
-}
-
 export function openWebSpiderDb(path: string): Database {
-	if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-	const db = new Database(path, { create: true, strict: true });
-	db.exec("PRAGMA foreign_keys = ON");
-	db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
-	if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
-	migrate(db);
-	db.exec("PRAGMA optimize=0x10002");
-	return db;
+	return openSqliteWithPragmas(path, {
+		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
+		databaseOptions: { create: true, strict: true },
+		migrations: [
+			{ version: 1, up: (db) => db.exec(INITIAL_SCHEMA) },
+			{ version: 2, up: (db) => db.exec(MIGRATION_2_SESSION_AUDIT_LOG) },
+		],
+	});
 }
 
 export function schemaVersion(db: Database): number {
