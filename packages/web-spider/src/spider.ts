@@ -3,6 +3,7 @@ import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
 import { probeLlmsTxt } from "./llms-txt.js";
 import { probeMarkdownVariant } from "./markdown-suffix.js";
+import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
 import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
@@ -119,6 +120,20 @@ export interface SpiderOptions {
 	 * Default: false — preserves the existing fetch contract exactly.
 	 */
 	preferMarkdownVariant?: boolean;
+	/**
+	 * When true and the URL looks like a MediaWiki article (Wikipedia,
+	 * Wiktionary, Fandom wikis, ArchWiki, Gentoo Wiki, or any self-hosted
+	 * instance), queries the wiki's real API (action=parse) for the
+	 * article's own content HTML instead of scraping the rendered page
+	 * (nav/sidebar/search-box chrome). Unlike preferLlmsTxt/
+	 * preferMarkdownVariant, this does not change `url` — it's the same
+	 * resource via a different retrieval mechanism, so the result still
+	 * goes through the normal Readability/metadata pipeline on the API's
+	 * (already much cleaner) HTML. Falls through unchanged when the URL
+	 * doesn't look like an article, or the site isn't MediaWiki-based.
+	 * Default: false — preserves the existing fetch contract exactly.
+	 */
+	preferMediaWiki?: boolean;
 }
 
 /**
@@ -248,6 +263,11 @@ function prettyPrintIfJson(rawText: string): string {
 }
 
 /** A human-meaningful fallback title when there is no <title> tag to read — the URL's last path segment, or the hostname for a bare root URL. */
+/** Minimal HTML-text escape for wrapping a MediaWiki API title in a synthetic <title> tag. */
+function escapeHtmlText(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function titleFromUrl(url: string): string {
 	try {
 		const parsed = new URL(url);
@@ -350,6 +370,7 @@ export async function spider(
 		maxImages = 10,
 		preferLlmsTxt = false,
 		preferMarkdownVariant = false,
+		preferMediaWiki = false,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -412,13 +433,36 @@ export async function spider(
 		}
 	}
 
-	// Fetch with optional throttle + retry on 429/503.
-	const maxRetries = throttle?.maxRetries ?? 0;
 	let html = "";
 	let fetchError: Error | null = null;
 	let contentTypeHeader: string | null = null;
+	let viaMediaWiki = false;
 
-	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+	// MediaWiki strategy: query the platform's real API for the article's own
+	// content HTML instead of scraping the rendered wiki page. Sets html/
+	// contentTypeHeader directly and skips the fetch loop below entirely on a
+	// hit; a miss (not an article URL, or not a MediaWiki site) falls through
+	// to the normal fetch unchanged.
+	if (preferMediaWiki) {
+		const pageTitle = extractWikiPageTitle(url);
+		if (pageTitle) {
+			const siteInfo = await detectMediaWiki(url, httpClient, { timeoutMs, userAgent });
+			if (siteInfo) {
+				const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
+				if (page) {
+					html = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
+					contentTypeHeader = "text/html; charset=utf-8";
+					viaMediaWiki = true;
+				}
+			}
+		}
+	}
+
+	// Fetch with optional throttle + retry on 429/503 — skipped entirely when
+	// the MediaWiki strategy above already produced content.
+	const maxRetries = throttle?.maxRetries ?? 0;
+
+	for (let attempt = 0; !viaMediaWiki && attempt <= maxRetries; attempt++) {
 		if (throttle) await throttle.wait(url);
 
 		const controller = new AbortController();
@@ -559,7 +603,7 @@ export async function spider(
 			markdown: "",
 		} satisfies SpideredPage;
 		const lean = toLean(full);
-		return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}) };
+		return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}), ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}) };
 	}
 
 	// ---------------------------------------------------------------------------
@@ -593,6 +637,7 @@ export async function spider(
 			markdown,
 			tree,
 			...(images ? { images } : {}),
+			...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
 		};
 	}
 
@@ -648,5 +693,6 @@ export async function spider(
 		markdown: finalMarkdown,
 		...(images ? { images } : {}),
 		...(jsRendered ? { jsRendered: true } : {}),
+		...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
 	};
 }
