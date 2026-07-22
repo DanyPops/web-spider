@@ -2,6 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
 import { probeLlmsTxt } from "./llms-txt.js";
+import { probeMarkdownVariant } from "./markdown-suffix.js";
 import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
@@ -108,6 +109,16 @@ export interface SpiderOptions {
 	 * Default: false — preserves the existing fetch contract exactly.
 	 */
 	preferLlmsTxt?: boolean;
+	/**
+	 * When true, probes for a .md sibling of the exact requested URL (e.g.
+	 * Welcome.html -> Welcome.md) before the normal fetch+Readability path.
+	 * Verified real against docs.aws.amazon.com; a spreading convention on
+	 * other documentation platforms too. Checked after preferLlmsTxt (a
+	 * site-wide index) misses or is disabled. Falls through unchanged when
+	 * no .md sibling exists.
+	 * Default: false — preserves the existing fetch contract exactly.
+	 */
+	preferMarkdownVariant?: boolean;
 }
 
 /**
@@ -338,6 +349,7 @@ export async function spider(
 		captureImages = false,
 		maxImages = 10,
 		preferLlmsTxt = false,
+		preferMarkdownVariant = false,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -378,6 +390,25 @@ export async function spider(
 				isJson: false,
 			});
 			return { ...page, viaStrategy: "llms.txt" };
+		}
+	}
+
+	// .md URL-suffix strategy: same page, cleaner variant. Checked after
+	// preferLlmsTxt above (a broader site-wide index) misses or is disabled.
+	if (preferMarkdownVariant) {
+		const probe = await probeMarkdownVariant(url, httpClient, { timeoutMs, userAgent });
+		if (probe) {
+			const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
+			const page = buildNonHtmlPage({
+				url: probe.url,
+				domain: probeDomain,
+				fetchedAt: new Date().toISOString(),
+				contentTypeHeader: probe.contentType,
+				rawText: probe.content,
+				view,
+				isJson: false,
+			});
+			return { ...page, viaStrategy: "markdown-suffix" };
 		}
 	}
 
