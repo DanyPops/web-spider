@@ -36,6 +36,14 @@ function wrapPlaywrightBrowser(browser: { newPage: () => Promise<PlaywrightPageL
 // The minimal subset of Playwright's real Page/Locator types this module
 // drives — avoids a hard type dependency on playwright-core's own types
 // package.
+// This module has no "dom" lib (it's a Node/Bun daemon, not browser code) —
+// a minimal duck-typed shape is all evaluate()'s callback needs; it only
+// ever actually runs inside the browser, serialized over CDP.
+interface MinimalDomElement {
+	querySelectorAll(selector: string): ArrayLike<MinimalDomElement>;
+	textContent: string | null;
+}
+
 interface PlaywrightLocatorLike {
 	fill(value: string, opts?: { timeout?: number }): Promise<void>;
 	pressSequentially(text: string, opts?: { timeout?: number }): Promise<void>;
@@ -43,6 +51,10 @@ interface PlaywrightLocatorLike {
 	/** Used only to position the cursor at the end of existing content before an appending (clear:false) type. */
 	press(key: string, opts?: { timeout?: number }): Promise<void>;
 	waitFor(opts?: { state?: "visible" | "hidden" | "attached" | "detached"; timeout?: number }): Promise<void>;
+	/** Trimmed text content of every element the locator matched — Playwright's own built-in primitive, not a hand-rolled innerText dump. */
+	allTextContents(): Promise<string[]>;
+	/** Runs a fixed, daemon-authored function against the matched element — never caller-supplied script (that's the eval action's job, deliberately kept separate). */
+	evaluate<T>(fn: (el: MinimalDomElement) => T, arg: undefined, opts?: { timeout?: number }): Promise<T>;
 }
 
 interface PlaywrightPageLike {
@@ -92,6 +104,19 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 			}
 			const locator = target.selector !== undefined ? page.locator(target.selector) : page.getByText(target.text as string);
 			await locator.waitFor({ ...(opts?.state !== undefined ? { state: opts.state } : {}), ...timeoutOpt });
+		},
+		queryText: async (selector, opts) => {
+			const texts = await page.locator(selector).allTextContents();
+			return texts.map((t) => t.trim());
+		},
+		readTable: async (selector, opts) => {
+			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
+			return page.locator(selector).evaluate((el) => {
+				// :scope-rooted so a nested table's own rows are never captured as
+				// if they belonged to the matched (outer) table.
+				const rows = el.querySelectorAll(":scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr");
+				return Array.from(rows).map((row) => Array.from(row.querySelectorAll(":scope > td, :scope > th")).map((cell) => (cell.textContent ?? "").trim()));
+			}, undefined, timeoutOpt);
 		},
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: () => page.screenshot(),

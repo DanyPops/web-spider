@@ -145,6 +145,8 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider session act <name> --action type --snapshot-version N --selector CSS --text STR [--no-clear] [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action select --snapshot-version N --selector CSS (--value STR | --label STR) [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action waitFor --snapshot-version N (--selector CSS | --text STR | --load-state STATE) [--state STATE] [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action queryText --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action readTable --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
 		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
 		"       web-spider session act <name> --action screenshot --snapshot-version N [--json]",
@@ -355,7 +357,7 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
-	if (action !== "navigate" && action !== "click" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
+	if (action !== "navigate" && action !== "click" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
 	const snapshotVersion = parseIntFlag(parsed.values, "snapshot-version");
 	if (snapshotVersion === undefined || Number.isNaN(snapshotVersion)) return usage(deps.stderr);
 	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");

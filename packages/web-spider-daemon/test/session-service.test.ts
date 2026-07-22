@@ -259,6 +259,84 @@ describe("SessionService — act: waitFor (does not bump snapshotVersion)", () =
 	});
 });
 
+describe("SessionService — act: queryText (does not bump snapshotVersion)", () => {
+	test("returns extracted text and journals only the selector", async () => {
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { queryTextResult: [" foo ", "bar"] } : {}));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "li" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(out.result).toEqual([" foo ", "bar"]);
+		expect(pages[0]!.queryTextCalls).toEqual([{ selector: "li", timeoutMs: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "queryText", outcome: "ok", target: "li" });
+		expect(JSON.stringify(journal.entries)).not.toContain("foo");
+	});
+
+	test("bounds the number of items returned", async () => {
+		const many = Array.from({ length: 500 }, (_, i) => `item-${i}`);
+		const { service } = makeHarness(() => ({ queryTextResult: many }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "li" });
+		expect((out.result as string[]).length).toBe(200);
+	});
+
+	test("bounds the length of each item returned", async () => {
+		const { service } = makeHarness(() => ({ queryTextResult: ["x".repeat(5_000)] }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "li" });
+		expect((out.result as string[])[0]!.length).toBe(2_000);
+	});
+
+	test("requires a selector", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "queryText" })).rejects.toThrow(/selector is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failQueryText: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "#missing" })).rejects.toThrow(/simulated queryText failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
+describe("SessionService — act: readTable (does not bump snapshotVersion)", () => {
+	test("returns extracted rows and journals only the selector", async () => {
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { readTableResult: [["a", "b"], ["c", "d"]] } : {}));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "table" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(out.result).toEqual([["a", "b"], ["c", "d"]]);
+		expect(pages[0]!.readTableCalls).toEqual([{ selector: "table", timeoutMs: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "readTable", outcome: "ok", target: "table" });
+	});
+
+	test("bounds the number of rows and the number/length of cells per row", async () => {
+		const manyRows = Array.from({ length: 500 }, (_, i) => [`row-${i}`, "x".repeat(5_000)]);
+		const { service } = makeHarness(() => ({ readTableResult: manyRows }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "table" });
+		const rows = out.result as string[][];
+		expect(rows.length).toBe(200);
+		expect(rows[0]![1]!.length).toBe(2_000);
+	});
+
+	test("requires a selector", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "readTable" })).rejects.toThrow(/selector is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failReadTable: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "#missing" })).rejects.toThrow(/simulated readTable failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

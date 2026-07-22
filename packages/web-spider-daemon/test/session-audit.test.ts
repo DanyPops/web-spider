@@ -65,6 +65,15 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("waitFor", { text: "super-secret-marker" })).toBe("<text-wait>");
 	});
 
+	test("queryText: the selector, bounded — never the extracted text", () => {
+		expect(journalTargetFor("queryText", { selector: "li" })).toBe("li");
+		expect(journalTargetFor("queryText", { selector: "a".repeat(1_000) }).length).toBeLessThanOrEqual(200);
+	});
+
+	test("readTable: the selector, bounded — never the extracted rows", () => {
+		expect(journalTargetFor("readTable", { selector: "table" })).toBe("table");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

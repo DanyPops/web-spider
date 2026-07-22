@@ -12,7 +12,7 @@
  *   - script/url/selector inputs are never written to the journal verbatim
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
-import { SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
+import { SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
@@ -60,6 +60,11 @@ export interface SessionActOutput {
 	result?: unknown;
 	/** Base64-encoded PNG, only for a successful screenshot action. */
 	screenshotBase64?: string;
+}
+
+/** queryText/readTable: never an unbounded page dump — caps item count and per-item length. */
+function boundExtractedItems<T extends string | string[]>(items: T[]): T[] {
+	return items.slice(0, SESSION_ACT_EXTRACT_MAX_ITEMS).map((item) => (typeof item === "string" ? item.slice(0, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH) : item) as T);
 }
 
 export class SessionService {
@@ -134,6 +139,9 @@ export class SessionService {
 				if (targets.length > 1) throw new Error("waitFor accepts only one of selector, text, or loadState, not more than one");
 				if (input.loadState !== undefined && input.state !== undefined) throw new Error("state is not valid alongside loadState");
 			}
+			if ((input.action === "queryText" || input.action === "readTable") && !input.selector) {
+				throw new Error(`selector is required for a ${input.action} action`);
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -161,6 +169,16 @@ export class SessionService {
 						{ selector: input.selector, text: input.text, loadState: input.loadState },
 						{ timeoutMs: input.timeoutMs, state: input.state },
 					);
+					break;
+				}
+				case "queryText": {
+					const texts = await page.queryText(input.selector as string, { timeoutMs: input.timeoutMs });
+					result = boundExtractedItems(texts);
+					break;
+				}
+				case "readTable": {
+					const rows = await page.readTable(input.selector as string, { timeoutMs: input.timeoutMs });
+					result = boundExtractedItems(rows).map((row) => boundExtractedItems(row));
 					break;
 				}
 				case "eval": {

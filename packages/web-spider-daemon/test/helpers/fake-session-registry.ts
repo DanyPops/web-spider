@@ -7,10 +7,14 @@ export interface FakePageOptions {
 	failType?: boolean;
 	failSelect?: boolean;
 	failWaitFor?: boolean;
+	failQueryText?: boolean;
+	failReadTable?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
 	screenshotBytes?: Uint8Array;
+	queryTextResult?: string[];
+	readTableResult?: string[][];
 }
 
 export interface FakeSessionPage extends SessionPage {
@@ -19,6 +23,8 @@ export interface FakeSessionPage extends SessionPage {
 	typeCalls: Array<{ selector: string; text: string; timeoutMs?: number; clear?: boolean }>;
 	selectCalls: Array<{ selector: string; target: { value?: string; label?: string }; timeoutMs?: number }>;
 	waitForCalls: Array<{ target: { selector?: string; text?: string; loadState?: string }; timeoutMs?: number; state?: string }>;
+	queryTextCalls: Array<{ selector: string; timeoutMs?: number }>;
+	readTableCalls: Array<{ selector: string; timeoutMs?: number }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 }
@@ -29,6 +35,8 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const typeCalls: FakeSessionPage["typeCalls"] = [];
 	const selectCalls: FakeSessionPage["selectCalls"] = [];
 	const waitForCalls: FakeSessionPage["waitForCalls"] = [];
+	const queryTextCalls: FakeSessionPage["queryTextCalls"] = [];
+	const readTableCalls: FakeSessionPage["readTableCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	return {
@@ -37,6 +45,8 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		typeCalls,
 		selectCalls,
 		waitForCalls,
+		queryTextCalls,
+		readTableCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		async goto(url, callOpts) {
@@ -58,6 +68,16 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async waitFor(target, callOpts) {
 			waitForCalls.push({ target, timeoutMs: callOpts?.timeoutMs, state: callOpts?.state });
 			if (opts.failWaitFor) throw new Error("simulated waitFor failure: timeout exceeded");
+		},
+		async queryText(selector, callOpts) {
+			queryTextCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
+			if (opts.failQueryText) throw new Error("simulated queryText failure: element not found");
+			return opts.queryTextResult ?? [];
+		},
+		async readTable(selector, callOpts) {
+			readTableCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
+			if (opts.failReadTable) throw new Error("simulated readTable failure: element not found");
+			return opts.readTableResult ?? [];
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

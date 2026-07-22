@@ -30,6 +30,10 @@ export interface SessionPage {
 		target: { selector?: string; text?: string; loadState?: "load" | "domcontentloaded" | "networkidle" },
 		opts?: { timeoutMs?: number; state?: "visible" | "hidden" | "attached" | "detached" },
 	): Promise<void>;
+	/** Trimmed text content of every element matching selector, in document order — structured data instead of dumping innerText and grepping by hand. */
+	queryText(selector: string, opts?: { timeoutMs?: number }): Promise<string[]>;
+	/** Rows of trimmed cell text for every <tr> within the element matching selector (its own <td>/<th> descendants, not nested tables' rows). */
+	readTable(selector: string, opts?: { timeoutMs?: number }): Promise<string[][]>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/** PNG bytes of the full page. */
 	screenshot(): Promise<Uint8Array>;
