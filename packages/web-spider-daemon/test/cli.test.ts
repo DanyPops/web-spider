@@ -321,16 +321,40 @@ describe("runCli session create/list/close", () => {
 });
 
 describe("runCli session act", () => {
-	test("navigate forwards url/snapshotVersion/action, with no script field at all", async () => {
+	test("navigate forwards url/snapshotVersion/action, with no script/text/select fields at all", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "navigate", snapshotVersion: 1 }) });
 		await runCli(["session", "act", "a", "--action", "navigate", "--snapshot-version", "0", "--url", "https://x.test"], deps);
-		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined } }]);
+		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined, text: undefined, clear: undefined, value: undefined, label: undefined } }]);
 	});
 
 	test("click forwards the selector", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "click", snapshotVersion: 0 }) });
 		await runCli(["session", "act", "a", "--action", "click", "--snapshot-version", "0", "--selector", "#go"], deps);
 		expect((operations[0]?.input as { selector: string }).selector).toBe("#go");
+	});
+
+	test("type forwards selector/text, clear defaults to undefined (server-side default true)", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "type", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "type", "--snapshot-version", "0", "--selector", "#search", "--text", "E2"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#search", text: "E2", clear: undefined });
+	});
+
+	test("type with --no-clear forwards clear:false", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "type", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "type", "--snapshot-version", "0", "--selector", "#search", "--text", "E2", "--no-clear"], deps);
+		expect(operations[0]?.input).toMatchObject({ clear: false });
+	});
+
+	test("select forwards selector/value", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "select", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "select", "--snapshot-version", "0", "--selector", "#wg", "--value", "wg3"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#wg", value: "wg3", label: undefined });
+	});
+
+	test("select forwards selector/label", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "select", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "select", "--snapshot-version", "0", "--selector", "#wg", "--label", "WG3"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#wg", value: undefined, label: "WG3" });
 	});
 
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {

@@ -33,11 +33,21 @@ function wrapPlaywrightBrowser(browser: { newPage: () => Promise<PlaywrightPageL
 	};
 }
 
-// The minimal subset of Playwright's real Page type this module drives —
-// avoids a hard type dependency on playwright-core's own types package.
+// The minimal subset of Playwright's real Page/Locator types this module
+// drives — avoids a hard type dependency on playwright-core's own types
+// package.
+interface PlaywrightLocatorLike {
+	fill(value: string, opts?: { timeout?: number }): Promise<void>;
+	pressSequentially(text: string, opts?: { timeout?: number }): Promise<void>;
+	selectOption(target: { value: string } | { label: string }, opts?: { timeout?: number }): Promise<string[]>;
+	/** Used only to position the cursor at the end of existing content before an appending (clear:false) type. */
+	press(key: string, opts?: { timeout?: number }): Promise<void>;
+}
+
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
+	locator(selector: string): PlaywrightLocatorLike;
 	evaluate(script: string): Promise<unknown>;
 	screenshot(): Promise<Uint8Array>;
 }
@@ -46,6 +56,30 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 	return {
 		goto: async (url, opts) => { await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined); },
 		click: (selector, opts) => page.click(selector, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
+		type: async (selector, text, opts) => {
+			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
+			const locator = page.locator(selector);
+			// pressSequentially (real per-key keydown/keypress/input/keyup, driven
+			// through CDP like a real user's keystrokes) rather than fill()'s
+			// single synthetic input event — the primitive pages with their own
+			// JS-bound keyboard handling actually need (see decision doc on the
+			// O-RAN Blazor-Server search box that motivated this task).
+			if (opts?.clear !== false) {
+				await locator.fill("", timeoutOpt);
+			} else {
+				// pressSequentially types at the current cursor position, which
+				// defaults to the start of any existing content, not the end —
+				// without this, clear:false silently prepends instead of
+				// appending (a real, test-caught gap while building this).
+				await locator.press("End", timeoutOpt);
+			}
+			await locator.pressSequentially(text, timeoutOpt);
+		},
+		select: async (selector, target, opts) => {
+			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
+			const option = target.value !== undefined ? { value: target.value } : { label: target.label as string };
+			await page.locator(selector).selectOption(option, timeoutOpt);
+		},
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: () => page.screenshot(),
 	};

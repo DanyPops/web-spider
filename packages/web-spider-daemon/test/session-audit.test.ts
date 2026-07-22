@@ -43,6 +43,16 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("click", { selector: "a".repeat(1_000) }).length).toBeLessThanOrEqual(200);
 	});
 
+	test("type: the selector, bounded — never the typed text", () => {
+		expect(journalTargetFor("type", { selector: "#search" })).toBe("#search");
+		expect(journalTargetFor("type", { selector: "a".repeat(1_000) }).length).toBeLessThanOrEqual(200);
+	});
+
+	test("select: the selector, bounded", () => {
+		expect(journalTargetFor("select", { selector: "#workgroup" })).toBe("#workgroup");
+		expect(journalTargetFor("select", { selector: "a".repeat(1_000) }).length).toBeLessThanOrEqual(200);
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

@@ -112,7 +112,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "eval", "screenshot"]);
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "eval", "screenshot"]);
 
 function sessionActInput(input: OperationInput): SessionActInput {
 	const name = requireString(input, "name");
@@ -122,7 +122,7 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	}
 	const action = requireString(input, "action");
 	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "eval", "screenshot"');
+		throw new Error('action must be one of "navigate", "click", "type", "select", "eval", "screenshot"');
 	}
 	return {
 		name,
@@ -132,6 +132,10 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		selector: optionalString(input, "selector"),
 		script: optionalString(input, "script"),
 		timeoutMs: optionalNumber(input, "timeoutMs"),
+		text: optionalString(input, "text"),
+		clear: optionalBoolean(input, "clear"),
+		value: optionalString(input, "value"),
+		label: optionalString(input, "label"),
 	};
 }
 

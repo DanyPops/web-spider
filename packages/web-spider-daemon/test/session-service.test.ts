@@ -107,6 +107,100 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 	});
 });
 
+describe("SessionService — act: type (does not bump snapshotVersion)", () => {
+	test("a successful type clears by default, calls pressSequentially via the page, and journals only the selector", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: "super-secret-password" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.typeCalls).toEqual([{ selector: "#search", text: "super-secret-password", timeoutMs: undefined, clear: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "type", outcome: "ok", target: "#search" });
+		expect(JSON.stringify(journal.entries)).not.toContain("super-secret-password");
+	});
+
+	test("clear:false is forwarded through to the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: "hi", clear: false });
+		expect(pages[0]!.typeCalls[0]!.clear).toBe(false);
+	});
+
+	test("type without a selector is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", text: "hi" })).rejects.toThrow(/selector is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("type without text is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search" })).rejects.toThrow(/text is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("oversized text is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const huge = "x".repeat(3_000);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: huge })).rejects.toThrow(/exceeds/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level type failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failType: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#missing", text: "hi" })).rejects.toThrow(/simulated type failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
+describe("SessionService — act: select (does not bump snapshotVersion)", () => {
+	test("selects by value and journals only the selector", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "wg3" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.selectCalls).toEqual([{ selector: "#wg", target: { value: "wg3", label: undefined }, timeoutMs: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "select", outcome: "ok", target: "#wg" });
+	});
+
+	test("selects by label", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", label: "WG3: Near-real-time RIC and E2 Interface Workgroup" });
+		expect(pages[0]!.selectCalls[0]!.target).toEqual({ value: undefined, label: "WG3: Near-real-time RIC and E2 Interface Workgroup" });
+	});
+
+	test("select without a selector is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", value: "wg3" })).rejects.toThrow(/selector is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("select without value or label is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg" })).rejects.toThrow(/value or label is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("select with both value and label is rejected before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "wg3", label: "WG3" })).rejects.toThrow(/only one of value or label/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level select failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failSelect: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "ghost" })).rejects.toThrow(/simulated select failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

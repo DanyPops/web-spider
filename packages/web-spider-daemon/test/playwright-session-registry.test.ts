@@ -168,4 +168,53 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-page-session");
 	}, 30_000);
+
+	test("real type() drives an actual input's value via per-key keyboard events (real page, not a synthetic dispatchEvent)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-type-session");
+		const page = await registry.page("real-type-session");
+
+		// A framework-style input: only updates its own "model" div in response to
+		// a real keyup event, exactly the shape a directly-set .value + a single
+		// synthetic dispatchEvent does not reliably satisfy (the real gap that
+		// motivated this task).
+		await page.goto(
+			"data:text/html,<input id='q'><div id='model'></div><script>document.getElementById('q').addEventListener('keyup', e => { document.getElementById('model').textContent = e.target.value; });</script>",
+		);
+		await page.type("#q", "E2");
+		const modelValue = await page.evaluate<string>("document.querySelector('#model').textContent");
+		expect(modelValue).toBe("E2");
+
+		await registry.close("real-type-session");
+	}, 30_000);
+
+	test("real type() with clear:false appends rather than replacing existing content", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-type-append-session");
+		const page = await registry.page("real-type-append-session");
+
+		await page.goto("data:text/html,<input id='q' value='pre-'>");
+		await page.type("#q", "fix", { clear: false });
+		const value = await page.evaluate<string>("document.querySelector('#q').value");
+		expect(value).toBe("pre-fix");
+
+		await registry.close("real-type-append-session");
+	}, 30_000);
+
+	test("real select() picks a <select> option by value and by label", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-select-session");
+		const page = await registry.page("real-select-session");
+
+		await page.goto(
+			"data:text/html,<select id='wg'><option value=''>-all-</option><option value='wg3'>WG3: Near-real-time RIC and E2 Interface Workgroup</option><option value='wg5'>WG5: Open F1/W1/E1/X2/Xn Interface Workgroup</option></select>",
+		);
+		await page.select("#wg", { value: "wg3" });
+		expect(await page.evaluate<string>("document.querySelector('#wg').value")).toBe("wg3");
+
+		await page.select("#wg", { label: "WG5: Open F1/W1/E1/X2/Xn Interface Workgroup" });
+		expect(await page.evaluate<string>("document.querySelector('#wg').value")).toBe("wg5");
+
+		await registry.close("real-select-session");
+	}, 30_000);
 });

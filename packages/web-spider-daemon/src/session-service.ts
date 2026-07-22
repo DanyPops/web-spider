@@ -12,7 +12,7 @@
  *   - script/url/selector inputs are never written to the journal verbatim
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
-import { SESSION_ACT_SCRIPT_MAX_LENGTH } from "./constants.ts";
+import { SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
@@ -37,6 +37,14 @@ export interface SessionActInput {
 	selector?: string;
 	script?: string;
 	timeoutMs?: number;
+	/** type action's text to type. Never journaled — could carry a secret. */
+	text?: string;
+	/** type action only: clear existing content first (default true). */
+	clear?: boolean;
+	/** select action: match an option by its value attribute. */
+	value?: string;
+	/** select action: match an option by its visible label. Exactly one of value/label is required. */
+	label?: string;
 }
 
 export interface SessionActOutput {
@@ -106,6 +114,16 @@ export class SessionService {
 				if (!input.script) throw new Error("script is required for an eval action");
 				if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH) throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
 			}
+			if (input.action === "type") {
+				if (!input.selector) throw new Error("selector is required for a type action");
+				if (input.text === undefined) throw new Error("text is required for a type action");
+				if (input.text.length > SESSION_ACT_TEXT_MAX_LENGTH) throw new Error(`text exceeds ${SESSION_ACT_TEXT_MAX_LENGTH} characters`);
+			}
+			if (input.action === "select") {
+				if (!input.selector) throw new Error("selector is required for a select action");
+				if (input.value === undefined && input.label === undefined) throw new Error("value or label is required for a select action");
+				if (input.value !== undefined && input.label !== undefined) throw new Error("select accepts only one of value or label, not both");
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -118,6 +136,14 @@ export class SessionService {
 				}
 				case "click": {
 					await page.click(input.selector as string, { timeoutMs: input.timeoutMs });
+					break;
+				}
+				case "type": {
+					await page.type(input.selector as string, input.text as string, { timeoutMs: input.timeoutMs, clear: input.clear });
+					break;
+				}
+				case "select": {
+					await page.select(input.selector as string, { value: input.value, label: input.label }, { timeoutMs: input.timeoutMs });
 					break;
 				}
 				case "eval": {

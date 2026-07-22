@@ -9,6 +9,16 @@ import type { SessionInfo } from "../domain/session.ts";
 export interface SessionPage {
 	goto(url: string, opts?: { timeoutMs?: number }): Promise<void>;
 	click(selector: string, opts?: { timeoutMs?: number }): Promise<void>;
+	/**
+	 * Real per-character keyboard input (Playwright's pressSequentially, not
+	 * a synthetic DOM event) — the primitive a caller needs for pages with
+	 * their own JS keyboard/input handling (framework-bound form fields that
+	 * don't react to a directly-set .value). Clears existing content first
+	 * unless opts.clear is explicitly false.
+	 */
+	type(selector: string, text: string, opts?: { timeoutMs?: number; clear?: boolean }): Promise<void>;
+	/** Selects a <select> option by its value attribute or visible label — exactly one of target.value/target.label is set. */
+	select(selector: string, target: { value?: string; label?: string }, opts?: { timeoutMs?: number }): Promise<void>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/** PNG bytes of the full page. */
 	screenshot(): Promise<Uint8Array>;
