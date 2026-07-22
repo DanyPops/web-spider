@@ -18,6 +18,8 @@ export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./
 export { probeLlmsTxt } from "./llms-txt.js";
 export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./markdown-suffix.js";
 export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
+export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./mediawiki.js";
+export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
 export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
