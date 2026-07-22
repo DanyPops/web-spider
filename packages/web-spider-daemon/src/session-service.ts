@@ -45,6 +45,10 @@ export interface SessionActInput {
 	value?: string;
 	/** select action: match an option by its visible label. Exactly one of value/label is required. */
 	label?: string;
+	/** waitFor action: wait for a page navigation state instead of a selector/text condition. Exactly one of selector/text/loadState is required. */
+	loadState?: "load" | "domcontentloaded" | "networkidle";
+	/** waitFor action: the element state to wait for when using selector/text (default "visible"). Not valid alongside loadState. */
+	state?: "visible" | "hidden" | "attached" | "detached";
 }
 
 export interface SessionActOutput {
@@ -79,7 +83,7 @@ export class SessionService {
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
-		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector });
+		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined });
 		const record = (outcome: "ok" | "error" | "stale-snapshot", error: string) => {
 			this.journal.record({
 				ts: this.now(),
@@ -124,6 +128,12 @@ export class SessionService {
 				if (input.value === undefined && input.label === undefined) throw new Error("value or label is required for a select action");
 				if (input.value !== undefined && input.label !== undefined) throw new Error("select accepts only one of value or label, not both");
 			}
+			if (input.action === "waitFor") {
+				const targets = [input.selector, input.text, input.loadState].filter((v) => v !== undefined);
+				if (targets.length === 0) throw new Error("waitFor requires exactly one of selector, text, or loadState");
+				if (targets.length > 1) throw new Error("waitFor accepts only one of selector, text, or loadState, not more than one");
+				if (input.loadState !== undefined && input.state !== undefined) throw new Error("state is not valid alongside loadState");
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -144,6 +154,13 @@ export class SessionService {
 				}
 				case "select": {
 					await page.select(input.selector as string, { value: input.value, label: input.label }, { timeoutMs: input.timeoutMs });
+					break;
+				}
+				case "waitFor": {
+					await page.waitFor(
+						{ selector: input.selector, text: input.text, loadState: input.loadState },
+						{ timeoutMs: input.timeoutMs, state: input.state },
+					);
 					break;
 				}
 				case "eval": {

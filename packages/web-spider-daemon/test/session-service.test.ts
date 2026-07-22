@@ -201,6 +201,64 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 	});
 });
 
+describe("SessionService — act: waitFor (does not bump snapshotVersion)", () => {
+	test("waits on a selector and journals the selector", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#results" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.waitForCalls).toEqual([{ target: { selector: "#results", text: undefined, loadState: undefined }, timeoutMs: undefined, state: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "waitFor", outcome: "ok", target: "#results" });
+	});
+
+	test("waits on text and journals only a fixed placeholder, never the text", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "waitFor", text: "secret-marker" });
+		expect(pages[0]!.waitForCalls[0]!.target).toEqual({ selector: undefined, text: "secret-marker", loadState: undefined });
+		expect(journal.entries[0]!.target).toBe("<text-wait>");
+		expect(JSON.stringify(journal.entries)).not.toContain("secret-marker");
+	});
+
+	test("waits on a load state and forwards the element state option only when using selector/text", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "waitFor", loadState: "networkidle" });
+		expect(pages[0]!.waitForCalls[0]!.target).toEqual({ selector: undefined, text: undefined, loadState: "networkidle" });
+
+		await service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#x", state: "hidden" });
+		expect(pages[0]!.waitForCalls[1]!.state).toBe("hidden");
+	});
+
+	test("requires exactly one of selector/text/loadState — rejects zero before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor" })).rejects.toThrow(/requires exactly one/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("requires exactly one of selector/text/loadState — rejects more than one before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#x", text: "y" })).rejects.toThrow(/only one/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("rejects state alongside loadState before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", loadState: "load", state: "visible" })).rejects.toThrow(/state is not valid alongside loadState/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level waitFor timeout is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failWaitFor: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#never-appears" })).rejects.toThrow(/simulated waitFor failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

@@ -42,12 +42,16 @@ interface PlaywrightLocatorLike {
 	selectOption(target: { value: string } | { label: string }, opts?: { timeout?: number }): Promise<string[]>;
 	/** Used only to position the cursor at the end of existing content before an appending (clear:false) type. */
 	press(key: string, opts?: { timeout?: number }): Promise<void>;
+	waitFor(opts?: { state?: "visible" | "hidden" | "attached" | "detached"; timeout?: number }): Promise<void>;
 }
 
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
 	locator(selector: string): PlaywrightLocatorLike;
+	/** Text-content locator (Playwright's own escaping, not a hand-built :text() selector string). */
+	getByText(text: string): PlaywrightLocatorLike;
+	waitForLoadState(state: "load" | "domcontentloaded" | "networkidle", opts?: { timeout?: number }): Promise<void>;
 	evaluate(script: string): Promise<unknown>;
 	screenshot(): Promise<Uint8Array>;
 }
@@ -79,6 +83,15 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
 			const option = target.value !== undefined ? { value: target.value } : { label: target.label as string };
 			await page.locator(selector).selectOption(option, timeoutOpt);
+		},
+		waitFor: async (target, opts) => {
+			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
+			if (target.loadState !== undefined) {
+				await page.waitForLoadState(target.loadState, timeoutOpt);
+				return;
+			}
+			const locator = target.selector !== undefined ? page.locator(target.selector) : page.getByText(target.text as string);
+			await locator.waitFor({ ...(opts?.state !== undefined ? { state: opts.state } : {}), ...timeoutOpt });
 		},
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: () => page.screenshot(),

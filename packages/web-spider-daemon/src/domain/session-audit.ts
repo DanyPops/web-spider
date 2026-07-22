@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -54,7 +54,7 @@ function boundedSelector(selector: string): string {
  * script source is never logged (it could embed secrets or be arbitrarily
  * large), and screenshots have no meaningful non-binary "target" at all.
  */
-export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string }): string {
+export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string }): string {
 	switch (action) {
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";
@@ -69,6 +69,15 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			// never sensitive, but the selector alone is enough for an audit
 			// trail and keeps this case symmetric with click/type.
 			return input.selector ? boundedSelector(input.selector) : "";
+		case "waitFor":
+			// A CSS selector or an enum load-state name are never sensitive and
+			// are logged verbatim/bounded; caller-supplied wait text is treated
+			// the same as type's text — never journaled, only that a text wait
+			// happened.
+			if (input.selector) return boundedSelector(input.selector);
+			if (input.loadState) return `<load-state:${input.loadState}>`;
+			if (input.text !== undefined) return "<text-wait>";
+			return "";
 		case "eval":
 			return "<script>";
 		case "screenshot":
