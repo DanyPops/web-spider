@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HttpRequest, HttpResponse, IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
+import { createLogger } from "@danypops/daemon-kit/logging";
 import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
 import { FetchService } from "../src/fetch-service.ts";
@@ -117,6 +118,53 @@ describe("FetchService — robots.txt", () => {
 		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }), blockRobots());
 		const result = await service.fetch({ url: URL });
 		expect(result).toEqual({ blocked: true, url: URL, reason: "robots.txt" });
+	});
+
+	test("ignoreRobots:true bypasses a robots.txt block for this one request", async () => {
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const cache = new SQLiteCacheStore(db, { imagesDir });
+		const service = new FetchService({
+			cache,
+			throttle: noopThrottle(),
+			robotsCache: blockRobots(),
+			defaultHttpClient: fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }),
+			getPlaywrightClient: () => fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }),
+		});
+		const blocked = await service.fetch({ url: URL });
+		expect(blocked).toEqual({ blocked: true, url: URL, reason: "robots.txt" });
+
+		const allowed = await service.fetch({ url: URL, ignoreRobots: true });
+		expect(allowed).toMatchObject({ url: URL, title: "Fixture Article" });
+	});
+
+	test("ignoreRobots:true is logged (audited, not silent) -- never used without a trace", async () => {
+		const lines: string[] = [];
+		const logger = createLogger("test", { level: "debug", destination: { write: (chunk: string) => { lines.push(chunk); return true; } } });
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const cache = new SQLiteCacheStore(db, { imagesDir });
+		const service = new FetchService({
+			cache,
+			throttle: noopThrottle(),
+			robotsCache: allowRobots(),
+			defaultHttpClient: fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }),
+			getPlaywrightClient: () => fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }),
+			logger,
+		});
+
+		await service.fetch({ url: URL }); // no ignoreRobots -- must not log
+		expect(lines).toHaveLength(0);
+
+		await service.fetch({ url: URL, ignoreRobots: true });
+		expect(lines).toHaveLength(1);
+		const logged = JSON.parse(lines[0]!);
+		expect(logged).toMatchObject({ level: "warn", msg: "robots_txt_ignored", url: URL, operation: "fetch" });
+	});
+
+	test("never logs when no logger is configured (optional dependency, not a hard requirement)", async () => {
+		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }), allowRobots());
+		await expect(service.fetch({ url: URL, ignoreRobots: true })).resolves.toMatchObject({ title: "Fixture Article" });
 	});
 });
 

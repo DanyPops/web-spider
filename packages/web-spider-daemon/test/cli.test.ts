@@ -134,6 +134,22 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect(operations[0]?.input).toMatchObject({ format: "tree", path: "a.b", topN: 3, enhanced: true, tokenBudget: 500 });
 	});
 
+	test("--ignore-robots is forwarded as true; omitted entirely by default", async () => {
+		const { deps: withFlag, operations: withFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test", "--ignore-robots"], withFlag);
+		expect(withFlagOps[0]?.input).toMatchObject({ ignoreRobots: true });
+
+		const { deps: withoutFlag, operations: withoutFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test"], withoutFlag);
+		expect((withoutFlagOps[0]?.input as { ignoreRobots?: boolean }).ignoreRobots).toBeUndefined();
+	});
+
+	test("--ignore-robots also forwards to a crawl (depth > 0), same shared flag", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ pagesFound: 0, pages: [] }) });
+		await runCli(["fetch", "https://x.test", "--depth", "1", "--ignore-robots"], deps);
+		expect(operations).toEqual([{ op: "crawl", input: expect.objectContaining({ ignoreRobots: true }) }]);
+	});
+
 	test("--json prints the raw operation result verbatim", async () => {
 		const { deps, calls } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--json"], deps);
