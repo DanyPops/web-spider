@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
+import { probeLlmsTxt } from "./llms-txt.js";
 import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
@@ -97,6 +98,16 @@ export interface SpiderOptions {
 	 * Default: 10.
 	 */
 	maxImages?: number;
+	/**
+	 * When true, probes the target URL's origin for a real llms.txt before
+	 * the normal fetch+Readability path. If found, returns a page built
+	 * directly from the llms.txt content (viaStrategy: "llms.txt", url set
+	 * to the llms.txt URL actually fetched) instead of parsing the requested
+	 * URL's own HTML. If not found, falls through to the normal path
+	 * unchanged as if this option were never set.
+	 * Default: false — preserves the existing fetch contract exactly.
+	 */
+	preferLlmsTxt?: boolean;
 }
 
 /**
@@ -326,6 +337,7 @@ export async function spider(
 		httpClient = defaultHttpClient,
 		captureImages = false,
 		maxImages = 10,
+		preferLlmsTxt = false,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -345,6 +357,27 @@ export async function spider(
 		if (!allowed) throw new Error(`Blocked by robots.txt: ${url}`);
 		if (crawlDelayMs && throttle) {
 			throttle.setDomainDelay(parsedUrl.hostname, crawlDelayMs);
+		}
+	}
+
+	// llms.txt strategy: cheap probe before the normal fetch+Readability path.
+	// Only attempted after the robots.txt check above already passed for this
+	// host, so a site-wide Disallow still blocks this too. A miss falls
+	// through to the normal path unchanged, as if preferLlmsTxt were never set.
+	if (preferLlmsTxt) {
+		const probe = await probeLlmsTxt(url, httpClient, { timeoutMs, userAgent });
+		if (probe) {
+			const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
+			const page = buildNonHtmlPage({
+				url: probe.url,
+				domain: probeDomain,
+				fetchedAt: new Date().toISOString(),
+				contentTypeHeader: probe.contentType,
+				rawText: probe.content,
+				view,
+				isJson: false,
+			});
+			return { ...page, viaStrategy: "llms.txt" };
 		}
 	}
 
