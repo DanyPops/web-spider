@@ -20,6 +20,8 @@ export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./
 export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
 export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./mediawiki.js";
 export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./github.js";
+export { parseGitHubUrl, queryGitHub } from "./github.js";
 export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";

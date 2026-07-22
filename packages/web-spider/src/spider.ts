@@ -4,6 +4,7 @@ import { chunk, toMarkdown } from "./convert.js";
 import { probeLlmsTxt } from "./llms-txt.js";
 import { probeMarkdownVariant } from "./markdown-suffix.js";
 import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+import { queryGitHub } from "./github.js";
 import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
@@ -134,6 +135,21 @@ export interface SpiderOptions {
 	 * Default: false — preserves the existing fetch contract exactly.
 	 */
 	preferMediaWiki?: boolean;
+	/**
+	 * When true and the URL is a github.com repo/issue/pull-request page,
+	 * queries GitHub's real REST API for structured data (repo metadata +
+	 * README, or issue/PR title/state/labels/body) instead of scraping
+	 * GitHub's JS-heavy rendered pages. Unauthenticated requests are limited
+	 * to 60/hour per IP (GitHub's own limit, verified directly) -- pass
+	 * githubToken, or set GITHUB_TOKEN/GH_TOKEN in the environment, to raise
+	 * this to 5,000/hour. `url` is unchanged (same resource, different
+	 * mechanism). Falls through unchanged for blob/wiki/other URL shapes,
+	 * non-github.com hosts, or any API failure (rate limit, 404, network).
+	 * Default: false — preserves the existing fetch contract exactly.
+	 */
+	preferGitHub?: boolean;
+	/** Explicit GitHub token for preferGitHub; falls back to GITHUB_TOKEN/GH_TOKEN env vars. Never logged. */
+	githubToken?: string;
 }
 
 /**
@@ -371,6 +387,8 @@ export async function spider(
 		preferLlmsTxt = false,
 		preferMarkdownVariant = false,
 		preferMediaWiki = false,
+		preferGitHub = false,
+		githubToken,
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -430,6 +448,25 @@ export async function spider(
 				isJson: false,
 			});
 			return { ...page, viaStrategy: "markdown-suffix" };
+		}
+	}
+
+	// GitHub API strategy: repo/issue/PR metadata via the real REST API
+	// instead of scraping GitHub's JS-heavy rendered pages. Same resource,
+	// different mechanism, so url stays the originally requested one.
+	if (preferGitHub) {
+		const result = await queryGitHub(url, httpClient, { token: githubToken, timeoutMs, userAgent });
+		if (result) {
+			const page = buildNonHtmlPage({
+				url,
+				domain: new URL(url).hostname.replace(/^www\./, ""),
+				fetchedAt: new Date().toISOString(),
+				contentTypeHeader: "text/markdown; charset=utf-8",
+				rawText: result.markdown,
+				view,
+				isJson: false,
+			});
+			return { ...page, title: result.title, viaStrategy: "github" };
 		}
 	}
 
