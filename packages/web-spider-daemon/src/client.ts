@@ -1,55 +1,43 @@
 /**
- * Typed authenticated loopback client — mirrors jittor/src/client.ts.
- * The Pi extension and CLI both use this; neither opens SQLite directly.
+ * Typed authenticated loopback client. Delegates to @danypops/daemon-kit's
+ * generic AuthenticatedRpcClient (this file used to duplicate jittor's own
+ * client.ts byte-for-byte). The Pi extension and CLI both use this;
+ * neither opens SQLite directly.
+ *
+ * Note: packages/pi-extension/src/daemon-client.ts intentionally
+ * duplicates a small, Bun-independent subset of this instead of importing
+ * it -- see that file's header comment (jiti/native-ESM loader fragility
+ * with a dependency's raw, unbuilt TypeScript). This migration does not
+ * change that; daemon-kit itself is raw TypeScript too and would hit the
+ * same risk if pi-extension ever imported it directly.
  */
+import { AuthenticatedRpcClient, type FetchTransport } from "@danypops/daemon-kit/rpc-client";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 import { ensureAuthToken, readDaemonHandle, resolveWebSpiderPaths, type WebSpiderPaths } from "./state.ts";
 
-export type FetchTransport = (request: Request) => Promise<Response>;
+export type { FetchTransport };
 
 export class WebSpiderClient {
-	constructor(
-		private readonly baseUrl: string,
-		private readonly token: string,
-		private readonly transport: FetchTransport = fetch,
-	) {}
+	private readonly rpc: AuthenticatedRpcClient<OperationName, OperationInputs, OperationOutputs>;
 
-	async call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
-		const response = await this.transport(new Request(`${this.baseUrl}/api/v1/ops`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: operation, input }),
-		}));
-		const body = await response.json() as { result?: OperationOutputs[Name]; error?: string };
-		if (!response.ok) throw new Error(body.error ?? `Web Spider operation failed with HTTP ${response.status}`);
-		return body.result as OperationOutputs[Name];
+	constructor(baseUrl: string, token: string, transport: FetchTransport = fetch) {
+		this.rpc = new AuthenticatedRpcClient(baseUrl, token, { label: "Web Spider", transport });
 	}
 
-	async operations(): Promise<OperationName[]> {
-		const response = await this.transport(new Request(`${this.baseUrl}/api/v1/ops`, {
-			headers: { authorization: `Bearer ${this.token}` },
-		}));
-		const body = await response.json() as { operations?: OperationName[]; error?: string };
-		if (!response.ok) throw new Error(body.error ?? `Web Spider discovery failed with HTTP ${response.status}`);
-		return body.operations ?? [];
+	call<Name extends OperationName>(operation: Name, input: OperationInputs[Name]): Promise<OperationOutputs[Name]> {
+		return this.rpc.call(operation, input);
 	}
 
-	async ready(): Promise<boolean> {
-		const response = await this.transport(new Request(`${this.baseUrl}/ready`, {
-			headers: { authorization: `Bearer ${this.token}` },
-		}));
-		if (response.status === 503) return false;
-		if (!response.ok) throw new Error(`Web Spider readiness check failed with HTTP ${response.status}`);
-		return true;
+	operations(): Promise<OperationName[]> {
+		return this.rpc.operations();
 	}
 
-	async health(): Promise<{ ok: true; version: string }> {
-		const response = await this.transport(new Request(`${this.baseUrl}/health`, {
-			headers: { authorization: `Bearer ${this.token}` },
-		}));
-		const body = await response.json() as { ok?: boolean; version?: string; error?: string };
-		if (!response.ok || body.ok !== true || typeof body.version !== "string") throw new Error(body.error ?? "Web Spider health check failed");
-		return { ok: true, version: body.version };
+	ready(): Promise<boolean> {
+		return this.rpc.ready();
+	}
+
+	health(): Promise<{ ok: true; version: string }> {
+		return this.rpc.health();
 	}
 }
 
