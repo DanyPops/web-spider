@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectWebSpiderClient } from "../src/client.ts";
 import { readDaemonHandle, resolveWebSpiderPaths } from "../src/state.ts";
+import { VERSION } from "../src/version.ts";
 
 const CLI_PATH = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -50,6 +51,10 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 			const client = connectWebSpiderClient(paths);
 			const health = await client.health();
 			expect(health.ok).toBe(true);
+			// Regression: this used to be a hand-hardcoded "0.1.0" that never
+			// moved past the package's first release.
+			expect(health.version).toBe(VERSION);
+			expect(health.version).not.toBe("0.1.0");
 
 			const operations = await client.operations();
 			expect(operations).toContain("cache.list");
@@ -62,7 +67,14 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 			expect(await client.ready()).toBe(true);
 		} finally {
 			proc.kill("SIGTERM");
-			await proc.exited;
+			const exitCode = await proc.exited;
+			const stderr = await new Response(proc.stderr).text();
+			// Regression: the checkpoint/optimize maintenance timers used to
+			// swallow failures with an empty catch block and log nothing at all,
+			// ever -- confirm the daemon now emits real structured events.
+			expect(stderr).toContain('"event":"listening"');
+			expect(stderr).toContain('"component":"web-spider-daemon"');
+			expect(exitCode).toBe(0);
 			await waitFor(() => readDaemonHandle(paths) === null);
 			rmSync(root, { recursive: true, force: true });
 		}
