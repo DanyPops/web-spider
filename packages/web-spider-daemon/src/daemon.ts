@@ -1,12 +1,18 @@
 /**
- * Bun composition root — mirrors papyrus/src/daemon.ts / jittor/src/daemon.ts.
- * Binds loopback-only on an OS-assigned port, writes the daemon handle only
- * after a successful bind, and removes it on clean shutdown.
+ * Bun composition root. Delegates to @danypops/daemon-kit's
+ * runDaemonProcess -- this file used to duplicate jittor's/papyrus's own
+ * daemon.ts almost exactly (bind loopback:0, write the handle only after
+ * a successful bind, periodic maintenance timers, clean SIGINT/SIGTERM
+ * shutdown). daemon-kit's startDaemon already logs a failing maintenance
+ * task itself (never silently swallowed, never crashes the daemon) --
+ * the exact bug this file's own checkpoint/optimize timers were fixed for
+ * earlier this session.
  */
-import { DB_OPTIMIZE_INTERVAL_MS, LOOPBACK_HOST, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
-import { ensureAuthToken, removeDaemonHandle, resolveLegacyCachePath, resolveWebSpiderPaths, writeDaemonHandle } from "./state.ts";
-import { createApp, createWebSpiderService } from "./service.ts";
+import { runDaemonProcess } from "@danypops/daemon-kit/daemon";
 import { createLogger } from "@danypops/daemon-kit/logging";
+import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
+import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
+import { createApp, createWebSpiderService } from "./service.ts";
 
 const logger = createLogger("web-spider-daemon");
 
@@ -15,36 +21,17 @@ export function serveMain(): void {
 	const token = ensureAuthToken(paths);
 	const service = createWebSpiderService(paths.database);
 	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
-	const app = createApp({ service, token });
-	const server = Bun.serve({
-		hostname: LOOPBACK_HOST,
-		port: 0,
-		fetch: (request) => app.fetch(request),
+
+	runDaemonProcess({
+		daemonLabel: "Web Spider",
+		handlePath: paths.handle,
+		logger,
+		buildApp: () => createApp({ service, token }),
+		maintenanceTasks: [
+			{ name: "checkpoint", intervalMs: WAL_CHECKPOINT_INTERVAL_MS, run: () => service.checkpoint() },
+			{ name: "optimize", intervalMs: DB_OPTIMIZE_INTERVAL_MS, run: () => service.optimize() },
+		],
+		onShutdown: () => service.close(),
+		onListen: ({ host, port }) => logger.info("listening", { host, port }),
 	});
-	if (!server.port) {
-		service.close();
-		throw new Error("Web Spider daemon failed to bind a listener");
-	}
-	writeDaemonHandle(paths, { host: LOOPBACK_HOST, port: server.port, pid: process.pid });
-
-	const checkpointTimer = setInterval(() => {
-		try { service.checkpoint(); } catch (error) { logger.error("checkpoint_failed", { message: error instanceof Error ? error.message : String(error) }); }
-	}, WAL_CHECKPOINT_INTERVAL_MS);
-	const optimizeTimer = setInterval(() => {
-		try { service.optimize(); } catch (error) { logger.error("optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
-	}, DB_OPTIMIZE_INTERVAL_MS);
-
-	let stopping = false;
-	const shutdown = () => {
-		if (stopping) return;
-		stopping = true;
-		clearInterval(checkpointTimer);
-		clearInterval(optimizeTimer);
-		removeDaemonHandle(paths);
-		service.close();
-		void server.stop(true).finally(() => process.exit(0));
-	};
-	process.on("SIGINT", shutdown);
-	process.on("SIGTERM", shutdown);
-	logger.info("listening", { host: LOOPBACK_HOST, port: server.port });
 }
