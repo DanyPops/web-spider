@@ -51,6 +51,7 @@ Earlier versions ran entirely in-process inside the Pi extension, caching pages 
 ## Documentation
 
 - [`docs/web-fetch-api.md`](docs/web-fetch-api.md) — the `web_fetch` tool's full parameter/output reference (consumer-facing contract).
+- [`docs/web-session-api.md`](docs/web-session-api.md) — the `web_session` tool's full reference: persistent, named browser sessions for pages that need real interaction (typing, dropdowns, waiting on async results, reading tables) rather than a single fetch.
 - [`packages/web-spider-daemon/README.md`](packages/web-spider-daemon/README.md) — daemon architecture, every operation, full CLI reference, service install, health endpoints.
 
 ## Development
