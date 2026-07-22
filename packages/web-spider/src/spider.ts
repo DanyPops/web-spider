@@ -630,7 +630,11 @@ export async function spider(
 			description: meta("description"),
 			author: article.byline ?? meta("author"),
 			publishedAt: meta("article:published_time") ?? meta("date"),
-			lang: doc.documentElement.lang ?? "en",
+			// Readability's .parse() call above can mutate the document enough to
+			// null out documentElement on some real pages (confirmed against a
+			// live page, gitlab.com/gitlab-org/gitlab) -- optional chaining, not
+			// an assumption that it's always still there.
+			lang: doc.documentElement?.lang ?? "en",
 			tags,
 			wordCount,
 			readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
@@ -664,7 +668,9 @@ export async function spider(
 			description: meta("description"),
 			author: article.byline ?? meta("author"),
 			publishedAt: meta("article:published_time") ?? meta("date"),
-			lang: doc.documentElement.lang ?? "en",
+			// See the lean-view branch above: Readability can null out
+			// documentElement on some real pages.
+			lang: doc.documentElement?.lang ?? "en",
 			tags,
 			wordCount,
 			readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
@@ -720,7 +726,9 @@ export async function spider(
 		description: meta("description"),
 		author: article.byline ?? meta("author"),
 		publishedAt: meta("article:published_time") ?? meta("date"),
-		lang: doc.documentElement.lang ?? "en",
+		// See the lean-view branch above: Readability can null out
+		// documentElement on some real pages.
+		lang: doc.documentElement?.lang ?? "en",
 		tags,
 		wordCount,
 		readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
