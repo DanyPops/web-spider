@@ -6,7 +6,9 @@
 import { DB_OPTIMIZE_INTERVAL_MS, LOOPBACK_HOST, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { ensureAuthToken, removeDaemonHandle, resolveLegacyCachePath, resolveWebSpiderPaths, writeDaemonHandle } from "./state.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
-import { logEvent } from "./log.ts";
+import { createLogger } from "@danypops/daemon-kit/logging";
+
+const logger = createLogger("web-spider-daemon");
 
 export function serveMain(): void {
 	const paths = resolveWebSpiderPaths();
@@ -26,10 +28,10 @@ export function serveMain(): void {
 	writeDaemonHandle(paths, { host: LOOPBACK_HOST, port: server.port, pid: process.pid });
 
 	const checkpointTimer = setInterval(() => {
-		try { service.checkpoint(); } catch (error) { logEvent("error", "checkpoint_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		try { service.checkpoint(); } catch (error) { logger.error("checkpoint_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, WAL_CHECKPOINT_INTERVAL_MS);
 	const optimizeTimer = setInterval(() => {
-		try { service.optimize(); } catch (error) { logEvent("error", "optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		try { service.optimize(); } catch (error) { logger.error("optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, DB_OPTIMIZE_INTERVAL_MS);
 
 	let stopping = false;
@@ -44,5 +46,5 @@ export function serveMain(): void {
 	};
 	process.on("SIGINT", shutdown);
 	process.on("SIGTERM", shutdown);
-	logEvent("info", "listening", { host: LOOPBACK_HOST, port: server.port });
+	logger.info("listening", { host: LOOPBACK_HOST, port: server.port });
 }

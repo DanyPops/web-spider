@@ -72,7 +72,9 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 			// Regression: the checkpoint/optimize maintenance timers used to
 			// swallow failures with an empty catch block and log nothing at all,
 			// ever -- confirm the daemon now emits real structured events.
-			expect(stderr).toContain('"event":"listening"');
+			// "msg" (not "event") is @danypops/daemon-kit's pino-backed field
+			// name for the log message text -- see log.test.ts.
+			expect(stderr).toContain('"msg":"listening"');
 			expect(stderr).toContain('"component":"web-spider-daemon"');
 			expect(exitCode).toBe(0);
 			await waitFor(() => readDaemonHandle(paths) === null);
