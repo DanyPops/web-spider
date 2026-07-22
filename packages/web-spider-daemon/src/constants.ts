@@ -70,3 +70,5 @@ export const SESSION_ACT_URL_MAX_LENGTH = 500;
 export const SESSION_JOURNAL_ERROR_MAX_LENGTH = 300;
 export const SESSION_ACT_SCRIPT_MAX_LENGTH = 10_000;
 export const SESSION_ACT_DEFAULT_TIMEOUT_MS = 30_000;
+/** Bounded length for a type action's text — a form-field value, never a script or document body. */
+export const SESSION_ACT_TEXT_MAX_LENGTH = 2_000;

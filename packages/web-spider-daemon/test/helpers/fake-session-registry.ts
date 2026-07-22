@@ -4,6 +4,8 @@ import type { SessionPage } from "../../src/ports/session-registry.ts";
 export interface FakePageOptions {
 	failGoto?: boolean;
 	failClick?: boolean;
+	failType?: boolean;
+	failSelect?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
@@ -13,6 +15,8 @@ export interface FakePageOptions {
 export interface FakeSessionPage extends SessionPage {
 	gotoCalls: Array<{ url: string; timeoutMs?: number }>;
 	clickCalls: Array<{ selector: string; timeoutMs?: number }>;
+	typeCalls: Array<{ selector: string; text: string; timeoutMs?: number; clear?: boolean }>;
+	selectCalls: Array<{ selector: string; target: { value?: string; label?: string }; timeoutMs?: number }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 }
@@ -20,11 +24,15 @@ export interface FakeSessionPage extends SessionPage {
 export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const gotoCalls: FakeSessionPage["gotoCalls"] = [];
 	const clickCalls: FakeSessionPage["clickCalls"] = [];
+	const typeCalls: FakeSessionPage["typeCalls"] = [];
+	const selectCalls: FakeSessionPage["selectCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	return {
 		gotoCalls,
 		clickCalls,
+		typeCalls,
+		selectCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		async goto(url, callOpts) {
@@ -34,6 +42,14 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async click(selector, callOpts) {
 			clickCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failClick) throw new Error("simulated click failure: element not found");
+		},
+		async type(selector, text, callOpts) {
+			typeCalls.push({ selector, text, timeoutMs: callOpts?.timeoutMs, clear: callOpts?.clear });
+			if (opts.failType) throw new Error("simulated type failure: element not found");
+		},
+		async select(selector, target, callOpts) {
+			selectCalls.push({ selector, target, timeoutMs: callOpts?.timeoutMs });
+			if (opts.failSelect) throw new Error("simulated select failure: option not found");
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

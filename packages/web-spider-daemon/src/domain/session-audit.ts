@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -59,6 +59,15 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";
 		case "click":
+			return input.selector ? boundedSelector(input.selector) : "";
+		case "type":
+			// The selector is fine to log (it's not sensitive); the typed text
+			// itself never is — it could be a password or any other secret.
+			return input.selector ? boundedSelector(input.selector) : "";
+		case "select":
+			// Same reasoning as click — a dropdown's value/label is essentially
+			// never sensitive, but the selector alone is enough for an audit
+			// trail and keeps this case symmetric with click/type.
 			return input.selector ? boundedSelector(input.selector) : "";
 		case "eval":
 			return "<script>";
