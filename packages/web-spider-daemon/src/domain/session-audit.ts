@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -78,6 +78,12 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			if (input.loadState) return `<load-state:${input.loadState}>`;
 			if (input.text !== undefined) return "<text-wait>";
 			return "";
+		case "queryText":
+		case "readTable":
+			// The selector is fine to log; the *extracted page content* itself
+			// is never journaled — it's part of the operation's own response to
+			// the caller, not the append-only journal (see file header).
+			return input.selector ? boundedSelector(input.selector) : "";
 		case "eval":
 			return "<script>";
 		case "screenshot":

@@ -72,3 +72,7 @@ export const SESSION_ACT_SCRIPT_MAX_LENGTH = 10_000;
 export const SESSION_ACT_DEFAULT_TIMEOUT_MS = 30_000;
 /** Bounded length for a type action's text — a form-field value, never a script or document body. */
 export const SESSION_ACT_TEXT_MAX_LENGTH = 2_000;
+/** queryText/readTable: max items (text entries, or table rows) returned — never an unbounded page dump. */
+export const SESSION_ACT_EXTRACT_MAX_ITEMS = 200;
+/** queryText/readTable: max length of a single extracted string (one text entry, or one cell) — caps a pathologically large single element. */
+export const SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH = 2_000;

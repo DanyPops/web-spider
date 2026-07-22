@@ -268,4 +268,40 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-waitfor-loadstate-session");
 	}, 30_000);
+
+	test("real queryText() returns trimmed text per matched element, in document order", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-querytext-session");
+		const page = await registry.page("real-querytext-session");
+
+		await page.goto("data:text/html,<ul><li>  E2 Application Protocol  </li><li>E2SM-KPM</li><li>E2SM-RC</li></ul>");
+		const texts = await page.queryText("li");
+		expect(texts).toEqual(["E2 Application Protocol", "E2SM-KPM", "E2SM-RC"]);
+
+		await registry.close("real-querytext-session");
+	}, 30_000);
+
+	test("real readTable() returns structured rows/cells, excluding a nested table's own rows", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-readtable-session");
+		const page = await registry.page("real-readtable-session");
+
+		await page.goto(
+			"data:text/html,<table id='specs'><tbody>" +
+				"<tr><td>O-RAN E2 Application Protocol</td><td>O-RAN.WG3.TS.E2AP-R004-v08.00</td></tr>" +
+				"<tr><td>O-RAN E2SM-KPM<table><tr><td>nested-should-not-appear</td></tr></table></td><td>O-RAN.WG3.TS.E2SM-KPM-R005-v08.00</td></tr>" +
+				"</tbody></table>",
+		);
+		const rows = await page.readTable("#specs");
+		// :scope-rooting is what keeps this at 2, not 3 — without it, the nested
+		// table's own <tr> would be flattened in as a third, misattributed
+		// top-level row of #specs. A cell's own textContent naturally still
+		// includes text nested inside it (that's correct, not a leak).
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toEqual(["O-RAN E2 Application Protocol", "O-RAN.WG3.TS.E2AP-R004-v08.00"]);
+		expect(rows[1]![0]).toContain("O-RAN E2SM-KPM");
+		expect(rows[1]![1]).toBe("O-RAN.WG3.TS.E2SM-KPM-R005-v08.00");
+
+		await registry.close("real-readtable-session");
+	}, 30_000);
 });

@@ -372,6 +372,20 @@ describe("runCli session act", () => {
 		expect(operations[1]?.input).toMatchObject({ loadState: "networkidle" });
 	});
 
+	test("queryText forwards the selector; human output prints the result", async () => {
+		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "queryText", snapshotVersion: 0, result: ["foo", "bar"] }) });
+		await runCli(["session", "act", "a", "--action", "queryText", "--snapshot-version", "0", "--selector", "li"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "li" });
+		expect(calls.some((c) => c.includes('["foo","bar"]'))).toBe(true);
+	});
+
+	test("readTable forwards the selector; human output prints the result", async () => {
+		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "readTable", snapshotVersion: 0, result: [["a", "b"]] }) });
+		await runCli(["session", "act", "a", "--action", "readTable", "--snapshot-version", "0", "--selector", "table"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "table" });
+		expect(calls.some((c) => c.includes('[["a","b"]]'))).toBe(true);
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);
