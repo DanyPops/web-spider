@@ -12,6 +12,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
+import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
@@ -268,10 +269,6 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	};
 }
 
-function json(value: unknown, init?: ResponseInit): Response {
-	return Response.json(value, init);
-}
-
 async function readOperationBody(request: Request): Promise<{ op?: unknown; input?: unknown }> {
 	const declared = Number(request.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > SERVICE_MAX_BODY_BYTES) {
@@ -300,37 +297,37 @@ async function readOperationBody(request: Request): Promise<{ op?: unknown; inpu
 export function createApp(deps: { service: WebSpiderService; token: string }): { fetch(request: Request): Promise<Response> } {
 	return {
 		async fetch(request: Request): Promise<Response> {
-			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {
-				return json({ error: "missing or invalid bearer token" }, { status: 401 });
+			if (!requireBearerToken(request, deps.token)) {
+				return errorResponse("missing or invalid bearer token", 401);
 			}
 			const url = new URL(request.url);
 			if (request.method === "GET" && url.pathname === "/health") {
-				return json({ ok: true, version: VERSION, schema: deps.service.schemaState() });
+				return healthResponse(VERSION, { schema: deps.service.schemaState() });
 			}
 			if (request.method === "GET" && url.pathname === "/ready") {
-				return json({ ready: true });
+				return readyResponse(true);
 			}
 			if (request.method === "GET" && url.pathname === "/api/v1/ops") {
-				return json({ operations: deps.service.operationNames() });
+				return jsonResponse({ operations: deps.service.operationNames() });
 			}
 			if (request.method === "POST" && url.pathname === "/api/v1/ops") {
 				try {
 					const body = await readOperationBody(request);
-					if (typeof body.op !== "string") return json({ error: "op is required" }, { status: 400 });
+					if (typeof body.op !== "string") return errorResponse("op is required", 400);
 					const input = body.input === undefined ? {} : body.input;
 					if (typeof input !== "object" || input === null || Array.isArray(input)) {
-						return json({ error: "input must be an object" }, { status: 400 });
+						return errorResponse("input must be an object", 400);
 					}
-					return json({ result: await deps.service.execute(body.op, input as OperationInput) });
+					return jsonResponse({ result: await deps.service.execute(body.op, input as OperationInput) });
 				} catch (error) {
 					const status = error instanceof PayloadTooLargeError ? 413
 						: error instanceof UnknownOperationError || error instanceof SessionNotFoundError ? 404
 							: error instanceof StaleSnapshotError ? 409
 								: 400;
-					return json({ error: error instanceof Error ? error.message : String(error) }, { status });
+					return errorResponse(error instanceof Error ? error.message : String(error), status);
 				}
 			}
-			return json({ error: "not found" }, { status: 404 });
+			return errorResponse("not found", 404);
 		},
 	};
 }
