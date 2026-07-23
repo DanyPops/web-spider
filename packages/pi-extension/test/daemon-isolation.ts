@@ -12,7 +12,7 @@
  * `env: isolatedDaemonEnv().env` and call `.cleanup()` in an after hook.
  */
 import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { readDaemonHandle, resolveWebSpiderPaths, type WebSpiderPaths } from "../src/daemon-client.js"
 
@@ -39,6 +39,16 @@ export function isolatedDaemonEnv(prefix = "pi-web-spider-test-"): IsolatedDaemo
     XDG_STATE_HOME: join(root, "state"),
     XDG_RUNTIME_DIR: join(root, "run"),
     WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
+    // Same class of bug as WEB_SPIDER_CACHE_PATH above, found via a real CI
+    // failure (never reproduced locally, only on a fresh runner): Playwright
+    // resolves its installed-browsers cache relative to $HOME by default when
+    // PLAYWRIGHT_BROWSERS_PATH isn't set. The spawned daemon subprocess (which
+    // launches real session browsers) inherits this isolated HOME, so without
+    // this override it looks for browsers under the fake temp root — where
+    // none were ever installed — instead of the real, already-installed
+    // location, even though the real browsers exist and CI's own install step
+    // ran successfully. Computed from the *real* homedir(), not the fake root.
+    PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache", "ms-playwright"),
   }
   const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 })
   return {
