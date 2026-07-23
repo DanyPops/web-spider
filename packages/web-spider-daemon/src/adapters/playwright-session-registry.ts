@@ -57,6 +57,7 @@ interface PlaywrightLocatorLike {
 	evaluate<T>(fn: (el: MinimalDomElement) => T, arg: undefined, opts?: { timeout?: number }): Promise<T>;
 	/** Screenshot of just this element's own bounding box. */
 	screenshot(opts?: { scale?: "css" | "device" }): Promise<Uint8Array>;
+	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 }
 
 interface PlaywrightPageLike {
@@ -68,6 +69,7 @@ interface PlaywrightPageLike {
 	waitForLoadState(state: "load" | "domcontentloaded" | "networkidle", opts?: { timeout?: number }): Promise<void>;
 	evaluate(script: string): Promise<unknown>;
 	screenshot(opts?: { fullPage?: boolean; scale?: "css" | "device" }): Promise<Uint8Array>;
+	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 }
 
 function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
@@ -119,6 +121,11 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 				const rows = el.querySelectorAll(":scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr");
 				return Array.from(rows).map((row) => Array.from(row.querySelectorAll(":scope > td, :scope > th")).map((cell) => (cell.textContent ?? "").trim()));
 			}, undefined, timeoutOpt);
+		},
+		snapshot: (opts) => {
+			const ariaOpts = { depth: opts?.depth, boxes: opts?.boxes, mode: opts?.mode, timeout: opts?.timeoutMs };
+			if (opts?.selector !== undefined) return page.locator(opts.selector).ariaSnapshot(ariaOpts);
+			return page.ariaSnapshot(ariaOpts);
 		},
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: (opts) => {

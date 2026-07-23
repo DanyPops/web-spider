@@ -9,12 +9,14 @@ export interface FakePageOptions {
 	failWaitFor?: boolean;
 	failQueryText?: boolean;
 	failReadTable?: boolean;
+	failSnapshot?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
 	screenshotBytes?: Uint8Array;
 	queryTextResult?: string[];
 	readTableResult?: string[][];
+	snapshotResult?: string;
 }
 
 export interface FakeSessionPage extends SessionPage {
@@ -25,6 +27,7 @@ export interface FakeSessionPage extends SessionPage {
 	waitForCalls: Array<{ target: { selector?: string; text?: string; loadState?: string }; timeoutMs?: number; state?: string }>;
 	queryTextCalls: Array<{ selector: string; timeoutMs?: number }>;
 	readTableCalls: Array<{ selector: string; timeoutMs?: number }>;
+	snapshotCalls: Array<{ selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
@@ -38,6 +41,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const waitForCalls: FakeSessionPage["waitForCalls"] = [];
 	const queryTextCalls: FakeSessionPage["queryTextCalls"] = [];
 	const readTableCalls: FakeSessionPage["readTableCalls"] = [];
+	const snapshotCalls: FakeSessionPage["snapshotCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	const screenshotCalls: FakeSessionPage["screenshotCalls"] = [];
@@ -49,6 +53,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		waitForCalls,
 		queryTextCalls,
 		readTableCalls,
+		snapshotCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		screenshotCalls,
@@ -81,6 +86,11 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 			readTableCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failReadTable) throw new Error("simulated readTable failure: element not found");
 			return opts.readTableResult ?? [];
+		},
+		async snapshot(callOpts) {
+			snapshotCalls.push(callOpts);
+			if (opts.failSnapshot) throw new Error("simulated snapshot failure");
+			return opts.snapshotResult ?? '- generic "root"';
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

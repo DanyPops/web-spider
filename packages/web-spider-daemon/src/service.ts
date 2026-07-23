@@ -112,10 +112,11 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "eval", "screenshot"]);
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "eval", "screenshot"]);
 const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
 const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 const SCREENSHOT_SCALES = new Set(["css", "device"]);
+const SNAPSHOT_MODES = new Set(["ai", "default"]);
 
 function sessionActInput(input: OperationInput): SessionActInput {
 	const name = requireString(input, "name");
@@ -125,7 +126,7 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	}
 	const action = requireString(input, "action");
 	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "eval", "screenshot"');
+		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "eval", "screenshot"');
 	}
 	const loadState = optionalString(input, "loadState");
 	if (loadState !== undefined && !LOAD_STATES.has(loadState)) {
@@ -138,6 +139,10 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	const scale = optionalString(input, "scale");
 	if (scale !== undefined && !SCREENSHOT_SCALES.has(scale)) {
 		throw new Error('scale must be one of "css", "device"');
+	}
+	const mode = optionalString(input, "mode");
+	if (mode !== undefined && !SNAPSHOT_MODES.has(mode)) {
+		throw new Error('mode must be one of "ai", "default"');
 	}
 	return {
 		name,
@@ -155,6 +160,9 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		state: state as SessionActInput["state"],
 		fullPage: optionalBoolean(input, "fullPage"),
 		scale: scale as SessionActInput["scale"],
+		depth: optionalNumber(input, "depth"),
+		boxes: optionalBoolean(input, "boxes"),
+		mode: mode as SessionActInput["mode"],
 	};
 }
 

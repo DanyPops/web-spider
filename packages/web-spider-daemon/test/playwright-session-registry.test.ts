@@ -353,6 +353,51 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-screenshot-scale-session");
 	}, 30_000);
+
+	test("real snapshot() returns a YAML accessibility tree reflecting real ARIA semantics", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-snapshot-session");
+		const page = await registry.page("real-snapshot-session");
+
+		await page.goto(
+			"data:text/html,<h1>O-RAN Specifications</h1><nav><ul><li><a href='/e2'>E2</a></li><li><a href='/e1'>E1</a></li></ul></nav><button>Apply filter</button>",
+		);
+		const tree = await page.snapshot({ timeoutMs: 5_000 });
+		// Real ARIA roles/names from the actual page, not asserted by assumption.
+		expect(tree).toContain('heading "O-RAN Specifications"');
+		expect(tree).toContain('link "E2"');
+		expect(tree).toContain('link "E1"');
+		expect(tree).toContain('button "Apply filter"');
+
+		await registry.close("real-snapshot-session");
+	}, 30_000);
+
+	test("real snapshot() scopes to one element/subtree via selector", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-snapshot-scoped-session");
+		const page = await registry.page("real-snapshot-scoped-session");
+
+		await page.goto("data:text/html,<h1>Outside</h1><nav><a href='/x'>Inside</a></nav>");
+		const tree = await page.snapshot({ selector: "nav", timeoutMs: 5_000 });
+		expect(tree).toContain('link "Inside"');
+		expect(tree).not.toContain("Outside");
+
+		await registry.close("real-snapshot-scoped-session");
+	}, 30_000);
+
+	test("real snapshot() with boxes:true includes bounding box coordinates", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-snapshot-boxes-session");
+		const page = await registry.page("real-snapshot-boxes-session");
+
+		await page.goto("data:text/html,<button>Click me</button>");
+		const withoutBoxes = await page.snapshot({ timeoutMs: 5_000 });
+		const withBoxes = await page.snapshot({ boxes: true, timeoutMs: 5_000 });
+		expect(withoutBoxes).not.toContain("[box=");
+		expect(withBoxes).toContain("[box=");
+
+		await registry.close("real-snapshot-boxes-session");
+	}, 30_000);
 });
 
 /** Reads width/height directly from a PNG's IHDR chunk (bytes 16-23) — no image-decoding dependency needed for a real, not-asserted-by-assumption dimension check. */
