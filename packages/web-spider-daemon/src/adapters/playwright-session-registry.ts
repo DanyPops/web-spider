@@ -60,6 +60,11 @@ interface PlaywrightLocatorLike {
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 }
 
+interface PlaywrightDialogLike {
+	accept(promptText?: string): Promise<void>;
+	dismiss(): Promise<void>;
+}
+
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
@@ -70,9 +75,28 @@ interface PlaywrightPageLike {
 	evaluate(script: string): Promise<unknown>;
 	screenshot(opts?: { fullPage?: boolean; scale?: "css" | "device" }): Promise<Uint8Array>;
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
+	on(event: "dialog", handler: (dialog: PlaywrightDialogLike) => void | Promise<void>): void;
 }
 
 function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
+	// Registered once, at page creation, so no dialog triggered by any
+	// future action can ever occur before this exists (solves the real
+	// ordering problem: a dialog can appear as a side effect of the very
+	// next action, with no separate opportunity to "arm" a handler first).
+	// One-shot: consumed on the next dialog regardless of outcome, then
+	// reverts to this project's own safe default — dismiss, matching
+	// Playwright's own real default when no listener is registered at all.
+	let armedPolicy: { accept: boolean; promptText?: string } | undefined;
+	page.on("dialog", async (dialog) => {
+		const policy = armedPolicy;
+		armedPolicy = undefined;
+		if (policy?.accept) {
+			await dialog.accept(policy.promptText);
+		} else {
+			await dialog.dismiss();
+		}
+	});
+
 	return {
 		goto: async (url, opts) => { await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined); },
 		click: (selector, opts) => page.click(selector, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
@@ -127,6 +151,7 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 			if (opts?.selector !== undefined) return page.locator(opts.selector).ariaSnapshot(ariaOpts);
 			return page.ariaSnapshot(ariaOpts);
 		},
+		armDialogPolicy: async (policy) => { armedPolicy = policy; },
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: (opts) => {
 			if (opts?.selector !== undefined) return page.locator(opts.selector).screenshot({ scale: opts.scale });

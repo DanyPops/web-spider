@@ -59,6 +59,10 @@ export interface SessionActInput {
 	boxes?: boolean;
 	/** snapshot action: "ai" mode adds element refs, doesn't wait for the element, and includes iframe snapshots. Default "default". */
 	mode?: "ai" | "default";
+	/** handleDialog action: whether to accept (true) or dismiss (false) the next dialog. Required. */
+	accept?: boolean;
+	/** handleDialog action: text to answer a prompt() dialog with. Ignored for alert/confirm/beforeunload. */
+	promptText?: string;
 }
 
 export interface SessionActOutput {
@@ -98,7 +102,7 @@ export class SessionService {
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
-		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined });
+		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept });
 		const record = (outcome: "ok" | "error" | "stale-snapshot", error: string) => {
 			this.journal.record({
 				ts: this.now(),
@@ -158,6 +162,9 @@ export class SessionService {
 			if (input.action === "snapshot" && input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0)) {
 				throw new Error("depth must be a non-negative integer");
 			}
+			if (input.action === "handleDialog" && input.accept === undefined) {
+				throw new Error("accept is required for a handleDialog action");
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -210,6 +217,10 @@ export class SessionService {
 						timeoutMs: input.timeoutMs ?? SESSION_ACT_DEFAULT_TIMEOUT_MS,
 					});
 					result = tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree;
+					break;
+				}
+				case "handleDialog": {
+					await page.armDialogPolicy({ accept: input.accept as boolean, promptText: input.promptText });
 					break;
 				}
 				case "eval": {

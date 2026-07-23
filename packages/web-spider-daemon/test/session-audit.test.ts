@@ -82,6 +82,11 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("snapshot", { selector: "nav" })).toBe("nav");
 	});
 
+	test("handleDialog: a fixed placeholder for accept, distinct from dismiss — never the promptText", () => {
+		expect(journalTargetFor("handleDialog", { accept: true })).toBe("<dialog:accept>");
+		expect(journalTargetFor("handleDialog", { accept: false })).toBe("<dialog:dismiss>");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});
