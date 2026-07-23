@@ -50,9 +50,10 @@ function boundedSelector(selector: string): string {
 
 /**
  * The only thing this journal ever records about *what* an action targeted.
- * eval and screenshot never carry page-derived or caller-scripted content —
- * script source is never logged (it could embed secrets or be arbitrarily
- * large), and screenshots have no meaningful non-binary "target" at all.
+ * eval never carries page-derived or caller-scripted content — script source
+ * is never logged (it could embed secrets or be arbitrarily large). A
+ * whole-page/viewport screenshot has no meaningful non-binary "target";
+ * an element-scoped one logs the selector, same as click/type/select.
  */
 export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string }): string {
 	switch (action) {
@@ -87,7 +88,7 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 		case "eval":
 			return "<script>";
 		case "screenshot":
-			return "<screenshot>";
+			return input.selector ? boundedSelector(input.selector) : "<screenshot>";
 	}
 }
 

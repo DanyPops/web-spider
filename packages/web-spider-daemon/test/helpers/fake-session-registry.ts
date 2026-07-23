@@ -27,6 +27,7 @@ export interface FakeSessionPage extends SessionPage {
 	readTableCalls: Array<{ selector: string; timeoutMs?: number }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
+	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
 }
 
 export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
@@ -39,6 +40,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const readTableCalls: FakeSessionPage["readTableCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
+	const screenshotCalls: FakeSessionPage["screenshotCalls"] = [];
 	return {
 		gotoCalls,
 		clickCalls,
@@ -49,6 +51,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		readTableCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
+		screenshotCalls,
 		async goto(url, callOpts) {
 			gotoCalls.push({ url, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failGoto) throw new Error("simulated navigation failure");
@@ -84,8 +87,9 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 			if (opts.failEvaluate) throw new Error("simulated eval failure: ReferenceError: secretApiKey123 is not defined");
 			return opts.evaluateResult as T;
 		},
-		async screenshot() {
+		async screenshot(callOpts) {
 			screenshotCallCount++;
+			screenshotCalls.push({ fullPage: callOpts?.fullPage, selector: callOpts?.selector, scale: callOpts?.scale });
 			if (opts.failScreenshot) throw new Error("simulated screenshot failure");
 			return opts.screenshotBytes ?? new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 		},

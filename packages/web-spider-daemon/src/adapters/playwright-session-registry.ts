@@ -55,6 +55,8 @@ interface PlaywrightLocatorLike {
 	allTextContents(): Promise<string[]>;
 	/** Runs a fixed, daemon-authored function against the matched element — never caller-supplied script (that's the eval action's job, deliberately kept separate). */
 	evaluate<T>(fn: (el: MinimalDomElement) => T, arg: undefined, opts?: { timeout?: number }): Promise<T>;
+	/** Screenshot of just this element's own bounding box. */
+	screenshot(opts?: { scale?: "css" | "device" }): Promise<Uint8Array>;
 }
 
 interface PlaywrightPageLike {
@@ -65,7 +67,7 @@ interface PlaywrightPageLike {
 	getByText(text: string): PlaywrightLocatorLike;
 	waitForLoadState(state: "load" | "domcontentloaded" | "networkidle", opts?: { timeout?: number }): Promise<void>;
 	evaluate(script: string): Promise<unknown>;
-	screenshot(): Promise<Uint8Array>;
+	screenshot(opts?: { fullPage?: boolean; scale?: "css" | "device" }): Promise<Uint8Array>;
 }
 
 function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
@@ -119,7 +121,10 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 			}, undefined, timeoutOpt);
 		},
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
-		screenshot: () => page.screenshot(),
+		screenshot: (opts) => {
+			if (opts?.selector !== undefined) return page.locator(opts.selector).screenshot({ scale: opts.scale });
+			return page.screenshot({ fullPage: opts?.fullPage, scale: opts?.scale });
+		},
 	};
 }
 

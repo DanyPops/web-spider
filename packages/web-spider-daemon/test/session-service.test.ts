@@ -105,6 +105,27 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 		expect(journal.entries[0]!.target).toBe("<screenshot>");
 		expect(JSON.stringify(journal.entries)).not.toContain(out.screenshotBase64);
 	});
+
+	test("screenshot forwards fullPage/selector/scale to the page and journals the selector when element-scoped", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+
+		await service.act({ name: "a", snapshotVersion: 0, action: "screenshot", fullPage: true });
+		expect(pages[0]!.screenshotCalls[0]).toEqual({ fullPage: true, selector: undefined, scale: undefined });
+		expect(journal.entries[0]!.target).toBe("<screenshot>");
+
+		await service.act({ name: "a", snapshotVersion: 0, action: "screenshot", selector: "#chart", scale: "device" });
+		expect(pages[0]!.screenshotCalls[1]).toEqual({ fullPage: undefined, selector: "#chart", scale: "device" });
+		expect(journal.entries[1]!.target).toBe("#chart");
+	});
+
+	test("screenshot rejects fullPage combined with selector before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "screenshot", fullPage: true, selector: "#chart" }))
+			.rejects.toThrow(/fullPage or selector, not both/);
+		expect(pages).toHaveLength(0);
+	});
 });
 
 describe("SessionService — act: type (does not bump snapshotVersion)", () => {

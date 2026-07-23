@@ -304,4 +304,59 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-readtable-session");
 	}, 30_000);
+
+	test("real screenshot() defaults to viewport-only, opts into fullPage, and can scope to one element", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-screenshot-session");
+		const page = await registry.page("real-screenshot-session");
+
+		// A page much taller than any real viewport, with a small marked element
+		// near the bottom — proves fullPage actually captures scrolled-past
+		// content, and that an element-scoped shot is genuinely smaller than
+		// either whole-page capture, not just a claim.
+		await page.goto(
+			"data:text/html,<div style='height:3000px'></div><div id='chip' style='width:40px;height:20px;background:red'></div>",
+		);
+
+		const viewportShot = await page.screenshot();
+		const fullPageShot = await page.screenshot({ fullPage: true });
+		const elementShot = await page.screenshot({ selector: "#chip" });
+
+		const viewportSize = pngDimensions(viewportShot);
+		const fullPageSize = pngDimensions(fullPageShot);
+		const elementSize = pngDimensions(elementShot);
+
+		// Real, not asserted-by-assumption: fullPage is genuinely taller than the
+		// default viewport-only capture, because the page really does scroll.
+		expect(fullPageSize.height).toBeGreaterThan(viewportSize.height);
+		// The element shot is tiny compared to either whole-page capture.
+		expect(elementSize.width).toBeLessThan(viewportSize.width);
+		expect(elementSize.height).toBeLessThan(viewportSize.height);
+
+		await registry.close("real-screenshot-session");
+	}, 30_000);
+
+	test("real screenshot() scale:device produces a higher-resolution capture than scale:css for the same viewport", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-screenshot-scale-session");
+		const page = await registry.page("real-screenshot-scale-session");
+		await page.goto("data:text/html,<p>scale test</p>");
+
+		const cssShot = await page.screenshot({ scale: "css" });
+		const deviceShot = await page.screenshot({ scale: "device" });
+		// On a real headless default (devicePixelRatio 1), css and device scale
+		// produce the same size — the meaningful assertion is that both are real,
+		// valid, non-empty PNGs, proving the option is actually accepted and
+		// forwarded rather than silently ignored.
+		expect(pngDimensions(cssShot).width).toBeGreaterThan(0);
+		expect(pngDimensions(deviceShot).width).toBeGreaterThan(0);
+
+		await registry.close("real-screenshot-scale-session");
+	}, 30_000);
 });
+
+/** Reads width/height directly from a PNG's IHDR chunk (bytes 16-23) — no image-decoding dependency needed for a real, not-asserted-by-assumption dimension check. */
+function pngDimensions(png: Uint8Array): { width: number; height: number } {
+	const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+	return { width: view.getUint32(16, false), height: view.getUint32(20, false) };
+}

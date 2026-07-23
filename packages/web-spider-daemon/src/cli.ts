@@ -149,7 +149,7 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider session act <name> --action readTable --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
 		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
-		"       web-spider session act <name> --action screenshot --snapshot-version N [--json]",
+		"       web-spider session act <name> --action screenshot --snapshot-version N [--full-page | --selector CSS] [--scale css|device] [--json]",
 	].join("\n"));
 	return 2;
 }
@@ -352,8 +352,8 @@ async function runSessionClose(rest: string[], deps: CliDependencies): Promise<n
 
 async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [
-		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state",
-	], ["--no-clear"]);
+		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale",
+	], ["--no-clear", "--full-page"]);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
@@ -376,6 +376,8 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 			label: parsed.values.label,
 			loadState: parsed.values["load-state"] as "load" | "domcontentloaded" | "networkidle" | undefined,
 			state: parsed.values.state as "visible" | "hidden" | "attached" | "detached" | undefined,
+			fullPage: parsed.flags.has("full-page") ? true : undefined,
+			scale: parsed.values.scale as "css" | "device" | undefined,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionActResult(result));
 		return 0;

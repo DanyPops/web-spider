@@ -49,6 +49,10 @@ export interface SessionActInput {
 	loadState?: "load" | "domcontentloaded" | "networkidle";
 	/** waitFor action: the element state to wait for when using selector/text (default "visible"). Not valid alongside loadState. */
 	state?: "visible" | "hidden" | "attached" | "detached";
+	/** screenshot action: whole scrollable page instead of just the viewport (default false, matching Playwright's own real default). Not valid alongside selector. */
+	fullPage?: boolean;
+	/** screenshot action: CSS-pixel-sized (default) vs. device-pixel-ratio resolution. */
+	scale?: "css" | "device";
 }
 
 export interface SessionActOutput {
@@ -142,6 +146,9 @@ export class SessionService {
 			if ((input.action === "queryText" || input.action === "readTable") && !input.selector) {
 				throw new Error(`selector is required for a ${input.action} action`);
 			}
+			if (input.action === "screenshot" && input.fullPage === true && input.selector !== undefined) {
+				throw new Error("screenshot accepts fullPage or selector, not both");
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -186,7 +193,7 @@ export class SessionService {
 					break;
 				}
 				case "screenshot": {
-					const png = await page.screenshot();
+					const png = await page.screenshot({ fullPage: input.fullPage, selector: input.selector, scale: input.scale });
 					screenshotBase64 = Buffer.from(png).toString("base64");
 					break;
 				}
