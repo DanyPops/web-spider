@@ -56,6 +56,16 @@ export interface SessionPage {
 	 * not preventing a hang that was never a real risk to begin with.
 	 */
 	armDialogPolicy(policy: { accept: boolean; promptText?: string }): Promise<void>;
+	/**
+	 * Every download captured on this page since creation, most recent
+	 * last, bounded to SESSION_MAX_DOWNLOADS_TRACKED entries (oldest
+	 * evicted first). Each one has already been saved to disk (via a
+	 * persistent page.on('download') listener registered at page creation,
+	 * the same ordering-safe pattern used for dialogs) by the time it
+	 * appears here — this is a read of already-captured metadata, not a
+	 * new page interaction.
+	 */
+	listDownloads(): Promise<Array<{ filename: string; path: string; url: string; failure: string | null }>>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/**
 	 * PNG (or JPEG) bytes. Default is a viewport-only capture, matching

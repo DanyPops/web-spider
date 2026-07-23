@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
@@ -457,6 +460,37 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		expect(await page.evaluate<string>("window.answer")).toBe("E2");
 
 		await registry.close("real-dialog-prompt-session");
+	}, 30_000);
+
+	test("real download capture: a click-triggered download is saved to disk and listed with real content", async () => {
+		const downloadsBaseDir = mkdtempSync(join(tmpdir(), "web-spider-download-test-"));
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1, downloadsBaseDir });
+		await registry.create("real-download-session");
+		const page = await registry.page("real-download-session");
+
+		await page.goto(
+			"data:text/html,<a href='data:text/plain,O-RAN.WG3.TS.E2AP-R004-v08.00' download='spec.txt' id='dl'>Download</a>",
+		);
+		await page.click("#dl");
+		// The download event may not have finished by the time click() resolves
+		// (verified empirically before designing this) — poll briefly rather
+		// than assume it's already present.
+		let downloads: Awaited<ReturnType<typeof page.listDownloads>> = [];
+		for (let i = 0; i < 50 && downloads.length === 0; i++) {
+			downloads = await page.listDownloads();
+			if (downloads.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		expect(downloads).toHaveLength(1);
+		expect(downloads[0]!.filename).toBe("spec.txt");
+		expect(downloads[0]!.failure).toBeNull();
+		// Real file, saved for real, under the real per-session directory —
+		// not just an in-memory claim.
+		expect(downloads[0]!.path).toContain(join(downloadsBaseDir, "real-download-session"));
+		expect(readFileSync(downloads[0]!.path, "utf8")).toBe("O-RAN.WG3.TS.E2AP-R004-v08.00");
+
+		await registry.close("real-download-session");
+		rmSync(downloadsBaseDir, { recursive: true, force: true });
 	}, 30_000);
 });
 

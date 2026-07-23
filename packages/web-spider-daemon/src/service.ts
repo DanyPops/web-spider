@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
 import { createLogger } from "@danypops/daemon-kit/logging";
-import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
+import { SERVICE_MAX_BODY_BYTES, SESSION_DOWNLOADS_DIRECTORY_NAME, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
@@ -112,7 +112,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "eval", "screenshot"]);
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "downloads", "eval", "screenshot"]);
 const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
 const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 const SCREENSHOT_SCALES = new Set(["css", "device"]);
@@ -126,7 +126,7 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	}
 	const action = requireString(input, "action");
 	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "eval", "screenshot"');
+		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "downloads", "eval", "screenshot"');
 	}
 	const loadState = optionalString(input, "loadState");
 	if (loadState !== undefined && !LOAD_STATES.has(loadState)) {
@@ -244,6 +244,10 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
 	const imagesDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-images-")) : join(dirname(path), "images");
+	// Same derivation as imagesDir above — a sibling of the database, or an
+	// isolated temp directory for :memory: (test) databases with no sibling
+	// directory to spill downloaded files into.
+	const downloadsBaseDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
 	const store = new SQLiteCacheStore(db, { imagesDir });
 	// Provider API keys are read from this (daemon) process's own environment only —
 	// never accepted as operation input, never logged.
@@ -271,7 +275,7 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// client (PapyrusHttpAdapter) — never opened as a database directly.
 	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());
 
-	const sessionRegistry = new PlaywrightSessionRegistry();
+	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal);
 

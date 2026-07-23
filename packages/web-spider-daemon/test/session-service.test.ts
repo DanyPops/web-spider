@@ -449,6 +449,26 @@ describe("SessionService — act: handleDialog (does not bump snapshotVersion)",
 	});
 });
 
+describe("SessionService — act: downloads (does not bump snapshotVersion)", () => {
+	test("returns already-captured download metadata and journals a fixed placeholder", async () => {
+		const record = { filename: "spec.pdf", path: "/tmp/x/spec.pdf", url: "https://x.test/spec.pdf", failure: null };
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { downloadsResult: [record] } : {}));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "downloads" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(out.result).toEqual([record]);
+		expect(pages[0]!.listDownloadsCallCount).toBe(1);
+		expect(journal.entries[0]).toMatchObject({ action: "downloads", outcome: "ok", target: "<downloads>" });
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failListDownloads: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "downloads" })).rejects.toThrow(/simulated listDownloads failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();
