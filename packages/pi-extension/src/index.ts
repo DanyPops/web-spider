@@ -30,6 +30,13 @@ import {
   renderWebFetchResult,
   type WebPresentationDetails,
 } from "./presentation.js"
+import {
+  createSessionActDetails,
+  createSessionLifecycleDetails,
+  createSessionListDetails,
+  renderWebSessionCall,
+  renderWebSessionResult,
+} from "./session-presentation.js"
 
 // ---------------------------------------------------------------------------
 // Tool
@@ -803,21 +810,32 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet:
       "Persistent browser sessions: create/act(navigate|click|hover|pressKey|type|select|waitFor|queryText|readTable|snapshot|handleDialog|downloads|consoleMessages|networkRequests|tabs|eval|screenshot)/list/close",
     parameters: sessionParamsSchema,
+    renderCall(args, theme, context) { return renderWebSessionCall(args, theme, context) },
+    renderResult(result, options, theme, context) { return renderWebSessionResult(result, options, theme, context) },
     async execute(_id, params: SessionParams, _signal, _onUpdate, _ctx) {
       try {
         if (params.operation === "create") {
           if (!params.name) throw new Error("name is required for operation=create")
-          const result = await call("session.create", { name: params.name, forceChromeChannel: params.forceChromeChannel })
-          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+          const result = await call<{ name: string; snapshotVersion: number; closed: boolean }>("session.create", { name: params.name, forceChromeChannel: params.forceChromeChannel })
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createSessionLifecycleDetails("create", result.name, { snapshotVersion: result.snapshotVersion }),
+          }
         }
         if (params.operation === "list") {
-          const result = await call("session.list", {})
-          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+          const result = await call<{ sessions: Array<{ name: string; closed: boolean }> }>("session.list", {})
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createSessionListDetails(result.sessions),
+          }
         }
         if (params.operation === "close") {
           if (!params.name) throw new Error("name is required for operation=close")
-          const result = await call("session.close", { name: params.name })
-          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as Record<string, unknown> }
+          const result = await call<{ name: string; closed: true }>("session.close", { name: params.name })
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createSessionLifecycleDetails("close", result.name, { closed: true }),
+          }
         }
 
         // act
@@ -858,10 +876,13 @@ export default async function (pi: ExtensionAPI) {
               { type: "text" as const, text: JSON.stringify(summary) },
               { type: "image" as const, data: result.screenshotBase64, mimeType: "image/png" },
             ],
-            details: summary,
+            details: createSessionActDetails({ name: result.name, action: result.action, snapshotVersion: result.snapshotVersion }),
           }
         }
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result as unknown as Record<string, unknown> }
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          details: createSessionActDetails({ name: result.name, action: result.action, snapshotVersion: result.snapshotVersion, result: result.result }),
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(`web_session failed: ${message}`)
