@@ -10,7 +10,7 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SESSION_MAX_DOWNLOADS_TRACKED, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
+import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
 import { createSessionInfo, isValidSessionName, withBumpedSnapshotVersion, withTouchedActivity, type SessionInfo } from "../domain/session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry } from "../ports/session-registry.ts";
 
@@ -79,6 +79,23 @@ interface PlaywrightDownloadLike {
 	failure(): Promise<string | null>;
 }
 
+interface PlaywrightConsoleMessageLike {
+	type(): string;
+	text(): string;
+}
+
+interface PlaywrightRequestLike {
+	url(): string;
+	method(): string;
+	resourceType(): string;
+}
+
+interface PlaywrightResponseLike {
+	url(): string;
+	status(): number;
+	request(): PlaywrightRequestLike;
+}
+
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
@@ -91,6 +108,8 @@ interface PlaywrightPageLike {
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 	on(event: "dialog", handler: (dialog: PlaywrightDialogLike) => void | Promise<void>): void;
 	on(event: "download", handler: (download: PlaywrightDownloadLike) => void | Promise<void>): void;
+	on(event: "console", handler: (message: PlaywrightConsoleMessageLike) => void | Promise<void>): void;
+	on(event: "response", handler: (response: PlaywrightResponseLike) => void | Promise<void>): void;
 	/** Global keyboard press, not tied to any element — for keys like Escape with no natural target. Real Playwright API has no timeout option here (there's no element to wait for). */
 	keyboard: { press(key: string): Promise<void> };
 }
@@ -129,6 +148,23 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 		await download.saveAs(path);
 		downloads.push({ filename, path, url: download.url(), failure: await download.failure() });
 		if (downloads.length > SESSION_MAX_DOWNLOADS_TRACKED) downloads.shift();
+	});
+
+	// Same bounded-buffer pattern — registered once at page creation so
+	// nothing observed before a caller thinks to ask for it is ever lost.
+	// Console/network events fire far more often than dialogs/downloads,
+	// hence the larger bound.
+	const consoleMessages: Array<{ type: string; text: string; timestamp: number }> = [];
+	page.on("console", (message) => {
+		consoleMessages.push({ type: message.type(), text: message.text(), timestamp: Date.now() });
+		if (consoleMessages.length > SESSION_MAX_CONSOLE_MESSAGES_TRACKED) consoleMessages.shift();
+	});
+
+	const networkRequests: Array<{ url: string; method: string; status: number; resourceType: string }> = [];
+	page.on("response", (response) => {
+		const request = response.request();
+		networkRequests.push({ url: response.url(), method: request.method(), status: response.status(), resourceType: request.resourceType() });
+		if (networkRequests.length > SESSION_MAX_NETWORK_REQUESTS_TRACKED) networkRequests.shift();
 	});
 
 	return {
@@ -195,6 +231,8 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 		},
 		armDialogPolicy: async (policy) => { armedPolicy = policy; },
 		listDownloads: async () => [...downloads],
+		listConsoleMessages: async () => [...consoleMessages],
+		listNetworkRequests: async () => [...networkRequests],
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: (opts) => {
 			if (opts?.selector !== undefined) return page.locator(opts.selector).screenshot({ scale: opts.scale });

@@ -99,6 +99,14 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("pressKey", { key: "Enter" })).toBe("Enter");
 	});
 
+	test("consoleMessages: always the fixed placeholder", () => {
+		expect(journalTargetFor("consoleMessages", {})).toBe("<console-messages>");
+	});
+
+	test("networkRequests: always the fixed placeholder", () => {
+		expect(journalTargetFor("networkRequests", {})).toBe("<network-requests>");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

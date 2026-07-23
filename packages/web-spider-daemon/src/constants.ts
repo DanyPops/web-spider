@@ -82,3 +82,6 @@ export const SESSION_ACT_SNAPSHOT_MAX_LENGTH = 20_000;
 export const SESSION_DOWNLOADS_DIRECTORY_NAME = "downloads";
 /** Max downloads tracked per session — oldest evicted first. Bounds memory, not disk (a real limitation: a single huge file is not size-bounded by this). */
 export const SESSION_MAX_DOWNLOADS_TRACKED = 20;
+/** Max console messages / network requests tracked per session — oldest evicted first. Larger than downloads since these fire far more frequently per page. */
+export const SESSION_MAX_CONSOLE_MESSAGES_TRACKED = 100;
+export const SESSION_MAX_NETWORK_REQUESTS_TRACKED = 100;

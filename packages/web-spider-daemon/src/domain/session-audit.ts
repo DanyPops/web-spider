@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "consoleMessages" | "networkRequests" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -106,6 +106,10 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			// in the response, not the journal (same distinction as eval/
 			// snapshot/queryText's own content).
 			return "<downloads>";
+		case "consoleMessages":
+			return "<console-messages>";
+		case "networkRequests":
+			return "<network-requests>";
 		case "eval":
 			return "<script>";
 		case "screenshot":

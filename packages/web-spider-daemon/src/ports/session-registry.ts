@@ -69,6 +69,10 @@ export interface SessionPage {
 	 * new page interaction.
 	 */
 	listDownloads(): Promise<Array<{ filename: string; path: string; url: string; failure: string | null }>>;
+	/** Every console message logged on this page since creation, most recent last, bounded (oldest evicted first) — buffered by a persistent listener, not queryable retroactively. */
+	listConsoleMessages(): Promise<Array<{ type: string; text: string; timestamp: number }>>;
+	/** Every network request/response observed on this page since creation, most recent last, bounded — same buffering approach as console messages. */
+	listNetworkRequests(): Promise<Array<{ url: string; method: string; status: number; resourceType: string }>>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/**
 	 * PNG (or JPEG) bytes. Default is a viewport-only capture, matching
