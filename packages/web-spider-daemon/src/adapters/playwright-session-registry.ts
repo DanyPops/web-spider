@@ -54,7 +54,8 @@ interface PlaywrightLocatorLike {
 	fill(value: string, opts?: { timeout?: number }): Promise<void>;
 	pressSequentially(text: string, opts?: { timeout?: number }): Promise<void>;
 	selectOption(target: { value: string } | { label: string }, opts?: { timeout?: number }): Promise<string[]>;
-	/** Used only to position the cursor at the end of existing content before an appending (clear:false) type. */
+	hover(opts?: { timeout?: number }): Promise<void>;
+	/** Also used internally to position the cursor at the end of existing content before an appending (clear:false) type. */
 	press(key: string, opts?: { timeout?: number }): Promise<void>;
 	waitFor(opts?: { state?: "visible" | "hidden" | "attached" | "detached"; timeout?: number }): Promise<void>;
 	/** Trimmed text content of every element the locator matched — Playwright's own built-in primitive, not a hand-rolled innerText dump. */
@@ -90,6 +91,8 @@ interface PlaywrightPageLike {
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 	on(event: "dialog", handler: (dialog: PlaywrightDialogLike) => void | Promise<void>): void;
 	on(event: "download", handler: (download: PlaywrightDownloadLike) => void | Promise<void>): void;
+	/** Global keyboard press, not tied to any element — for keys like Escape with no natural target. Real Playwright API has no timeout option here (there's no element to wait for). */
+	keyboard: { press(key: string): Promise<void> };
 }
 
 function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): SessionPage {
@@ -131,6 +134,14 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 	return {
 		goto: async (url, opts) => { await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined); },
 		click: (selector, opts) => page.click(selector, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
+		hover: (selector, opts) => page.locator(selector).hover(opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
+		pressKey: (key, opts) => {
+			if (opts?.selector !== undefined) {
+				const timeoutOpt = opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
+				return page.locator(opts.selector).press(key, timeoutOpt);
+			}
+			return page.keyboard.press(key);
+		},
 		type: async (selector, text, opts) => {
 			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
 			const locator = page.locator(selector);

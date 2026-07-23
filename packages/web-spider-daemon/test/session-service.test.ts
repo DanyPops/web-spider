@@ -469,6 +469,63 @@ describe("SessionService — act: downloads (does not bump snapshotVersion)", ()
 	});
 });
 
+describe("SessionService — act: hover (does not bump snapshotVersion)", () => {
+	test("hovers and journals the selector", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "hover", selector: "#menu" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.hoverCalls).toEqual([{ selector: "#menu", timeoutMs: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "hover", outcome: "ok", target: "#menu" });
+	});
+
+	test("requires a selector", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "hover" })).rejects.toThrow(/selector is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failHover: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "hover", selector: "#missing" })).rejects.toThrow(/simulated hover failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
+describe("SessionService — act: pressKey (does not bump snapshotVersion)", () => {
+	test("presses a global key (no selector) and journals the key name", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "pressKey", key: "Enter" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.pressKeyCalls).toEqual([{ key: "Enter", selector: undefined, timeoutMs: undefined }]);
+		expect(journal.entries[0]).toMatchObject({ action: "pressKey", outcome: "ok", target: "Enter" });
+	});
+
+	test("presses a key scoped to a selector", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "pressKey", key: "Escape", selector: "#modal" });
+		expect(pages[0]!.pressKeyCalls[0]).toEqual({ key: "Escape", selector: "#modal", timeoutMs: undefined });
+	});
+
+	test("requires a key", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "pressKey" })).rejects.toThrow(/key is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failPressKey: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "pressKey", key: "Enter" })).rejects.toThrow(/simulated pressKey failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

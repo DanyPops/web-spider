@@ -9,6 +9,9 @@ import type { SessionInfo } from "../domain/session.ts";
 export interface SessionPage {
 	goto(url: string, opts?: { timeoutMs?: number }): Promise<void>;
 	click(selector: string, opts?: { timeoutMs?: number }): Promise<void>;
+	hover(selector: string, opts?: { timeoutMs?: number }): Promise<void>;
+	/** Presses a keyboard key. Scoped to selector when given (focuses it first); otherwise a global keyboard press, for keys like Escape with no natural target element. */
+	pressKey(key: string, opts?: { selector?: string; timeoutMs?: number }): Promise<void>;
 	/**
 	 * Real per-character keyboard input (Playwright's pressSequentially, not
 	 * a synthetic DOM event) — the primitive a caller needs for pages with

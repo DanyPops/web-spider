@@ -333,6 +333,21 @@ describe("runCli session act", () => {
 		expect((operations[0]?.input as { selector: string }).selector).toBe("#go");
 	});
 
+	test("hover forwards the selector", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "hover", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "hover", "--snapshot-version", "0", "--selector", "#menu"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "#menu" });
+	});
+
+	test("pressKey forwards --key, with an optional --selector", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "pressKey", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "pressKey", "--snapshot-version", "0", "--key", "Enter"], deps);
+		expect(operations[0]?.input).toMatchObject({ key: "Enter", selector: undefined });
+
+		await runCli(["session", "act", "a", "--action", "pressKey", "--snapshot-version", "0", "--key", "Escape", "--selector", "#modal"], deps);
+		expect(operations[1]?.input).toMatchObject({ key: "Escape", selector: "#modal" });
+	});
+
 	test("type forwards selector/text, clear defaults to undefined (server-side default true)", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "type", snapshotVersion: 0 }) });
 		await runCli(["session", "act", "a", "--action", "type", "--snapshot-version", "0", "--selector", "#search", "--text", "E2"], deps);

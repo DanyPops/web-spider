@@ -492,6 +492,54 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.close("real-download-session");
 		rmSync(downloadsBaseDir, { recursive: true, force: true });
 	}, 30_000);
+
+	test("real hover() reveals a real hover-only element (CSS :hover, not a click/focus state)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-hover-session");
+		const page = await registry.page("real-hover-session");
+
+		// Note: a literal "#" inside a data: URL is parsed as a URL fragment
+		// delimiter, silently truncating the HTML before it (verified directly
+		// — a real gotcha caught while writing this test) — class selectors
+		// avoid the character entirely rather than percent-encoding every "#".
+		await page.goto(
+			"data:text/html,<style>.tooltip{display:none} .trigger:hover + .tooltip{display:block}</style><div class='trigger'>hover me</div><div class='tooltip'>revealed</div>",
+		);
+		expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.tooltip')).display")).toBe("none");
+		await page.hover(".trigger");
+		expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.tooltip')).display")).toBe("block");
+
+		await registry.close("real-hover-session");
+	}, 30_000);
+
+	test("real pressKey() submits a real form via Enter, scoped to a specific input", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-presskey-session");
+		const page = await registry.page("real-presskey-session");
+
+		await page.goto(
+			"data:text/html,<form onsubmit='window.submitted = true; return false'><input id='q'></form>",
+		);
+		await page.type("#q", "E2");
+		await page.pressKey("Enter", { selector: "#q" });
+		expect(await page.evaluate<boolean>("window.submitted")).toBe(true);
+
+		await registry.close("real-presskey-session");
+	}, 30_000);
+
+	test("real pressKey() with no selector is a global keyboard press (e.g. Escape with no natural target element)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-presskey-global-session");
+		const page = await registry.page("real-presskey-global-session");
+
+		await page.goto(
+			"data:text/html,<script>document.addEventListener('keydown', e => { if (e.key === 'Escape') window.escaped = true; });</script>",
+		);
+		await page.pressKey("Escape");
+		expect(await page.evaluate<boolean>("window.escaped")).toBe(true);
+
+		await registry.close("real-presskey-global-session");
+	}, 30_000);
 });
 
 /** Reads width/height directly from a PNG's IHDR chunk (bytes 16-23) — no image-decoding dependency needed for a real, not-asserted-by-assumption dimension check. */

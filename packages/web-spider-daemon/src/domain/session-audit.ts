@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -55,12 +55,18 @@ function boundedSelector(selector: string): string {
  * whole-page/viewport screenshot has no meaningful non-binary "target";
  * an element-scoped one logs the selector, same as click/type/select.
  */
-export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean }): string {
+export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean; key?: string }): string {
 	switch (action) {
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";
 		case "click":
 			return input.selector ? boundedSelector(input.selector) : "";
+		case "hover":
+			return input.selector ? boundedSelector(input.selector) : "";
+		case "pressKey":
+			// The key name (e.g. "Enter", "Escape") is never sensitive — logged
+			// verbatim, bounded the same as a selector for consistency.
+			return input.key ? boundedSelector(input.key) : "";
 		case "type":
 			// The selector is fine to log (it's not sensitive); the typed text
 			// itself never is — it could be a password or any other secret.
