@@ -68,7 +68,7 @@ deliberate safety property, not friction to work around.
 | `queryText` | `selector` | No | Trimmed text per element matching `selector`, in document order. Bounded to 200 items, 2000 characters each. |
 | `readTable` | `selector` | No | Rows of trimmed cell text for the `<table>` matching `selector`. Bounded to 200 rows, 2000 characters per cell. |
 | `eval` | `script` | No | Arbitrary JavaScript; returns its JSON-serializable result. Prefer the actions above when they fit — `eval` is the least structured, least auditable option. |
-| `screenshot` | — | No | Returns a PNG of the full page as a real image content block (not embedded in the JSON result). |
+| `screenshot` | optional `fullPage`, `selector`, `scale` | No | Returns a PNG as a real image content block (not embedded in the JSON result). Defaults to viewport-only, matching Playwright's own real default. `fullPage: true` captures the whole scrollable page; `selector` captures just that one element's bounding box instead ("download only this graphical element for inspection") — mutually exclusive with `fullPage`. `scale: "css"` (default) is CSS-pixel-sized; `"device"` uses the real device pixel ratio. |
 
 ### `waitFor` in detail
 
@@ -90,7 +90,7 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `snapshotVersion` | `number` | act, required |
 | `action` | `"navigate" \| "click" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "eval" \| "screenshot"` | act, required |
 | `url` | `string` | navigate |
-| `selector` | `string` | click / type / select / waitFor / queryText / readTable |
+| `selector` | `string` | click / type / select / waitFor / queryText / readTable / screenshot (element-scoped) |
 | `text` | `string` | type / waitFor |
 | `clear` | `boolean` | type |
 | `value` | `string` | select |
@@ -98,6 +98,8 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `loadState` | `"load" \| "domcontentloaded" \| "networkidle"` | waitFor |
 | `state` | `"visible" \| "hidden" \| "attached" \| "detached"` | waitFor |
 | `script` | `string` | eval |
+| `fullPage` | `boolean` | screenshot |
+| `scale` | `"css" \| "device"` | screenshot |
 | `timeoutMs` | `number` | any act action; Playwright's own default (bounded) applies when omitted |
 
 ---

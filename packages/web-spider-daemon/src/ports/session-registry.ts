@@ -35,8 +35,14 @@ export interface SessionPage {
 	/** Rows of trimmed cell text for every <tr> within the element matching selector (its own <td>/<th> descendants, not nested tables' rows). */
 	readTable(selector: string, opts?: { timeoutMs?: number }): Promise<string[][]>;
 	evaluate<T = unknown>(script: string): Promise<T>;
-	/** PNG bytes of the full page. */
-	screenshot(): Promise<Uint8Array>;
+	/**
+	 * PNG (or JPEG) bytes. Default is a viewport-only capture, matching
+	 * Playwright's own real default — opts.fullPage opts into the whole
+	 * scrollable page; opts.selector opts into a single element's own
+	 * bounding box instead (mutually exclusive with fullPage, validated
+	 * before this is ever called).
+	 */
+	screenshot(opts?: { fullPage?: boolean; selector?: string; scale?: "css" | "device" }): Promise<Uint8Array>;
 }
 
 export interface CreateSessionOptions {

@@ -78,8 +78,12 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});
 
-	test("screenshot: always the fixed placeholder", () => {
+	test("screenshot: the fixed placeholder for a whole-page/viewport capture", () => {
 		expect(journalTargetFor("screenshot", {})).toBe("<screenshot>");
+	});
+
+	test("screenshot: the selector, bounded, for an element-scoped capture", () => {
+		expect(journalTargetFor("screenshot", { selector: "#chart" })).toBe("#chart");
 	});
 });
 

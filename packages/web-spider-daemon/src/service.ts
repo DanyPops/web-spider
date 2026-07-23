@@ -115,6 +115,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "eval", "screenshot"]);
 const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
 const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
+const SCREENSHOT_SCALES = new Set(["css", "device"]);
 
 function sessionActInput(input: OperationInput): SessionActInput {
 	const name = requireString(input, "name");
@@ -134,6 +135,10 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	if (state !== undefined && !ELEMENT_STATES.has(state)) {
 		throw new Error('state must be one of "visible", "hidden", "attached", "detached"');
 	}
+	const scale = optionalString(input, "scale");
+	if (scale !== undefined && !SCREENSHOT_SCALES.has(scale)) {
+		throw new Error('scale must be one of "css", "device"');
+	}
 	return {
 		name,
 		snapshotVersion: snapshotVersionRaw,
@@ -148,6 +153,8 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		label: optionalString(input, "label"),
 		loadState: loadState as SessionActInput["loadState"],
 		state: state as SessionActInput["state"],
+		fullPage: optionalBoolean(input, "fullPage"),
+		scale: scale as SessionActInput["scale"],
 	};
 }
 
