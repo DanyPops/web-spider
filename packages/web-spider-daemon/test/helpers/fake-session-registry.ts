@@ -10,6 +10,7 @@ export interface FakePageOptions {
 	failQueryText?: boolean;
 	failReadTable?: boolean;
 	failSnapshot?: boolean;
+	failHandleDialog?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
@@ -28,6 +29,7 @@ export interface FakeSessionPage extends SessionPage {
 	queryTextCalls: Array<{ selector: string; timeoutMs?: number }>;
 	readTableCalls: Array<{ selector: string; timeoutMs?: number }>;
 	snapshotCalls: Array<{ selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }>;
+	armDialogPolicyCalls: Array<{ accept: boolean; promptText?: string }>;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
@@ -42,6 +44,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const queryTextCalls: FakeSessionPage["queryTextCalls"] = [];
 	const readTableCalls: FakeSessionPage["readTableCalls"] = [];
 	const snapshotCalls: FakeSessionPage["snapshotCalls"] = [];
+	const armDialogPolicyCalls: FakeSessionPage["armDialogPolicyCalls"] = [];
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	const screenshotCalls: FakeSessionPage["screenshotCalls"] = [];
@@ -54,6 +57,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		queryTextCalls,
 		readTableCalls,
 		snapshotCalls,
+		armDialogPolicyCalls,
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		screenshotCalls,
@@ -91,6 +95,10 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 			snapshotCalls.push(callOpts);
 			if (opts.failSnapshot) throw new Error("simulated snapshot failure");
 			return opts.snapshotResult ?? '- generic "root"';
+		},
+		async armDialogPolicy(policy) {
+			armDialogPolicyCalls.push(policy);
+			if (opts.failHandleDialog) throw new Error("simulated handleDialog failure");
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

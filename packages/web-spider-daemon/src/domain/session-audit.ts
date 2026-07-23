@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -55,7 +55,7 @@ function boundedSelector(selector: string): string {
  * whole-page/viewport screenshot has no meaningful non-binary "target";
  * an element-scoped one logs the selector, same as click/type/select.
  */
-export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string }): string {
+export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean }): string {
 	switch (action) {
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";
@@ -91,6 +91,10 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			// tree content itself is part of the operation's own response, never
 			// the journal.
 			return input.selector ? boundedSelector(input.selector) : "<snapshot>";
+		case "handleDialog":
+			// The accept/dismiss decision is fine to log; promptText never is
+			// (same reasoning as type's text — it's caller-supplied free text).
+			return input.accept ? "<dialog:accept>" : "<dialog:dismiss>";
 		case "eval":
 			return "<script>";
 		case "screenshot":

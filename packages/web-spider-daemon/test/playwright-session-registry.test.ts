@@ -398,6 +398,66 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 		await registry.close("real-snapshot-boxes-session");
 	}, 30_000);
+
+	test("real dialogs auto-dismiss by default — verified empirically, not assumed (Playwright's own documented default, confirmed here for our own registered listener too)", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-dialog-default-session");
+		const page = await registry.page("real-dialog-default-session");
+
+		await page.goto(
+			"data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>",
+		);
+		const start = Date.now();
+		await page.click("#b"); // must not hang
+		expect(Date.now() - start).toBeLessThan(5_000);
+		expect(await page.evaluate<string>("window.result")).toBe("dismissed");
+
+		await registry.close("real-dialog-default-session");
+	}, 30_000);
+
+	test("real armDialogPolicy({accept:true}) actually accepts the next confirm()", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-dialog-accept-session");
+		const page = await registry.page("real-dialog-accept-session");
+
+		await page.goto(
+			"data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>",
+		);
+		await page.armDialogPolicy({ accept: true });
+		await page.click("#b");
+		expect(await page.evaluate<string>("window.result")).toBe("accepted");
+
+		await registry.close("real-dialog-accept-session");
+	}, 30_000);
+
+	test("real armDialogPolicy is one-shot: a second dialog reverts to the safe dismiss default", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-dialog-oneshot-session");
+		const page = await registry.page("real-dialog-oneshot-session");
+
+		await page.goto(
+			"data:text/html,<button onclick=\"window.results = window.results || []; window.results.push(confirm('again?') ? 'accepted' : 'dismissed')\" id='b'>go</button>",
+		);
+		await page.armDialogPolicy({ accept: true });
+		await page.click("#b"); // consumes the armed policy
+		await page.click("#b"); // no policy armed — falls back to dismiss
+		expect(await page.evaluate<string[]>("window.results")).toEqual(["accepted", "dismissed"]);
+
+		await registry.close("real-dialog-oneshot-session");
+	}, 30_000);
+
+	test("real armDialogPolicy with promptText actually answers a prompt() dialog", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-dialog-prompt-session");
+		const page = await registry.page("real-dialog-prompt-session");
+
+		await page.goto("data:text/html,<button onclick=\"window.answer = prompt('your name?')\" id='b'>go</button>");
+		await page.armDialogPolicy({ accept: true, promptText: "E2" });
+		await page.click("#b");
+		expect(await page.evaluate<string>("window.answer")).toBe("E2");
+
+		await registry.close("real-dialog-prompt-session");
+	}, 30_000);
 });
 
 /** Reads width/height directly from a PNG's IHDR chunk (bytes 16-23) — no image-decoding dependency needed for a real, not-asserted-by-assumption dimension check. */

@@ -45,6 +45,17 @@ export interface SessionPage {
 	 * it does for every other action.
 	 */
 	snapshot(opts: { selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }): Promise<string>;
+	/**
+	 * Arms a one-shot accept/dismiss policy for the next native dialog
+	 * (alert/confirm/prompt/beforeunload) on this page — consumed on first
+	 * use, then reverts to the safe default (dismiss, matching Playwright's
+	 * own real default behavior when no listener is registered at all).
+	 * Verified empirically: without any handling, Playwright auto-dismisses
+	 * dialogs rather than hanging — this action's job is letting a caller
+	 * intentionally *accept* one (or answer a prompt) when that's needed,
+	 * not preventing a hang that was never a real risk to begin with.
+	 */
+	armDialogPolicy(policy: { accept: boolean; promptText?: string }): Promise<void>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/**
 	 * PNG (or JPEG) bytes. Default is a viewport-only capture, matching

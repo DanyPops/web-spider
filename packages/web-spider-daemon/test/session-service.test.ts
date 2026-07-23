@@ -415,6 +415,40 @@ describe("SessionService — act: snapshot (does not bump snapshotVersion)", () 
 	});
 });
 
+describe("SessionService — act: handleDialog (does not bump snapshotVersion)", () => {
+	test("arms accept and journals a fixed placeholder, never promptText", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true, promptText: "super-secret-answer" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(pages[0]!.armDialogPolicyCalls).toEqual([{ accept: true, promptText: "super-secret-answer" }]);
+		expect(journal.entries[0]).toMatchObject({ action: "handleDialog", outcome: "ok", target: "<dialog:accept>" });
+		expect(JSON.stringify(journal.entries)).not.toContain("super-secret-answer");
+	});
+
+	test("arms dismiss and journals the distinct dismiss placeholder", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: false });
+		expect(pages[0]!.armDialogPolicyCalls).toEqual([{ accept: false, promptText: undefined }]);
+		expect(journal.entries[0]!.target).toBe("<dialog:dismiss>");
+	});
+
+	test("requires accept to be specified before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "handleDialog" })).rejects.toThrow(/accept is required/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failHandleDialog: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true })).rejects.toThrow(/simulated handleDialog failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

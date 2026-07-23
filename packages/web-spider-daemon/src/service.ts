@@ -112,7 +112,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "eval", "screenshot"]);
+const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "eval", "screenshot"]);
 const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
 const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 const SCREENSHOT_SCALES = new Set(["css", "device"]);
@@ -126,7 +126,7 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	}
 	const action = requireString(input, "action");
 	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "eval", "screenshot"');
+		throw new Error('action must be one of "navigate", "click", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "eval", "screenshot"');
 	}
 	const loadState = optionalString(input, "loadState");
 	if (loadState !== undefined && !LOAD_STATES.has(loadState)) {
@@ -163,6 +163,8 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		depth: optionalNumber(input, "depth"),
 		boxes: optionalBoolean(input, "boxes"),
 		mode: mode as SessionActInput["mode"],
+		accept: optionalBoolean(input, "accept"),
+		promptText: optionalString(input, "promptText"),
 	};
 }
 

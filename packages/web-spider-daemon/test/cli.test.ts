@@ -405,6 +405,24 @@ describe("runCli session act", () => {
 		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
 	});
 
+	test("handleDialog forwards --accept and --prompt-text", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "handleDialog", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "handleDialog", "--snapshot-version", "0", "--accept", "--prompt-text", "E2"], deps);
+		expect(operations[0]?.input).toMatchObject({ accept: true, promptText: "E2" });
+	});
+
+	test("handleDialog forwards --dismiss as accept:false", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "handleDialog", snapshotVersion: 0 }) });
+		await runCli(["session", "act", "a", "--action", "handleDialog", "--snapshot-version", "0", "--dismiss"], deps);
+		expect(operations[0]?.input).toMatchObject({ accept: false });
+	});
+
+	test("handleDialog with both --accept and --dismiss prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "handleDialog", "--snapshot-version", "0", "--accept", "--dismiss"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);
