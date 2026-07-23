@@ -63,6 +63,8 @@ export interface SessionActInput {
 	accept?: boolean;
 	/** handleDialog action: text to answer a prompt() dialog with. Ignored for alert/confirm/beforeunload. */
 	promptText?: string;
+	/** pressKey action: the key to press (e.g. "Enter", "Escape", "Tab", "ArrowLeft"). Required. */
+	key?: string;
 }
 
 export interface SessionActOutput {
@@ -102,7 +104,7 @@ export class SessionService {
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
-		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept });
+		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept, key: input.key });
 		const record = (outcome: "ok" | "error" | "stale-snapshot", error: string) => {
 			this.journal.record({
 				ts: this.now(),
@@ -133,6 +135,8 @@ export class SessionService {
 			// cause a page/browser round trip at all).
 			if (input.action === "navigate" && !input.url) throw new Error("url is required for a navigate action");
 			if (input.action === "click" && !input.selector) throw new Error("selector is required for a click action");
+			if (input.action === "hover" && !input.selector) throw new Error("selector is required for a hover action");
+			if (input.action === "pressKey" && !input.key) throw new Error("key is required for a pressKey action");
 			if (input.action === "eval") {
 				if (!input.script) throw new Error("script is required for an eval action");
 				if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH) throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
@@ -178,6 +182,14 @@ export class SessionService {
 				}
 				case "click": {
 					await page.click(input.selector as string, { timeoutMs: input.timeoutMs });
+					break;
+				}
+				case "hover": {
+					await page.hover(input.selector as string, { timeoutMs: input.timeoutMs });
+					break;
+				}
+				case "pressKey": {
+					await page.pressKey(input.key as string, { selector: input.selector, timeoutMs: input.timeoutMs });
 					break;
 				}
 				case "type": {

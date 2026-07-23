@@ -91,6 +91,14 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("downloads", {})).toBe("<downloads>");
 	});
 
+	test("hover: the selector, bounded", () => {
+		expect(journalTargetFor("hover", { selector: "#menu" })).toBe("#menu");
+	});
+
+	test("pressKey: the key name, verbatim (never sensitive)", () => {
+		expect(journalTargetFor("pressKey", { key: "Enter" })).toBe("Enter");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

@@ -142,6 +142,8 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider session close <name> [--json]",
 		"       web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action hover --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+		"       web-spider session act <name> --action pressKey --snapshot-version N --key STR [--selector CSS] [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action type --snapshot-version N --selector CSS --text STR [--no-clear] [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action select --snapshot-version N --selector CSS (--value STR | --label STR) [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action waitFor --snapshot-version N (--selector CSS | --text STR | --load-state STATE) [--state STATE] [--timeout-ms N] [--json]",
@@ -355,12 +357,12 @@ async function runSessionClose(rest: string[], deps: CliDependencies): Promise<n
 
 async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [
-		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text",
+		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text", "--key",
 	], ["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss"]);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
-	if (action !== "navigate" && action !== "click" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "snapshot" && action !== "handleDialog" && action !== "downloads" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
+	if (action !== "navigate" && action !== "click" && action !== "hover" && action !== "pressKey" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "snapshot" && action !== "handleDialog" && action !== "downloads" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
 	if (action === "handleDialog" && parsed.flags.has("accept") && parsed.flags.has("dismiss")) return usage(deps.stderr);
 	const snapshotVersion = parseIntFlag(parsed.values, "snapshot-version");
 	if (snapshotVersion === undefined || Number.isNaN(snapshotVersion)) return usage(deps.stderr);
@@ -389,6 +391,7 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 			mode: parsed.values.mode as "ai" | "default" | undefined,
 			accept: parsed.flags.has("accept") ? true : parsed.flags.has("dismiss") ? false : undefined,
 			promptText: parsed.values["prompt-text"],
+			key: parsed.values.key,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionActResult(result));
 		return 0;

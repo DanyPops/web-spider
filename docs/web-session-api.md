@@ -17,6 +17,8 @@ site — `web_session` is for driving one.
 | Start a session | `{ operation: "create", name: "…" }` |
 | Load a page | `{ operation: "act", name, snapshotVersion, action: "navigate", url }` |
 | Click something | `{ operation: "act", ..., action: "click", selector }` |
+| Reveal a hover-triggered menu/tooltip | `{ operation: "act", ..., action: "hover", selector }` |
+| Press a key (Enter/Escape/Tab/arrows) | `{ operation: "act", ..., action: "pressKey", key }` |
 | Type into a field | `{ operation: "act", ..., action: "type", selector, text }` |
 | Choose a dropdown option | `{ operation: "act", ..., action: "select", selector, value }` (or `label`) |
 | Wait for an async result | `{ operation: "act", ..., action: "waitFor", text }` (or `selector` / `loadState`) |
@@ -65,6 +67,8 @@ deliberate safety property, not friction to work around.
 |---|---|---|---|
 | `navigate` | `url` | Yes | Loads a URL. |
 | `click` | `selector` | No | |
+| `hover` | `selector` | No | Reveals hover-triggered menus/tooltips — the only way to trigger CSS `:hover` state; click/focus do not. |
+| `pressKey` | `key`, optional `selector` | No | Presses a keyboard key (e.g. `"Enter"`, `"Escape"`, `"Tab"`, `"ArrowLeft"`). With `selector`, focuses that element first. Without one, a global keyboard press — for keys like `Escape` with no natural target element. |
 | `type` | `selector`, `text`, optional `clear` (default `true`) | No | Real per-key keyboard input (Playwright's `pressSequentially`), not a directly-set value — works with pages that have their own JS-bound keyboard handling. `clear: false` appends instead of replacing. |
 | `select` | `selector`, one of `value` / `label` | No | Chooses a `<select>` option by its value attribute or visible label. |
 | `waitFor` | exactly one of `selector` / `text` / `loadState`, optional `state` (with `selector`/`text` only) | No | Blocks until the condition is true, bounded by `timeoutMs` (Playwright's own default applies when omitted — never unbounded). Use this instead of guessing a delay. |
@@ -94,9 +98,9 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `name` | `string` | create / close / act |
 | `forceChromeChannel` | `boolean` | create |
 | `snapshotVersion` | `number` | act, required |
-| `action` | `"navigate" \| "click" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "eval" \| "screenshot"` | act, required |
+| `action` | `"navigate" \| "click" \| "hover" \| "pressKey" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "eval" \| "screenshot"` | act, required |
 | `url` | `string` | navigate |
-| `selector` | `string` | click / type / select / waitFor / queryText / readTable / snapshot / screenshot (element-scoped) |
+| `selector` | `string` | click / hover / pressKey (optional) / type / select / waitFor / queryText / readTable / snapshot / screenshot (element-scoped) |
 | `text` | `string` | type / waitFor |
 | `clear` | `boolean` | type |
 | `value` | `string` | select |
@@ -111,6 +115,7 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `mode` | `"ai" \| "default"` | snapshot |
 | `accept` | `boolean` | handleDialog, required |
 | `promptText` | `string` | handleDialog |
+| `key` | `string` | pressKey, required |
 | `timeoutMs` | `number` | any act action; Playwright's own default (bounded) applies when omitted |
 
 ---

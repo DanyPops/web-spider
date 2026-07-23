@@ -4,6 +4,8 @@ import type { SessionPage } from "../../src/ports/session-registry.ts";
 export interface FakePageOptions {
 	failGoto?: boolean;
 	failClick?: boolean;
+	failHover?: boolean;
+	failPressKey?: boolean;
 	failType?: boolean;
 	failSelect?: boolean;
 	failWaitFor?: boolean;
@@ -25,6 +27,8 @@ export interface FakePageOptions {
 export interface FakeSessionPage extends SessionPage {
 	gotoCalls: Array<{ url: string; timeoutMs?: number }>;
 	clickCalls: Array<{ selector: string; timeoutMs?: number }>;
+	hoverCalls: Array<{ selector: string; timeoutMs?: number }>;
+	pressKeyCalls: Array<{ key: string; selector?: string; timeoutMs?: number }>;
 	typeCalls: Array<{ selector: string; text: string; timeoutMs?: number; clear?: boolean }>;
 	selectCalls: Array<{ selector: string; target: { value?: string; label?: string }; timeoutMs?: number }>;
 	waitForCalls: Array<{ target: { selector?: string; text?: string; loadState?: string }; timeoutMs?: number; state?: string }>;
@@ -41,6 +45,8 @@ export interface FakeSessionPage extends SessionPage {
 export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const gotoCalls: FakeSessionPage["gotoCalls"] = [];
 	const clickCalls: FakeSessionPage["clickCalls"] = [];
+	const hoverCalls: FakeSessionPage["hoverCalls"] = [];
+	const pressKeyCalls: FakeSessionPage["pressKeyCalls"] = [];
 	const typeCalls: FakeSessionPage["typeCalls"] = [];
 	const selectCalls: FakeSessionPage["selectCalls"] = [];
 	const waitForCalls: FakeSessionPage["waitForCalls"] = [];
@@ -55,6 +61,8 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	return {
 		gotoCalls,
 		clickCalls,
+		hoverCalls,
+		pressKeyCalls,
 		typeCalls,
 		selectCalls,
 		waitForCalls,
@@ -73,6 +81,14 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async click(selector, callOpts) {
 			clickCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failClick) throw new Error("simulated click failure: element not found");
+		},
+		async hover(selector, callOpts) {
+			hoverCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
+			if (opts.failHover) throw new Error("simulated hover failure: element not found");
+		},
+		async pressKey(key, callOpts) {
+			pressKeyCalls.push({ key, selector: callOpts?.selector, timeoutMs: callOpts?.timeoutMs });
+			if (opts.failPressKey) throw new Error("simulated pressKey failure");
 		},
 		async type(selector, text, callOpts) {
 			typeCalls.push({ selector, text, timeoutMs: callOpts?.timeoutMs, clear: callOpts?.clear });
