@@ -167,7 +167,13 @@ export interface FakeLauncherOptions {
 	pageOptionsForSession?: (sessionIndex: number) => FakePageOptions;
 }
 
-/** A launcher that never touches a real browser — fast, deterministic, and lets tests control timing/failure/page behavior. */
+/**
+ * A launcher that never touches a real browser — fast, deterministic, and
+ * lets tests control timing/failure/page behavior. Tracks multiple tabs per
+ * session (mirroring PlaywrightSessionRegistry's own real adapter logic in
+ * simplified form) so SessionService-level tests can exercise real tab-
+ * switching semantics without a real browser.
+ */
 export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 	launcher: BrowserLauncher;
 	launched: LaunchedBrowser[];
@@ -181,17 +187,62 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 		// Capture this session's index before pushing — page() is called later,
 		// by which point launched.length would already have advanced past it.
 		const sessionIndex = launched.length;
-		let page: FakeSessionPage | undefined;
+		interface FakeTab { page: FakeSessionPage; version: number; url: string }
+		const tabs: FakeTab[] = [];
+		let activeIndex = -1;
+		const ensureFirstTab = () => {
+			if (tabs.length === 0) {
+				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
+				pages.push(page);
+				tabs.push({ page, version: 0, url: "about:blank" });
+				activeIndex = 0;
+			}
+		};
+		const describeTab = (index: number) => ({ index, url: (tabs[index] as FakeTab).url, title: "", active: index === activeIndex });
 		const browser: LaunchedBrowser = {
 			close: async () => {
 				if (opts.failClose) throw new Error("simulated close failure");
 			},
 			page: async () => {
-				if (!page) {
-					page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
-					pages.push(page);
-				}
-				return page;
+				ensureFirstTab();
+				return (tabs[activeIndex] as FakeTab).page;
+			},
+			listTabs: async () => {
+				ensureFirstTab();
+				return tabs.map((_, index) => describeTab(index));
+			},
+			newTab: async (url) => {
+				ensureFirstTab();
+				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
+				pages.push(page);
+				tabs.push({ page, version: 0, url: url ?? "about:blank" });
+				activeIndex = tabs.length - 1;
+				return describeTab(activeIndex);
+			},
+			closeTab: async (tabIndex) => {
+				ensureFirstTab();
+				const indexToClose = tabIndex ?? activeIndex;
+				if (indexToClose < 0 || indexToClose >= tabs.length) throw new Error(`no such tab: ${indexToClose}`);
+				tabs.splice(indexToClose, 1);
+				let newActiveIndex: number | null;
+				if (tabs.length === 0) newActiveIndex = null;
+				else if (indexToClose === activeIndex) newActiveIndex = Math.min(indexToClose, tabs.length - 1);
+				else if (indexToClose < activeIndex) newActiveIndex = activeIndex - 1;
+				else newActiveIndex = activeIndex;
+				activeIndex = newActiveIndex ?? -1;
+				return { closedIndex: indexToClose, newActiveIndex };
+			},
+			selectTab: async (tabIndex) => {
+				ensureFirstTab();
+				if (tabIndex < 0 || tabIndex >= tabs.length) throw new Error(`no such tab: ${tabIndex}`);
+				activeIndex = tabIndex;
+				return describeTab(activeIndex);
+			},
+			activeSnapshotVersion: () => tabs[activeIndex]?.version ?? 0,
+			bumpActiveSnapshotVersion: () => {
+				const tab = tabs[activeIndex] as FakeTab;
+				tab.version += 1;
+				return tab.version;
 			},
 		};
 		launched.push(browser);

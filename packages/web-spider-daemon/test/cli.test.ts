@@ -461,6 +461,24 @@ describe("runCli session act", () => {
 		expect(operations[1]?.input).toMatchObject({ includeStatic: true });
 	});
 
+	test("tabs forwards --tab-operation and --tab-index", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "tabs", snapshotVersion: 0, result: [] }) });
+		await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "1"], deps);
+		expect(operations[0]?.input).toMatchObject({ tabOperation: "select", tabIndex: 1 });
+	});
+
+	test("tabs new forwards --url for the new tab", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "tabs", snapshotVersion: 0, result: {} }) });
+		await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "new", "--url", "https://x.test"], deps);
+		expect(operations[0]?.input).toMatchObject({ tabOperation: "new", url: "https://x.test" });
+	});
+
+	test("a non-numeric --tab-index prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "nope"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);

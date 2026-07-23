@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { boundedJournalError, journalTargetFor, sanitizeUrlForJournal } from "../src/domain/session-audit.ts";
+import { boundedJournalError, isSessionAction, journalTargetFor, sanitizeUrlForJournal, SESSION_ACTIONS } from "../src/domain/session-audit.ts";
 
 describe("sanitizeUrlForJournal", () => {
 	test("redacts sensitive query parameter values, keeps the rest of the URL intact", () => {
@@ -30,6 +30,20 @@ describe("sanitizeUrlForJournal", () => {
 	test("bounds overall length", () => {
 		const long = `https://example.com/${"a".repeat(1_000)}`;
 		expect(sanitizeUrlForJournal(long).length).toBeLessThanOrEqual(500);
+	});
+});
+
+describe("SESSION_ACTIONS / isSessionAction — the single source of truth service.ts and cli.ts both validate against", () => {
+	test("accepts every currently-defined action", () => {
+		for (const action of SESSION_ACTIONS) expect(isSessionAction(action)).toBe(true);
+	});
+
+	test("rejects an unknown action name", () => {
+		expect(isSessionAction("bogus")).toBe(false);
+	});
+
+	test("rejects undefined (a missing --action flag)", () => {
+		expect(isSessionAction(undefined)).toBe(false);
 	});
 });
 
@@ -105,6 +119,11 @@ describe("journalTargetFor", () => {
 
 	test("networkRequests: always the fixed placeholder", () => {
 		expect(journalTargetFor("networkRequests", {})).toBe("<network-requests>");
+	});
+
+	test("tabs: the tabOperation, and the tabIndex when present — neither is sensitive", () => {
+		expect(journalTargetFor("tabs", { tabOperation: "list" })).toBe("<tabs:list>");
+		expect(journalTargetFor("tabs", { tabOperation: "select", tabIndex: 2 })).toBe("<tabs:select:2>");
 	});
 
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {

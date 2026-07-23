@@ -9,7 +9,27 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "consoleMessages" | "networkRequests" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "consoleMessages" | "networkRequests" | "tabs" | "eval" | "screenshot";
+
+/**
+ * The single source of truth for "is this a real action name" — co-located
+ * with the SessionAction type itself specifically so adding a new action
+ * means touching one Set right next to its own type, not two independently
+ * hand-maintained lists in two different files that can silently drift out
+ * of sync (service.ts's own validation and cli.ts's own action-check used
+ * to be two separate hand-written boolean chains; one fell out of sync
+ * with the other during this file's own "tabs" addition and the mismatch
+ * was only caught by a test, not by any structural guarantee).
+ */
+export const SESSION_ACTIONS: ReadonlySet<SessionAction> = new Set<SessionAction>([
+	"navigate", "click", "hover", "pressKey", "type", "select", "waitFor", "queryText", "readTable",
+	"snapshot", "handleDialog", "downloads", "consoleMessages", "networkRequests", "tabs", "eval", "screenshot",
+]);
+
+/** Type-narrowing guard over SESSION_ACTIONS — a plain Set.has() call doesn't narrow a string|undefined to SessionAction on its own; call sites that need the narrowing (not just the boolean) use this instead of re-deriving it. */
+export function isSessionAction(value: string | undefined): value is SessionAction {
+	return value !== undefined && SESSION_ACTIONS.has(value as SessionAction);
+}
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -55,7 +75,7 @@ function boundedSelector(selector: string): string {
  * whole-page/viewport screenshot has no meaningful non-binary "target";
  * an element-scoped one logs the selector, same as click/type/select.
  */
-export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean; key?: string }): string {
+export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean; key?: string; tabOperation?: string; tabIndex?: number }): string {
 	switch (action) {
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";
@@ -110,6 +130,9 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			return "<console-messages>";
 		case "networkRequests":
 			return "<network-requests>";
+		case "tabs":
+			// tabOperation and tabIndex are never sensitive — logged verbatim.
+			return input.tabIndex !== undefined ? `<tabs:${input.tabOperation}:${input.tabIndex}>` : `<tabs:${input.tabOperation}>`;
 		case "eval":
 			return "<script>";
 		case "screenshot":

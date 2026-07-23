@@ -84,6 +84,13 @@ export interface SessionPage {
 	screenshot(opts?: { fullPage?: boolean; selector?: string; scale?: "css" | "device" }): Promise<Uint8Array>;
 }
 
+export interface TabInfo {
+	index: number;
+	url: string;
+	title: string;
+	active: boolean;
+}
+
 export interface CreateSessionOptions {
 	/**
 	 * Force the full installed chrome/chromium channel instead of Playwright's
@@ -119,10 +126,18 @@ export interface SessionRegistry {
 	page(name: string): Promise<SessionPage>;
 	/** Idempotent-in-error-shape: closing an unknown or already-closed session throws a clear, typed error. */
 	close(name: string): Promise<void>;
-	/** Bumps and returns the session's snapshot version (called after a successful navigate). Throws for an unknown session. */
+	/** Bumps and returns the session's snapshot version (called after a successful navigate) — the *active tab's own* version, not a session-wide counter (each tab tracks its own independently, since a stale-snapshot check is fundamentally about one page's navigation state). Throws for an unknown session. */
 	bumpSnapshotVersion(name: string): SessionInfo;
-	/** Touches lastActivityAt without changing snapshotVersion (called after a successful click/eval/screenshot). Throws for an unknown session. */
+	/** Refreshes the reported snapshotVersion to the active tab's own current value (called after a successful click/eval/screenshot/tabs/... — anything that isn't navigate) without bumping it. Throws for an unknown session. */
 	touchActivity(name: string): SessionInfo;
+	/** Lists every open tab in index order. Lazily creates tab 0 if the session has never had a page touched yet. Throws for an unknown session. */
+	listTabs(name: string): Promise<TabInfo[]>;
+	/** Opens a new tab (optionally navigating it immediately), makes it active with a fresh snapshotVersion of 0, and returns its info. Rejects past SESSION_MAX_TABS. Throws for an unknown session. */
+	newTab(name: string, url?: string): Promise<TabInfo>;
+	/** Closes a tab (defaults to the active one). If the active tab is closed, activation falls back to the tab now at the same index, or the last remaining tab, or null if none remain — documented, deterministic, not implicit. Throws for an unknown session or an out-of-range tabIndex. */
+	closeTab(name: string, tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }>;
+	/** Switches the active tab, surfacing its own already-tracked snapshotVersion. Throws for an unknown session or an out-of-range tabIndex. */
+	selectTab(name: string, tabIndex: number): Promise<TabInfo>;
 	/** Daemon-shutdown hygiene — tears down every live session. Never throws; best-effort. */
 	closeAll(): Promise<void>;
 }

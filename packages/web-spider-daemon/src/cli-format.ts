@@ -153,7 +153,7 @@ export function formatSessionCloseResult(result: { name: string; closed: true })
 
 export function formatSessionActResult(result: SessionActOutput): string {
 	const header = `${result.action} on "${result.name}" — ok (snapshotVersion=${result.snapshotVersion})`;
-	if (result.action === "eval" || result.action === "queryText" || result.action === "readTable" || result.action === "snapshot" || result.action === "downloads" || result.action === "consoleMessages" || result.action === "networkRequests") return `${header}\n  result: ${JSON.stringify(result.result)}`;
+	if (result.action === "eval" || result.action === "queryText" || result.action === "readTable" || result.action === "snapshot" || result.action === "downloads" || result.action === "consoleMessages" || result.action === "networkRequests" || result.action === "tabs") return `${header}\n  result: ${JSON.stringify(result.result)}`;
 	if (result.action === "screenshot") return `${header}\n  screenshot: ${result.screenshotBase64?.length ?? 0} base64 characters (use --json to capture the image data)`;
 	return header;
 }

@@ -62,6 +62,8 @@ export const PAPYRUS_INGEST_MAX_BATCH = 20;
 // ---------------------------------------------------------------------------
 /** Each session owns a full separate Playwright Browser process — local-dev-scale, not a hosted fleet. */
 export const SESSION_REGISTRY_MAX_CONCURRENT = 5;
+/** Max open tabs per session — each is a real Playwright page consuming real memory. */
+export const SESSION_MAX_TABS = 10;
 export const SESSION_NAME_MAX_LENGTH = 64;
 /** Bounded, content-free audit journal (Seeshell-derived principle) — never page text/secrets, just attempt/dispatch/result metadata. */
 export const SESSION_AUDIT_LOG_MAX_ROWS = 10_000;

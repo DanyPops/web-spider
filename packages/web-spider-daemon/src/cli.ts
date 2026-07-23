@@ -24,6 +24,7 @@ import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
+import { isSessionAction } from "./domain/session-audit.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
 const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"] as const;
@@ -154,6 +155,7 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider session act <name> --action downloads --snapshot-version N [--json]",
 		"       web-spider session act <name> --action consoleMessages --snapshot-version N [--json]",
 		"       web-spider session act <name> --action networkRequests --snapshot-version N [--include-static] [--json]",
+		"       web-spider session act <name> --action tabs --snapshot-version N --tab-operation list|new|close|select [--tab-index N] [--url URL] [--json]",
 		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
 		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
 		"       web-spider session act <name> --action screenshot --snapshot-version N [--full-page | --selector CSS] [--scale css|device] [--json]",
@@ -359,12 +361,12 @@ async function runSessionClose(rest: string[], deps: CliDependencies): Promise<n
 
 async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [
-		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text", "--key",
+		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text", "--key", "--tab-operation", "--tab-index",
 	], ["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss", "--include-static"]);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
-	if (action !== "navigate" && action !== "click" && action !== "hover" && action !== "pressKey" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "snapshot" && action !== "handleDialog" && action !== "downloads" && action !== "consoleMessages" && action !== "networkRequests" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
+	if (!isSessionAction(action)) return usage(deps.stderr);
 	if (action === "handleDialog" && parsed.flags.has("accept") && parsed.flags.has("dismiss")) return usage(deps.stderr);
 	const snapshotVersion = parseIntFlag(parsed.values, "snapshot-version");
 	if (snapshotVersion === undefined || Number.isNaN(snapshotVersion)) return usage(deps.stderr);
@@ -372,6 +374,8 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
 	const depth = parseIntFlag(parsed.values, "depth");
 	if (Number.isNaN(depth)) return usage(deps.stderr);
+	const tabIndex = parseIntFlag(parsed.values, "tab-index");
+	if (Number.isNaN(tabIndex)) return usage(deps.stderr);
 
 	try {
 		const script = action === "eval" ? deps.readEvalScript(parsed.values["script-file"]) : undefined;
@@ -395,6 +399,8 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 			promptText: parsed.values["prompt-text"],
 			key: parsed.values.key,
 			includeStatic: parsed.flags.has("include-static") ? true : undefined,
+			tabOperation: parsed.values["tab-operation"] as "list" | "new" | "close" | "select" | undefined,
+			tabIndex,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionActResult(result));
 		return 0;

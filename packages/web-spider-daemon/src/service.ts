@@ -27,7 +27,7 @@ import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
 import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
 import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
 import { SessionNotFoundError, SessionService, StaleSnapshotError, type SessionActInput, type SessionActOutput, type SessionCloseInput } from "./session-service.ts";
-import type { SessionAction } from "./domain/session-audit.ts";
+import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
@@ -112,7 +112,7 @@ function fetchInput(input: OperationInput): FetchOperationInput {
 	};
 }
 
-const SESSION_ACTIONS = new Set<SessionAction>(["navigate", "click", "hover", "pressKey", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "downloads", "consoleMessages", "networkRequests", "eval", "screenshot"]);
+const TAB_OPERATIONS = new Set(["list", "new", "close", "select"]);
 const LOAD_STATES = new Set(["load", "domcontentloaded", "networkidle"]);
 const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 const SCREENSHOT_SCALES = new Set(["css", "device"]);
@@ -125,8 +125,8 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		throw new Error("snapshotVersion is required and must be a non-negative integer");
 	}
 	const action = requireString(input, "action");
-	if (!SESSION_ACTIONS.has(action as SessionAction)) {
-		throw new Error('action must be one of "navigate", "click", "hover", "pressKey", "type", "select", "waitFor", "queryText", "readTable", "snapshot", "handleDialog", "downloads", "consoleMessages", "networkRequests", "eval", "screenshot"');
+	if (!isSessionAction(action)) {
+		throw new Error(`action must be one of ${[...SESSION_ACTIONS].map((a) => `"${a}"`).join(", ")}`);
 	}
 	const loadState = optionalString(input, "loadState");
 	if (loadState !== undefined && !LOAD_STATES.has(loadState)) {
@@ -143,6 +143,10 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	const mode = optionalString(input, "mode");
 	if (mode !== undefined && !SNAPSHOT_MODES.has(mode)) {
 		throw new Error('mode must be one of "ai", "default"');
+	}
+	const tabOperation = optionalString(input, "tabOperation");
+	if (tabOperation !== undefined && !TAB_OPERATIONS.has(tabOperation)) {
+		throw new Error('tabOperation must be one of "list", "new", "close", "select"');
 	}
 	return {
 		name,
@@ -167,6 +171,8 @@ function sessionActInput(input: OperationInput): SessionActInput {
 		promptText: optionalString(input, "promptText"),
 		key: optionalString(input, "key"),
 		includeStatic: optionalBoolean(input, "includeStatic"),
+		tabOperation: tabOperation as SessionActInput["tabOperation"],
+		tabIndex: optionalNumber(input, "tabIndex"),
 	};
 }
 
