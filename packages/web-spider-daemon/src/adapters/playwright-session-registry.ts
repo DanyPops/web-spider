@@ -3,9 +3,21 @@
  * session (full-process isolation, agent-browser's model, not
  * browser.newContext()). See decision doc
  * decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l and
- * research doc research-lightweight-browser-engine-options-for-the-session--0z7r
- * (default: Playwright's own chromium, letting chromium-headless-shell apply
- * automatically in headless mode — never force channel:"chrome" silently).
+ * research doc research-lightweight-browser-engine-options-for-the-session--0z7r.
+ *
+ * Default launch uses channel:"chromium" (Playwright's own bundled build,
+ * "new headless mode") — never channel:"chrome" (the operator's own system-
+ * installed, branded Chrome) unless forceChromeChannel opts in. This is a
+ * revision of an earlier decision to leave headless: true unspecified,
+ * which resolves to Playwright's separate, legacy "chromium-headless-shell"
+ * build: found unreliable for a real, deterministic, CI-reproduced case
+ * (a JS confirm() dialog's click() action hanging to a 30s timeout, not
+ * sporadic — reproduced twice in a row). Chrome's own documentation
+ * describes new headless mode as "the real Chrome browser... more
+ * authentic, reliable, and offers more features" than the legacy shell.
+ * channel:"chromium" keeps this fully Playwright's own open-source build
+ * (never the operator's system Chrome), just a more reliable launch mode
+ * of it — not a reversal of the "never silently force chrome" principle.
  */
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -335,7 +347,7 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 export function defaultBrowserLauncher(): BrowserLauncher {
 	return async ({ forceChromeChannel, downloadsDir }) => {
 		const { chromium } = await import("playwright-core");
-		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { headless: true };
+		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { channel: "chromium" as const, headless: true };
 		const browser = await chromium.launch(launchOpts);
 		mkdirSync(downloadsDir, { recursive: true });
 		return wrapPlaywrightBrowser(browser, downloadsDir);
