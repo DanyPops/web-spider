@@ -582,6 +582,79 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.close("real-network-session");
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}, 30_000);
+
+	test("real multi-tab lifecycle: new/list/select/close against real, independently-navigable pages", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-tabs-session");
+
+		// A fresh session already has exactly one active tab.
+		const initialTabs = await registry.listTabs("real-tabs-session");
+		expect(initialTabs).toHaveLength(1);
+		expect(initialTabs[0]).toMatchObject({ index: 0, active: true });
+
+		// tab 0 navigates to a real, distinguishable page.
+		const page0 = await registry.page("real-tabs-session");
+		await page0.goto("data:text/html,<title>tab-zero</title><div>zero</div>");
+
+		// A new tab opens, becomes active, and is genuinely a *different* page.
+		const newTabInfo = await registry.newTab("real-tabs-session", "data:text/html,<title>tab-one</title><div>one</div>");
+		expect(newTabInfo).toMatchObject({ index: 1, active: true });
+		const page1 = await registry.page("real-tabs-session");
+		expect(await page1.evaluate<string>("document.title")).toBe("tab-one");
+
+		const tabsAfterNew = await registry.listTabs("real-tabs-session");
+		expect(tabsAfterNew).toHaveLength(2);
+		expect(tabsAfterNew.find((t) => t.index === 1)?.active).toBe(true);
+		expect(tabsAfterNew.find((t) => t.index === 0)?.active).toBe(false);
+
+		// Selecting back to tab 0 makes page() resolve to the *original* page
+		// again — real proof this isn't just bookkeeping, but actually
+		// switches which real Playwright page subsequent actions reach.
+		await registry.selectTab("real-tabs-session", 0);
+		const page0Again = await registry.page("real-tabs-session");
+		expect(await page0Again.evaluate<string>("document.title")).toBe("tab-zero");
+
+		// Closing the (now active) tab 0 falls back to the sole remaining tab.
+		const closeResult = await registry.closeTab("real-tabs-session");
+		expect(closeResult).toEqual({ closedIndex: 0, newActiveIndex: 0 });
+		const remainingPage = await registry.page("real-tabs-session");
+		expect(await remainingPage.evaluate<string>("document.title")).toBe("tab-one");
+
+		await registry.close("real-tabs-session");
+	}, 30_000);
+
+	test("real per-tab snapshotVersion isolation: navigating one tab never affects another tab's own version", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-tabs-version-session");
+
+		const page0 = await registry.page("real-tabs-version-session");
+		await page0.goto("data:text/html,<div>zero</div>");
+		expect(registry.get("real-tabs-version-session")?.snapshotVersion).toBe(0); // goto() alone doesn't bump — only the daemon's bumpSnapshotVersion() call does
+		const info1 = registry.bumpSnapshotVersion("real-tabs-version-session");
+		expect(info1.snapshotVersion).toBe(1);
+
+		await registry.newTab("real-tabs-version-session"); // tab 1, fresh, version 0
+		const infoOnNewTab = registry.get("real-tabs-version-session");
+		expect(infoOnNewTab?.snapshotVersion).toBe(0); // reflects the new active tab, not tab 0's history
+
+		await registry.selectTab("real-tabs-version-session", 0);
+		const infoBackOnTab0 = registry.touchActivity("real-tabs-version-session");
+		expect(infoBackOnTab0.snapshotVersion).toBe(1); // tab 0's own version survived the round trip through tab 1
+
+		await registry.close("real-tabs-version-session");
+	}, 30_000);
+
+	test("real tab limit: rejects past SESSION_MAX_TABS without leaking an over-limit page", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-tabs-limit-session");
+		await registry.page("real-tabs-limit-session"); // ensures tab 0
+		for (let i = 1; i < 10; i++) await registry.newTab("real-tabs-limit-session");
+		expect(await registry.listTabs("real-tabs-limit-session")).toHaveLength(10);
+		await expect(registry.newTab("real-tabs-limit-session")).rejects.toThrow(/tab limit reached/);
+		expect(await registry.listTabs("real-tabs-limit-session")).toHaveLength(10);
+
+		await registry.close("real-tabs-limit-session");
+	}, 30_000);
 });
 
 /** Reads width/height directly from a PNG's IHDR chunk (bytes 16-23) — no image-decoding dependency needed for a real, not-asserted-by-assumption dimension check. */

@@ -67,6 +67,10 @@ export interface SessionActInput {
 	key?: string;
 	/** networkRequests action: include successful static resources (image/stylesheet/font/script) in the result. Default false, matching Playwright MCP's own convention. */
 	includeStatic?: boolean;
+	/** tabs action: which tab sub-operation to perform. Required. */
+	tabOperation?: "list" | "new" | "close" | "select";
+	/** tabs action: the tab index for close (defaults to the active tab)/select (required). Index-addressed, matching Playwright MCP's own tab convention. */
+	tabIndex?: number;
 }
 
 export interface SessionActOutput {
@@ -106,7 +110,7 @@ export class SessionService {
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
-		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept, key: input.key });
+		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept, key: input.key, tabOperation: input.tabOperation, tabIndex: input.tabIndex });
 		const record = (outcome: "ok" | "error" | "stale-snapshot", error: string) => {
 			this.journal.record({
 				ts: this.now(),
@@ -172,6 +176,15 @@ export class SessionService {
 				throw new Error("accept is required for a handleDialog action");
 			}
 			// downloads/consoleMessages/networkRequests have no extra validation — reads of already-captured metadata.
+			if (input.action === "tabs") {
+				const validOps = new Set(["list", "new", "close", "select"]);
+				if (!input.tabOperation || !validOps.has(input.tabOperation)) {
+					throw new Error('tabOperation is required for a tabs action and must be one of "list", "new", "close", "select"');
+				}
+				if (input.tabOperation === "select" && input.tabIndex === undefined) {
+					throw new Error("tabIndex is required for tabs tabOperation=select");
+				}
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -252,6 +265,15 @@ export class SessionService {
 					result = input.includeStatic
 						? requests
 						: requests.filter((r) => !(STATIC_RESOURCE_TYPES.has(r.resourceType) && r.status >= 200 && r.status < 300));
+					break;
+				}
+				case "tabs": {
+					switch (input.tabOperation) {
+						case "list": result = await this.registry.listTabs(input.name); break;
+						case "new": result = await this.registry.newTab(input.name, input.url); break;
+						case "close": result = await this.registry.closeTab(input.name, input.tabIndex); break;
+						case "select": result = await this.registry.selectTab(input.name, input.tabIndex as number); break;
+					}
 					break;
 				}
 				case "eval": {

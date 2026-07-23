@@ -10,31 +10,118 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
-import { createSessionInfo, isValidSessionName, withBumpedSnapshotVersion, withTouchedActivity, type SessionInfo } from "../domain/session.ts";
-import type { CreateSessionOptions, SessionPage, SessionRegistry } from "../ports/session-registry.ts";
+import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_MAX_TABS, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
+import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
+import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "../ports/session-registry.ts";
 
-/** The minimal surface this module needs from a launched browser. */
+/**
+ * The minimal surface this module needs from a launched browser. Manages
+ * potentially multiple tabs (real Playwright pages) within the one owned
+ * browser process — index-addressed, matching Playwright MCP's own tab
+ * convention. Each tab tracks its own snapshotVersion independently (a
+ * stale-snapshot check is fundamentally about one page's navigation state,
+ * not the session as a whole) — page()/the active-tab accessors always
+ * reflect whichever tab was most recently selected (or created), and
+ * PlaywrightSessionRegistry surfaces that tab's own version as the
+ * session's reported snapshotVersion after every action.
+ */
 export interface LaunchedBrowser {
 	close(): Promise<void>;
-	/** Lazily creates the session's one persistent page on first call; returns the same page on every subsequent call. */
+	/** The currently active tab's persistent page. Lazily creates tab 0 on first call; returns the active tab's page on every subsequent call. */
 	page(): Promise<SessionPage>;
+	listTabs(): Promise<TabInfo[]>;
+	newTab(url?: string): Promise<TabInfo>;
+	closeTab(tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }>;
+	selectTab(tabIndex: number): Promise<TabInfo>;
+	/** The active tab's own tracked snapshotVersion, without changing it. 0 if no tab has ever been created. */
+	activeSnapshotVersion(): number;
+	/** Bumps and returns the active tab's own tracked version (called after a successful navigate on it). */
+	bumpActiveSnapshotVersion(): number;
 }
 
 export type BrowserLauncher = (opts: { forceChromeChannel: boolean; downloadsDir: string }) => Promise<LaunchedBrowser>;
+
+interface Tab {
+	playwrightPage: PlaywrightPageLike;
+	sessionPage: SessionPage;
+	version: number;
+}
 
 function wrapPlaywrightBrowser(
 	browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> },
 	downloadsDir: string,
 ): LaunchedBrowser {
-	let pagePromise: Promise<SessionPage> | undefined;
+	const tabs: Tab[] = [];
+	let activeIndex = -1; // -1: no tab created yet
+	let ensureFirstTabPromise: Promise<void> | undefined;
+
+	// Idempotent and safe to call from any method — the first real access
+	// (page(), listTabs(), etc.) lazily creates tab 0, exactly matching the
+	// pre-multi-tab behavior for every caller that never touches tabs at all.
+	function ensureFirstTab(): Promise<void> {
+		if (!ensureFirstTabPromise) {
+			ensureFirstTabPromise = browser.newPage().then((playwrightPage) => {
+				tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir), version: 0 });
+				activeIndex = 0;
+			});
+		}
+		return ensureFirstTabPromise;
+	}
+
+	async function describeTab(index: number): Promise<TabInfo> {
+		const tab = tabs[index] as Tab;
+		return { index, url: tab.playwrightPage.url(), title: await tab.playwrightPage.title(), active: index === activeIndex };
+	}
+
 	return {
 		close: () => browser.close(),
-		page: () => {
-			if (!pagePromise) {
-				pagePromise = browser.newPage().then((playwrightPage) => wrapPlaywrightPage(playwrightPage, downloadsDir));
+		page: async () => {
+			await ensureFirstTab();
+			return (tabs[activeIndex] as Tab).sessionPage;
+		},
+		listTabs: async () => {
+			await ensureFirstTab();
+			return Promise.all(tabs.map((_, index) => describeTab(index)));
+		},
+		newTab: async (url) => {
+			await ensureFirstTab();
+			if (tabs.length >= SESSION_MAX_TABS) throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
+			const playwrightPage = await browser.newPage();
+			if (url !== undefined) await playwrightPage.goto(url);
+			tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir), version: 0 });
+			activeIndex = tabs.length - 1;
+			return describeTab(activeIndex);
+		},
+		closeTab: async (tabIndex) => {
+			await ensureFirstTab();
+			const indexToClose = tabIndex ?? activeIndex;
+			if (indexToClose < 0 || indexToClose >= tabs.length) throw new Error(`no such tab: ${indexToClose}`);
+			await (tabs[indexToClose] as Tab).playwrightPage.close();
+			tabs.splice(indexToClose, 1);
+			let newActiveIndex: number | null;
+			if (tabs.length === 0) {
+				newActiveIndex = null;
+			} else if (indexToClose === activeIndex) {
+				newActiveIndex = Math.min(indexToClose, tabs.length - 1);
+			} else if (indexToClose < activeIndex) {
+				newActiveIndex = activeIndex - 1;
+			} else {
+				newActiveIndex = activeIndex;
 			}
-			return pagePromise;
+			activeIndex = newActiveIndex ?? -1;
+			return { closedIndex: indexToClose, newActiveIndex };
+		},
+		selectTab: async (tabIndex) => {
+			await ensureFirstTab();
+			if (tabIndex < 0 || tabIndex >= tabs.length) throw new Error(`no such tab: ${tabIndex}`);
+			activeIndex = tabIndex;
+			return describeTab(activeIndex);
+		},
+		activeSnapshotVersion: () => tabs[activeIndex]?.version ?? 0,
+		bumpActiveSnapshotVersion: () => {
+			const tab = tabs[activeIndex] as Tab;
+			tab.version += 1;
+			return tab.version;
 		},
 	};
 }
@@ -99,6 +186,9 @@ interface PlaywrightResponseLike {
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
+	url(): string;
+	title(): Promise<string>;
+	close(): Promise<void>;
 	locator(selector: string): PlaywrightLocatorLike;
 	/** Text-content locator (Playwright's own escaping, not a hand-built :text() selector string). */
 	getByText(text: string): PlaywrightLocatorLike;
@@ -317,18 +407,66 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		return entry.browser.page();
 	}
 
+	/** Sources the reported version from the active tab's own tracked counter, bumping it — not withBumpedSnapshotVersion's session-wide "+1" (each tab tracks its own independently; see LaunchedBrowser's own doc comment). */
 	bumpSnapshotVersion(name: string): SessionInfo {
 		const entry = this.sessions.get(name);
 		if (!entry) throw new Error(`no such session: "${name}"`);
-		entry.info = withBumpedSnapshotVersion(entry.info, this.now());
+		const version = entry.browser.bumpActiveSnapshotVersion();
+		entry.info = { ...entry.info, snapshotVersion: version, lastActivityAt: this.now() };
 		return entry.info;
 	}
 
+	/** Refreshes the reported version to the active tab's own current value — correctly reflects a tab switch that happened via a preceding tabs(select)/tabs(new)/tabs(close) call in the same act(), not just "unchanged" as withTouchedActivity would report. */
 	touchActivity(name: string): SessionInfo {
 		const entry = this.sessions.get(name);
 		if (!entry) throw new Error(`no such session: "${name}"`);
-		entry.info = withTouchedActivity(entry.info, this.now());
+		entry.info = { ...entry.info, snapshotVersion: entry.browser.activeSnapshotVersion(), lastActivityAt: this.now() };
 		return entry.info;
+	}
+
+	/**
+	 * Refreshes entry.info's reported snapshotVersion from the active tab's
+	 * own tracked counter immediately — relying solely on the *next*
+	 * touchActivity() call (as every other action does) would leave
+	 * registry.get()/list() reporting stale info for the window between a
+	 * tab operation and whatever act() call happens to follow it. Caught by
+	 * a real walking-skeleton test: registry.get() briefly reported tab 0's
+	 * version immediately after newTab() switched the active tab away.
+	 */
+	private refreshInfo(entry: { info: SessionInfo; browser: LaunchedBrowser }): void {
+		entry.info = { ...entry.info, snapshotVersion: entry.browser.activeSnapshotVersion(), lastActivityAt: this.now() };
+	}
+
+	async listTabs(name: string): Promise<TabInfo[]> {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		const tabs = await entry.browser.listTabs();
+		this.refreshInfo(entry);
+		return tabs;
+	}
+
+	async newTab(name: string, url?: string): Promise<TabInfo> {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		const tab = await entry.browser.newTab(url);
+		this.refreshInfo(entry);
+		return tab;
+	}
+
+	async closeTab(name: string, tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }> {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		const result = await entry.browser.closeTab(tabIndex);
+		this.refreshInfo(entry);
+		return result;
+	}
+
+	async selectTab(name: string, tabIndex: number): Promise<TabInfo> {
+		const entry = this.sessions.get(name);
+		if (!entry) throw new Error(`no such session: "${name}"`);
+		const tab = await entry.browser.selectTab(tabIndex);
+		this.refreshInfo(entry);
+		return tab;
 	}
 
 	async close(name: string): Promise<void> {

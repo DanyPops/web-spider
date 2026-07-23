@@ -28,6 +28,7 @@ site — `web_session` is for driving one.
 | Accept a confirm()/prompt() dialog before it appears | `{ operation: "act", ..., action: "handleDialog", accept: true }` then trigger the action that opens it |
 | Check what files a click has downloaded | `{ operation: "act", ..., action: "downloads" }` after the triggering click |
 | Debug why something isn't working | `{ operation: "act", ..., action: "consoleMessages" }` / `{ ..., action: "networkRequests" }` |
+| Open/list/switch/close browser tabs | `{ operation: "act", ..., action: "tabs", tabOperation: "new" \| "list" \| "select" \| "close" }` |
 | Run arbitrary JS | `{ operation: "act", ..., action: "eval", script }` |
 | Capture the page | `{ operation: "act", ..., action: "screenshot" }` |
 | See what's open | `{ operation: "list" }` |
@@ -44,7 +45,7 @@ site — `web_session` is for driving one.
 | `close` | `name` | Tears the session's browser down. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
 | `act` | `name`, `snapshotVersion`, `action` | Dispatches one action against the session's one persistent page. |
 
-## Snapshot version — required, not busywork
+## Snapshot version — required, not busywork, and per-tab
 
 Every `act` response includes `snapshotVersion`. Pass it back on your next `act` call for that
 session. A stale value is **rejected** rather than silently acting on out-of-date state — the page
@@ -59,6 +60,17 @@ start with; `navigate` bumps it; every other action leaves it unchanged.
 
 Acting with a stale value throws a clear error rather than a silent wrong result — this is a
 deliberate safety property, not friction to work around.
+
+**Each tab tracks its own `snapshotVersion` independently** — a stale-snapshot check is
+fundamentally about *one page's* navigation state, not the session as a whole. The `snapshotVersion`
+in every `act` response reflects whichever tab is currently active; switching tabs via
+`tabs(select)`/`tabs(new)` surfaces *that* tab's own already-tracked version, not tab 0's:
+
+```json
+// tab 0: act(navigate) twice -> { "snapshotVersion": 2, ... }
+// tabs(new)             -> { "snapshotVersion": 0, ... }   <- fresh tab, its own count
+// tabs(select, index:0) -> { "snapshotVersion": 2, ... }   <- tab 0's own history, untouched
+```
 
 ---
 
@@ -80,6 +92,7 @@ deliberate safety property, not friction to work around.
 | `downloads` | — | No | Returns every file downloaded on this page since session creation (most recent last, bounded to 20 entries): `{filename, path, url, failure}`. Each file has already been saved to disk by the time it appears here (a persistent listener registered at session creation, not a new interaction) — call this *after* the action expected to trigger a download, since a download may not finish before the triggering action's own response returns (verified empirically: Playwright's own recommended pattern races the download event against the triggering click rather than checking afterward). A real limitation: bounded by entry count, not total disk usage — a single very large file is not size-capped. |
 | `consoleMessages` | — | No | Returns every console message (`log`/`warn`/`error`/`info`/`debug`) logged on the page since session creation: `{type, text, timestamp}`, bounded to 100 entries. Buffered by a persistent listener — not retroactively queryable, so it only ever reflects what happened *after* the session started. |
 | `networkRequests` | optional `includeStatic` | No | Returns every network request/response observed since session creation: `{url, method, status, resourceType}`, bounded to 100 entries. Excludes successful static resources (`image`/`stylesheet`/`font`/`script`) by default, matching Playwright's own AI-agent tooling convention — `includeStatic: true` includes everything. |
+| `tabs` | `tabOperation`, optional `tabIndex`/`url` | No† | Manages multiple tabs within one session. `list`: every open tab, index-addressed, `{index, url, title, active}`. `new`: opens a tab (optionally navigating it via `url`), makes it active. `close`: closes a tab (defaults to the active one); if the active tab is closed, activation falls back to the tab now at the same index, or the last remaining tab, or none if it was the last tab. `select`: switches the active tab (`tabIndex` required). Bounded to 10 tabs per session. † Doesn't bump `snapshotVersion` itself, but **`snapshotVersion` is per-tab, not per-session** — see below. |
 | `eval` | `script` | No | Arbitrary JavaScript; returns its JSON-serializable result. Prefer the actions above when they fit — `eval` is the least structured, least auditable option. |
 | `screenshot` | optional `fullPage`, `selector`, `scale` | No | Returns a PNG as a real image content block (not embedded in the JSON result). Defaults to viewport-only, matching Playwright's own real default. `fullPage: true` captures the whole scrollable page; `selector` captures just that one element's bounding box instead ("download only this graphical element for inspection") — mutually exclusive with `fullPage`. `scale: "css"` (default) is CSS-pixel-sized; `"device"` uses the real device pixel ratio. |
 
@@ -101,8 +114,8 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `name` | `string` | create / close / act |
 | `forceChromeChannel` | `boolean` | create |
 | `snapshotVersion` | `number` | act, required |
-| `action` | `"navigate" \| "click" \| "hover" \| "pressKey" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "consoleMessages" \| "networkRequests" \| "eval" \| "screenshot"` | act, required |
-| `url` | `string` | navigate |
+| `action` | `"navigate" \| "click" \| "hover" \| "pressKey" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "consoleMessages" \| "networkRequests" \| "tabs" \| "eval" \| "screenshot"` | act, required |
+| `url` | `string` | navigate, tabs (new, optional) |
 | `selector` | `string` | click / hover / pressKey (optional) / type / select / waitFor / queryText / readTable / snapshot / screenshot (element-scoped) |
 | `text` | `string` | type / waitFor |
 | `clear` | `boolean` | type |
@@ -120,6 +133,8 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `promptText` | `string` | handleDialog |
 | `key` | `string` | pressKey, required |
 | `includeStatic` | `boolean` | networkRequests |
+| `tabOperation` | `"list" \| "new" \| "close" \| "select"` | tabs, required |
+| `tabIndex` | `number` | tabs (required for select, optional for close) |
 | `timeoutMs` | `number` | any act action; Playwright's own default (bounded) applies when omitted |
 
 ---

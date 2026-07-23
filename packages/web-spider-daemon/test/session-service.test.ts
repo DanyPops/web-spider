@@ -581,6 +581,67 @@ describe("SessionService — act: networkRequests (does not bump snapshotVersion
 	});
 });
 
+describe("SessionService — act: tabs (does not bump snapshotVersion of its own)", () => {
+	test("list on a fresh session reports exactly one active tab", async () => {
+		const { service, journal } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "list" });
+		expect(out.result).toEqual([{ index: 0, url: "about:blank", title: "", active: true }]);
+		expect(journal.entries[0]).toMatchObject({ action: "tabs", outcome: "ok", target: "<tabs:list>" });
+	});
+
+	test("new opens a second tab, index 1, and makes it active with a fresh snapshotVersion of 0", async () => {
+		const { service, journal } = makeHarness();
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "new", url: "https://x.test/" });
+		expect(out.result).toEqual({ index: 1, url: "https://x.test/", title: "", active: true });
+		expect(out.snapshotVersion).toBe(0);
+		expect(journal.entries[0]!.target).toBe("<tabs:new>");
+	});
+
+	test("select switches the active tab and reports THAT tab's own already-tracked snapshotVersion, not the session's other tab's", async () => {
+		const { service } = makeHarness();
+		await service.create({ name: "a" });
+		// tab 0 navigates twice -> its own version becomes 2.
+		await service.act({ name: "a", snapshotVersion: 0, action: "navigate", url: "https://x.test/1" });
+		await service.act({ name: "a", snapshotVersion: 1, action: "navigate", url: "https://x.test/2" });
+		// open tab 1 (fresh, version 0) and select back to tab 0.
+		await service.act({ name: "a", snapshotVersion: 2, action: "tabs", tabOperation: "new" });
+		const selectBack = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select", tabIndex: 0 });
+		// Tab 0's own version (2) is preserved and correctly surfaced — the key
+		// property this whole per-tab tracking design exists for: switching to
+		// tab 1 and back does not reset or share tab 0's own history.
+		expect(selectBack.snapshotVersion).toBe(2);
+		expect(selectBack.result).toMatchObject({ index: 0, active: true });
+	});
+
+	test("close removes a tab and falls back to a deterministic remaining active tab", async () => {
+		const { service } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "new" }); // tab 1, now active
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "close" }); // closes active tab 1
+		expect(out.result).toEqual({ closedIndex: 1, newActiveIndex: 0 });
+	});
+
+	test("requires tabOperation", async () => {
+		const { service } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs" })).rejects.toThrow(/tabOperation is required/);
+	});
+
+	test("select requires tabIndex", async () => {
+		const { service } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select" })).rejects.toThrow(/tabIndex is required/);
+	});
+
+	test("selecting an out-of-range tab index is rejected", async () => {
+		const { service } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select", tabIndex: 5 })).rejects.toThrow(/no such tab/);
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();
