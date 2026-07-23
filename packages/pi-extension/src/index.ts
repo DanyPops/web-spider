@@ -665,21 +665,30 @@ export default async function (pi: ExtensionAPI) {
     action: Type.Optional(
       Type.Union(
         [
-          Type.Literal("navigate"), Type.Literal("click"), Type.Literal("type"), Type.Literal("select"),
-          Type.Literal("waitFor"), Type.Literal("queryText"), Type.Literal("readTable"),
+          Type.Literal("navigate"), Type.Literal("click"), Type.Literal("hover"), Type.Literal("pressKey"),
+          Type.Literal("type"), Type.Literal("select"), Type.Literal("waitFor"), Type.Literal("queryText"),
+          Type.Literal("readTable"), Type.Literal("snapshot"), Type.Literal("handleDialog"), Type.Literal("downloads"),
+          Type.Literal("consoleMessages"), Type.Literal("networkRequests"), Type.Literal("tabs"),
           Type.Literal("eval"), Type.Literal("screenshot"),
         ],
         {
           description:
-            "act only, required. navigate/click/type/select act on the page (bump/consult snapshotVersion per " +
-            "above). waitFor blocks until a condition is true — use this instead of guessing a delay. " +
-            "queryText/readTable return structured data — use these instead of eval + hand-parsing text. " +
-            "eval runs arbitrary JavaScript and returns its JSON-serializable result. screenshot returns a PNG.",
+            "act only, required. navigate/click/hover/pressKey/type/select act on the page (bump/consult " +
+            "snapshotVersion per above). waitFor blocks until a condition is true — use this instead of guessing " +
+            "a delay. queryText/readTable return structured data — use these instead of eval + hand-parsing text. " +
+            "snapshot returns a YAML accessibility tree — prefer this over screenshot for understanding page " +
+            "structure, it's cheaper and more precise. handleDialog arms accept/dismiss for the next native " +
+            "dialog. downloads/consoleMessages/networkRequests read already-captured session activity. tabs " +
+            "manages multiple tabs (list/new/close/select). eval runs arbitrary JavaScript and returns its " +
+            "JSON-serializable result — prefer the more structured actions above when they fit. screenshot " +
+            "returns a PNG.",
         },
       ),
     ),
-    url: Type.Optional(Type.String({ description: "navigate: the URL to load." })),
-    selector: Type.Optional(Type.String({ description: "click/type/select/waitFor/queryText/readTable: a CSS selector." })),
+    url: Type.Optional(Type.String({ description: "navigate: the URL to load. tabs (tabOperation=new): optional URL for the new tab." })),
+    selector: Type.Optional(
+      Type.String({ description: "click/hover/type/select/waitFor/queryText/readTable/snapshot(scope)/screenshot(element-scoped): a CSS selector. pressKey: optional, focuses the element first." }),
+    ),
     text: Type.Optional(
       Type.String({
         description:
@@ -706,6 +715,34 @@ export default async function (pi: ExtensionAPI) {
     timeoutMs: Type.Optional(
       Type.Number({ description: "Per-action timeout in milliseconds. Playwright's own default (bounded, never unbounded) applies when omitted." }),
     ),
+    key: Type.Optional(Type.String({ description: 'pressKey: the key to press, e.g. "Enter", "Escape", "Tab", "ArrowLeft". Required for pressKey.' })),
+    fullPage: Type.Optional(
+      Type.Boolean({ description: "screenshot: capture the whole scrollable page instead of just the viewport (default false). Not valid alongside selector." }),
+    ),
+    scale: Type.Optional(
+      Type.Union([Type.Literal("css"), Type.Literal("device")], { description: "screenshot: image resolution — css pixels (default) or real device pixel ratio." }),
+    ),
+    depth: Type.Optional(Type.Number({ description: "snapshot: limit the accessibility tree's depth." })),
+    boxes: Type.Optional(
+      Type.Boolean({ description: "snapshot: include each node's bounding box ([box=x,y,width,height], viewport-relative CSS pixels) — ties structure to real pixel coordinates without needing vision." }),
+    ),
+    mode: Type.Optional(
+      Type.Union([Type.Literal("ai"), Type.Literal("default")], {
+        description: "snapshot: \"ai\" mode adds element references, doesn't wait for a matching element (throws if missing), and includes <iframe> content. Default \"default\".",
+      }),
+    ),
+    accept: Type.Optional(Type.Boolean({ description: "handleDialog: accept (true) or dismiss (false) the next native dialog. Required for handleDialog. Without arming this, dialogs auto-dismiss." })),
+    promptText: Type.Optional(Type.String({ description: "handleDialog: text to answer a prompt() dialog with. Ignored for other dialog types." })),
+    includeStatic: Type.Optional(
+      Type.Boolean({ description: "networkRequests: include successful static resources (image/stylesheet/font/script) in the result. Default false." }),
+    ),
+    tabOperation: Type.Optional(
+      Type.Union(
+        [Type.Literal("list"), Type.Literal("new"), Type.Literal("close"), Type.Literal("select")],
+        { description: "tabs: required. list every open tab; new opens one (optionally navigating via url); close closes one (defaults to the active tab); select switches the active tab (tabIndex required)." },
+      ),
+    ),
+    tabIndex: Type.Optional(Type.Number({ description: "tabs: 0-based tab index. Required for tabOperation=select; optional for close (defaults to the active tab)." })),
   })
 
   type SessionParams = Static<typeof sessionParamsSchema>
@@ -740,18 +777,31 @@ export default async function (pi: ExtensionAPI) {
       "ACTIONS (act only)",
       "  navigate  — load a URL.",
       "  click     — click selector.",
+      "  hover     — hover selector — the only way to trigger CSS :hover-revealed menus/tooltips.",
+      "  pressKey  — press a key (Enter/Escape/Tab/arrows). With selector, focuses it first; without one, a",
+      "              global keyboard press for keys like Escape with no natural target element.",
       "  type      — type text into selector (real per-key input; clear=false to append instead of replace).",
       "  select    — choose a <select> option by value or label.",
       "  waitFor   — block until selector/text appears, or a load state is reached. Use this instead of",
       "              guessing a delay — a page's own async round-trip time is never something to assume.",
       "  queryText — trimmed text per element matching selector — structured data, not innerText + parsing.",
       "  readTable — rows/cells of a <table> matching selector — structured data, not innerText + parsing.",
+      "  snapshot  — YAML accessibility tree (roles, names, ARIA attributes, hierarchy). PREFER THIS over",
+      "              screenshot for understanding page structure — cheaper, more precise, and directly",
+      "              describes what's interactable. boxes=true ties structure to real pixel coordinates.",
+      "  handleDialog — arms accept/dismiss (+ optional promptText) for the NEXT native dialog, before the",
+      "              action expected to trigger it. Without this, dialogs auto-dismiss (no hang risk either way).",
+      "  downloads — lists files downloaded so far (already saved to disk). Call after the triggering click.",
+      "  consoleMessages / networkRequests — read already-captured console output / network activity, useful",
+      "              for debugging why something isn't working.",
+      "  tabs      — tabOperation=list|new|close|select manages multiple tabs within the session.",
       "  eval      — arbitrary JavaScript, returns its JSON-serializable result. Prefer the actions above when",
       "              they fit — eval is the least structured, least auditable option.",
-      "  screenshot — returns a PNG of the full page.",
+      "  screenshot — returns a PNG. Defaults to viewport-only; fullPage=true for the whole scrollable page,",
+      "              or selector for one element's own bounding box.",
     ].join("\n"),
     promptSnippet:
-      "Persistent browser sessions: create/act(navigate|click|type|select|waitFor|queryText|readTable|eval|screenshot)/list/close",
+      "Persistent browser sessions: create/act(navigate|click|hover|pressKey|type|select|waitFor|queryText|readTable|snapshot|handleDialog|downloads|consoleMessages|networkRequests|tabs|eval|screenshot)/list/close",
     parameters: sessionParamsSchema,
     async execute(_id, params: SessionParams, _signal, _onUpdate, _ctx) {
       try {
@@ -788,6 +838,17 @@ export default async function (pi: ExtensionAPI) {
           label: params.label,
           loadState: params.loadState,
           state: params.state,
+          key: params.key,
+          fullPage: params.fullPage,
+          scale: params.scale,
+          depth: params.depth,
+          boxes: params.boxes,
+          mode: params.mode,
+          accept: params.accept,
+          promptText: params.promptText,
+          includeStatic: params.includeStatic,
+          tabOperation: params.tabOperation,
+          tabIndex: params.tabIndex,
         })
 
         if (params.action === "screenshot" && typeof result.screenshotBase64 === "string") {
