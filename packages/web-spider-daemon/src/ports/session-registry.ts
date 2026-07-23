@@ -34,6 +34,17 @@ export interface SessionPage {
 	queryText(selector: string, opts?: { timeoutMs?: number }): Promise<string[]>;
 	/** Rows of trimmed cell text for every <tr> within the element matching selector (its own <td>/<th> descendants, not nested tables' rows). */
 	readTable(selector: string, opts?: { timeoutMs?: number }): Promise<string[][]>;
+	/**
+	 * YAML accessibility-tree snapshot (Playwright's real, current, non-
+	 * deprecated locator.ariaSnapshot()/page.ariaSnapshot() — the old
+	 * page.accessibility.snapshot() is deprecated). Scoped to selector when
+	 * given, otherwise the whole page. Unlike every other action here,
+	 * Playwright's own default timeout for this specific method is 0 (no
+	 * timeout) — the caller (session-service.ts) must supply an explicit
+	 * bounded fallback rather than relying on Playwright's own default, as
+	 * it does for every other action.
+	 */
+	snapshot(opts: { selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }): Promise<string>;
 	evaluate<T = unknown>(script: string): Promise<T>;
 	/**
 	 * PNG (or JPEG) bytes. Default is a viewport-only capture, matching

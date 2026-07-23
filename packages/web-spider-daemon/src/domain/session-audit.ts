@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -85,6 +85,12 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			// is never journaled — it's part of the operation's own response to
 			// the caller, not the append-only journal (see file header).
 			return input.selector ? boundedSelector(input.selector) : "";
+		case "snapshot":
+			// Same reasoning as click/queryText/readTable — the selector (when
+			// scoping to one element/subtree) is fine to log; the accessibility
+			// tree content itself is part of the operation's own response, never
+			// the journal.
+			return input.selector ? boundedSelector(input.selector) : "<snapshot>";
 		case "eval":
 			return "<script>";
 		case "screenshot":

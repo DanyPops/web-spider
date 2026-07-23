@@ -74,6 +74,14 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("readTable", { selector: "table" })).toBe("table");
 	});
 
+	test("snapshot: the fixed placeholder for a whole-page snapshot", () => {
+		expect(journalTargetFor("snapshot", {})).toBe("<snapshot>");
+	});
+
+	test("snapshot: the selector, bounded, for an element/subtree-scoped snapshot", () => {
+		expect(journalTargetFor("snapshot", { selector: "nav" })).toBe("nav");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

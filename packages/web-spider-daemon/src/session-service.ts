@@ -12,7 +12,7 @@
  *   - script/url/selector inputs are never written to the journal verbatim
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
-import { SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
+import { SESSION_ACT_DEFAULT_TIMEOUT_MS, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_SNAPSHOT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
@@ -53,6 +53,12 @@ export interface SessionActInput {
 	fullPage?: boolean;
 	/** screenshot action: CSS-pixel-sized (default) vs. device-pixel-ratio resolution. */
 	scale?: "css" | "device";
+	/** snapshot action: limit the accessibility tree's depth. */
+	depth?: number;
+	/** snapshot action: include each node's bounding box ([box=x,y,width,height], viewport-relative CSS pixels). */
+	boxes?: boolean;
+	/** snapshot action: "ai" mode adds element refs, doesn't wait for the element, and includes iframe snapshots. Default "default". */
+	mode?: "ai" | "default";
 }
 
 export interface SessionActOutput {
@@ -149,6 +155,9 @@ export class SessionService {
 			if (input.action === "screenshot" && input.fullPage === true && input.selector !== undefined) {
 				throw new Error("screenshot accepts fullPage or selector, not both");
 			}
+			if (input.action === "snapshot" && input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0)) {
+				throw new Error("depth must be a non-negative integer");
+			}
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -186,6 +195,21 @@ export class SessionService {
 				case "readTable": {
 					const rows = await page.readTable(input.selector as string, { timeoutMs: input.timeoutMs });
 					result = boundExtractedItems(rows).map((row) => boundExtractedItems(row));
+					break;
+				}
+				case "snapshot": {
+					// Playwright's own default timeout for ariaSnapshot is 0 (no
+					// timeout) — unlike every other action here, an explicit bounded
+					// fallback is required rather than relying on Playwright's own
+					// default, or an unresponsive page could hang this action forever.
+					const tree = await page.snapshot({
+						selector: input.selector,
+						depth: input.depth,
+						boxes: input.boxes,
+						mode: input.mode,
+						timeoutMs: input.timeoutMs ?? SESSION_ACT_DEFAULT_TIMEOUT_MS,
+					});
+					result = tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree;
 					break;
 				}
 				case "eval": {

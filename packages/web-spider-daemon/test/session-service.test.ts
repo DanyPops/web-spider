@@ -358,6 +358,63 @@ describe("SessionService — act: readTable (does not bump snapshotVersion)", ()
 	});
 });
 
+describe("SessionService — act: snapshot (does not bump snapshotVersion)", () => {
+	test("returns the accessibility tree and journals a fixed placeholder for a whole-page snapshot", async () => {
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { snapshotResult: '- heading "Title" [level=1]' } : {}));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "snapshot" });
+		expect(out.snapshotVersion).toBe(0);
+		expect(out.result).toBe('- heading "Title" [level=1]');
+		expect(journal.entries[0]).toMatchObject({ action: "snapshot", outcome: "ok", target: "<snapshot>" });
+	});
+
+	test("applies an explicit bounded default timeout when the caller omits one (Playwright's own ariaSnapshot default is unbounded)", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "snapshot" });
+		expect(pages[0]!.snapshotCalls[0]!.timeoutMs).toBeGreaterThan(0);
+	});
+
+	test("forwards an explicit timeoutMs instead of the default when the caller supplies one", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "snapshot", timeoutMs: 5_000 });
+		expect(pages[0]!.snapshotCalls[0]!.timeoutMs).toBe(5_000);
+	});
+
+	test("forwards selector/depth/boxes/mode and journals the selector when element-scoped", async () => {
+		const { service, journal, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "snapshot", selector: "nav", depth: 2, boxes: true, mode: "ai" });
+		expect(pages[0]!.snapshotCalls[0]).toMatchObject({ selector: "nav", depth: 2, boxes: true, mode: "ai" });
+		expect(journal.entries[0]!.target).toBe("nav");
+	});
+
+	test("rejects a negative or non-integer depth before touching the page", async () => {
+		const { service, pages } = makeHarness();
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "snapshot", depth: -1 })).rejects.toThrow(/non-negative integer/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "snapshot", depth: 1.5 })).rejects.toThrow(/non-negative integer/);
+		expect(pages).toHaveLength(0);
+	});
+
+	test("bounds an oversized snapshot with a truncation marker", async () => {
+		const huge = "x".repeat(30_000);
+		const { service } = makeHarness(() => ({ snapshotResult: huge }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "snapshot" });
+		expect((out.result as string).length).toBeLessThan(huge.length);
+		expect(out.result as string).toContain("[truncated]");
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failSnapshot: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "snapshot" })).rejects.toThrow(/simulated snapshot failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

@@ -386,6 +386,25 @@ describe("runCli session act", () => {
 		expect(calls.some((c) => c.includes('[["a","b"]]'))).toBe(true);
 	});
 
+	test("snapshot forwards selector/depth/boxes/mode; human output prints the result", async () => {
+		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "snapshot", snapshotVersion: 0, result: '- heading "Title"' }) });
+		await runCli(["session", "act", "a", "--action", "snapshot", "--snapshot-version", "0", "--selector", "nav", "--depth", "2", "--boxes", "--mode", "ai"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: "nav", depth: 2, boxes: true, mode: "ai" });
+		expect(calls.some((c) => c.includes('heading \\"Title\\"'))).toBe(true);
+	});
+
+	test("snapshot with no options forwards undefined depth/boxes/mode", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "snapshot", snapshotVersion: 0, result: "" }) });
+		await runCli(["session", "act", "a", "--action", "snapshot", "--snapshot-version", "0"], deps);
+		expect(operations[0]?.input).toMatchObject({ selector: undefined, depth: undefined, boxes: undefined, mode: undefined });
+	});
+
+	test("a non-numeric --depth prints usage", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["session", "act", "a", "--action", "snapshot", "--snapshot-version", "0", "--depth", "nope"], deps)).toBe(2);
+		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);

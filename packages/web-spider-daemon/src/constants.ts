@@ -76,3 +76,5 @@ export const SESSION_ACT_TEXT_MAX_LENGTH = 2_000;
 export const SESSION_ACT_EXTRACT_MAX_ITEMS = 200;
 /** queryText/readTable: max length of a single extracted string (one text entry, or one cell) — caps a pathologically large single element. */
 export const SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH = 2_000;
+/** snapshot: max length of the returned YAML accessibility tree — a whole-tree structure, so a larger bound than a single extracted item. */
+export const SESSION_ACT_SNAPSHOT_MAX_LENGTH = 20_000;
