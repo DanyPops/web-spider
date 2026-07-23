@@ -11,6 +11,7 @@ export interface FakePageOptions {
 	failReadTable?: boolean;
 	failSnapshot?: boolean;
 	failHandleDialog?: boolean;
+	failListDownloads?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
@@ -18,6 +19,7 @@ export interface FakePageOptions {
 	queryTextResult?: string[];
 	readTableResult?: string[][];
 	snapshotResult?: string;
+	downloadsResult?: Array<{ filename: string; path: string; url: string; failure: string | null }>;
 }
 
 export interface FakeSessionPage extends SessionPage {
@@ -30,6 +32,7 @@ export interface FakeSessionPage extends SessionPage {
 	readTableCalls: Array<{ selector: string; timeoutMs?: number }>;
 	snapshotCalls: Array<{ selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }>;
 	armDialogPolicyCalls: Array<{ accept: boolean; promptText?: string }>;
+	listDownloadsCallCount: number;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
@@ -45,6 +48,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const readTableCalls: FakeSessionPage["readTableCalls"] = [];
 	const snapshotCalls: FakeSessionPage["snapshotCalls"] = [];
 	const armDialogPolicyCalls: FakeSessionPage["armDialogPolicyCalls"] = [];
+	let listDownloadsCallCount = 0;
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	const screenshotCalls: FakeSessionPage["screenshotCalls"] = [];
@@ -58,6 +62,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		readTableCalls,
 		snapshotCalls,
 		armDialogPolicyCalls,
+		get listDownloadsCallCount() { return listDownloadsCallCount; },
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		screenshotCalls,
@@ -99,6 +104,11 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async armDialogPolicy(policy) {
 			armDialogPolicyCalls.push(policy);
 			if (opts.failHandleDialog) throw new Error("simulated handleDialog failure");
+		},
+		async listDownloads() {
+			listDownloadsCallCount++;
+			if (opts.failListDownloads) throw new Error("simulated listDownloads failure");
+			return opts.downloadsResult ?? [];
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

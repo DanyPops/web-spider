@@ -87,6 +87,10 @@ describe("journalTargetFor", () => {
 		expect(journalTargetFor("handleDialog", { accept: false })).toBe("<dialog:dismiss>");
 	});
 
+	test("downloads: always the fixed placeholder — a read of already-captured metadata", () => {
+		expect(journalTargetFor("downloads", {})).toBe("<downloads>");
+	});
+
 	test("eval: always the fixed placeholder, regardless of any script-shaped input", () => {
 		expect(journalTargetFor("eval", {})).toBe("<script>");
 	});

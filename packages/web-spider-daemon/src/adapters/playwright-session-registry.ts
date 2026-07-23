@@ -7,7 +7,10 @@
  * (default: Playwright's own chromium, letting chromium-headless-shell apply
  * automatically in headless mode — never force channel:"chrome" silently).
  */
-import { SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SESSION_MAX_DOWNLOADS_TRACKED, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
 import { createSessionInfo, isValidSessionName, withBumpedSnapshotVersion, withTouchedActivity, type SessionInfo } from "../domain/session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry } from "../ports/session-registry.ts";
 
@@ -18,15 +21,18 @@ export interface LaunchedBrowser {
 	page(): Promise<SessionPage>;
 }
 
-export type BrowserLauncher = (opts: { forceChromeChannel: boolean }) => Promise<LaunchedBrowser>;
+export type BrowserLauncher = (opts: { forceChromeChannel: boolean; downloadsDir: string }) => Promise<LaunchedBrowser>;
 
-function wrapPlaywrightBrowser(browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> }): LaunchedBrowser {
+function wrapPlaywrightBrowser(
+	browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> },
+	downloadsDir: string,
+): LaunchedBrowser {
 	let pagePromise: Promise<SessionPage> | undefined;
 	return {
 		close: () => browser.close(),
 		page: () => {
 			if (!pagePromise) {
-				pagePromise = browser.newPage().then((playwrightPage) => wrapPlaywrightPage(playwrightPage));
+				pagePromise = browser.newPage().then((playwrightPage) => wrapPlaywrightPage(playwrightPage, downloadsDir));
 			}
 			return pagePromise;
 		},
@@ -65,6 +71,13 @@ interface PlaywrightDialogLike {
 	dismiss(): Promise<void>;
 }
 
+interface PlaywrightDownloadLike {
+	suggestedFilename(): string;
+	saveAs(path: string): Promise<void>;
+	url(): string;
+	failure(): Promise<string | null>;
+}
+
 interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
@@ -76,9 +89,10 @@ interface PlaywrightPageLike {
 	screenshot(opts?: { fullPage?: boolean; scale?: "css" | "device" }): Promise<Uint8Array>;
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 	on(event: "dialog", handler: (dialog: PlaywrightDialogLike) => void | Promise<void>): void;
+	on(event: "download", handler: (download: PlaywrightDownloadLike) => void | Promise<void>): void;
 }
 
-function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
+function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): SessionPage {
 	// Registered once, at page creation, so no dialog triggered by any
 	// future action can ever occur before this exists (solves the real
 	// ordering problem: a dialog can appear as a side effect of the very
@@ -95,6 +109,23 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 		} else {
 			await dialog.dismiss();
 		}
+	});
+
+	// Same ordering-safe pattern as dialogs: registered once, at page
+	// creation, so a download triggered by any future action is always
+	// captured — never relies on the triggering action's own promise having
+	// already resolved by the time anyone checks (verified empirically:
+	// Playwright's own recommended pattern races waitForEvent('download')
+	// against the click rather than checking after, precisely because the
+	// click resolving does not reliably mean the download has already
+	// fired).
+	const downloads: Array<{ filename: string; path: string; url: string; failure: string | null }> = [];
+	page.on("download", async (download) => {
+		const filename = download.suggestedFilename();
+		const path = join(downloadsDir, filename);
+		await download.saveAs(path);
+		downloads.push({ filename, path, url: download.url(), failure: await download.failure() });
+		if (downloads.length > SESSION_MAX_DOWNLOADS_TRACKED) downloads.shift();
 	});
 
 	return {
@@ -152,6 +183,7 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 			return page.ariaSnapshot(ariaOpts);
 		},
 		armDialogPolicy: async (policy) => { armedPolicy = policy; },
+		listDownloads: async () => [...downloads],
 		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: (opts) => {
 			if (opts?.selector !== undefined) return page.locator(opts.selector).screenshot({ scale: opts.scale });
@@ -162,11 +194,12 @@ function wrapPlaywrightPage(page: PlaywrightPageLike): SessionPage {
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
 export function defaultBrowserLauncher(): BrowserLauncher {
-	return async ({ forceChromeChannel }) => {
+	return async ({ forceChromeChannel, downloadsDir }) => {
 		const { chromium } = await import("playwright-core");
 		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { headless: true };
 		const browser = await chromium.launch(launchOpts);
-		return wrapPlaywrightBrowser(browser);
+		mkdirSync(downloadsDir, { recursive: true });
+		return wrapPlaywrightBrowser(browser, downloadsDir);
 	};
 }
 
@@ -175,6 +208,8 @@ export interface PlaywrightSessionRegistryOptions {
 	maxConcurrent?: number;
 	maxNameLength?: number;
 	now?: () => number;
+	/** Base directory downloaded files are saved under, one subdirectory per session name. Defaults to a directory under the OS temp dir if omitted — callers wiring the real daemon should pass the real XDG-based path (see service.ts). */
+	downloadsBaseDir?: string;
 }
 
 export class PlaywrightSessionRegistry implements SessionRegistry {
@@ -185,12 +220,14 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly maxConcurrent: number;
 	private readonly maxNameLength: number;
 	private readonly now: () => number;
+	private readonly downloadsBaseDir: string;
 
 	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
 		this.launcher = opts.launcher ?? defaultBrowserLauncher();
 		this.maxConcurrent = opts.maxConcurrent ?? SESSION_REGISTRY_MAX_CONCURRENT;
 		this.maxNameLength = opts.maxNameLength ?? SESSION_NAME_MAX_LENGTH;
 		this.now = opts.now ?? Date.now;
+		this.downloadsBaseDir = opts.downloadsBaseDir ?? join(tmpdir(), "web-spider-downloads");
 	}
 
 	async create(name: string, opts: CreateSessionOptions = {}): Promise<SessionInfo> {
@@ -208,7 +245,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 
 		this.pending.add(name);
 		try {
-			const browser = await this.launcher({ forceChromeChannel: opts.forceChromeChannel ?? false });
+			const browser = await this.launcher({ forceChromeChannel: opts.forceChromeChannel ?? false, downloadsDir: join(this.downloadsBaseDir, name) });
 			const info = createSessionInfo(name, this.now());
 			this.sessions.set(name, { info, browser });
 			return info;

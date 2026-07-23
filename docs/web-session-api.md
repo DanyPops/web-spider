@@ -24,6 +24,7 @@ site — `web_session` is for driving one.
 | Read a table | `{ operation: "act", ..., action: "readTable", selector }` |
 | Understand a page's structure (preferred over a screenshot for this) | `{ operation: "act", ..., action: "snapshot" }` |
 | Accept a confirm()/prompt() dialog before it appears | `{ operation: "act", ..., action: "handleDialog", accept: true }` then trigger the action that opens it |
+| Check what files a click has downloaded | `{ operation: "act", ..., action: "downloads" }` after the triggering click |
 | Run arbitrary JS | `{ operation: "act", ..., action: "eval", script }` |
 | Capture the page | `{ operation: "act", ..., action: "screenshot" }` |
 | See what's open | `{ operation: "list" }` |
@@ -71,6 +72,7 @@ deliberate safety property, not friction to work around.
 | `readTable` | `selector` | No | Rows of trimmed cell text for the `<table>` matching `selector`. Bounded to 200 rows, 2000 characters per cell. |
 | `snapshot` | optional `selector`, `depth`, `boxes`, `mode` | No | Returns a YAML accessibility-tree snapshot (roles, accessible names, ARIA attributes, hierarchy) via Playwright's current `ariaSnapshot()` API. **Prefer this over `screenshot` for understanding page structure** — it's cheaper, more precise, and directly describes what's interactable, matching the pattern used by Playwright's own reference AI-agent tooling. `selector` scopes to one element/subtree instead of the whole page. `depth` limits tree depth. `boxes: true` appends each node's bounding box (`[box=x,y,width,height]`, viewport-relative CSS pixels) — ties structure to real pixel coordinates without needing vision. `mode: "ai"` adds element references, does not wait for a matching element (throws immediately if missing), and includes `<iframe>` content. Bounded to 20,000 characters (truncated with a marker). Note: unlike every other action, an unspecified `timeoutMs` here still gets an explicit bounded default (Playwright's own real default for this specific method is no timeout at all). |
 | `handleDialog` | `accept` (required), optional `promptText` | No | Arms a **one-shot** policy for the *next* native dialog (`alert`/`confirm`/`prompt`/`beforeunload`) that appears on the page, consumed on first use. Call this *before* the action expected to trigger the dialog (matching Playwright's own documented pattern). Without arming a policy, every dialog auto-dismisses — Playwright's own real default when no handler is registered, verified directly rather than assumed; there is no "hang" risk to guard against. `promptText` answers a `prompt()` dialog; ignored for other dialog types. |
+| `downloads` | — | No | Returns every file downloaded on this page since session creation (most recent last, bounded to 20 entries): `{filename, path, url, failure}`. Each file has already been saved to disk by the time it appears here (a persistent listener registered at session creation, not a new interaction) — call this *after* the action expected to trigger a download, since a download may not finish before the triggering action's own response returns (verified empirically: Playwright's own recommended pattern races the download event against the triggering click rather than checking afterward). A real limitation: bounded by entry count, not total disk usage — a single very large file is not size-capped. |
 | `eval` | `script` | No | Arbitrary JavaScript; returns its JSON-serializable result. Prefer the actions above when they fit — `eval` is the least structured, least auditable option. |
 | `screenshot` | optional `fullPage`, `selector`, `scale` | No | Returns a PNG as a real image content block (not embedded in the JSON result). Defaults to viewport-only, matching Playwright's own real default. `fullPage: true` captures the whole scrollable page; `selector` captures just that one element's bounding box instead ("download only this graphical element for inspection") — mutually exclusive with `fullPage`. `scale: "css"` (default) is CSS-pixel-sized; `"device"` uses the real device pixel ratio. |
 
@@ -92,7 +94,7 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `name` | `string` | create / close / act |
 | `forceChromeChannel` | `boolean` | create |
 | `snapshotVersion` | `number` | act, required |
-| `action` | `"navigate" \| "click" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "eval" \| "screenshot"` | act, required |
+| `action` | `"navigate" \| "click" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "eval" \| "screenshot"` | act, required |
 | `url` | `string` | navigate |
 | `selector` | `string` | click / type / select / waitFor / queryText / readTable / snapshot / screenshot (element-scoped) |
 | `text` | `string` | type / waitFor |

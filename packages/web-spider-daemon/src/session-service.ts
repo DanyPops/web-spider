@@ -165,6 +165,7 @@ export class SessionService {
 			if (input.action === "handleDialog" && input.accept === undefined) {
 				throw new Error("accept is required for a handleDialog action");
 			}
+			// downloads has no extra validation — a read of already-captured metadata.
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -221,6 +222,10 @@ export class SessionService {
 				}
 				case "handleDialog": {
 					await page.armDialogPolicy({ accept: input.accept as boolean, promptText: input.promptText });
+					break;
+				}
+				case "downloads": {
+					result = await page.listDownloads();
 					break;
 				}
 				case "eval": {

@@ -9,7 +9,7 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "eval" | "screenshot";
+export type SessionAction = "navigate" | "click" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "eval" | "screenshot";
 export type SessionActOutcome = "ok" | "error" | "stale-snapshot";
 
 export interface SessionAuditEntry {
@@ -95,6 +95,11 @@ export function journalTargetFor(action: SessionAction, input: { url?: string; s
 			// The accept/dismiss decision is fine to log; promptText never is
 			// (same reasoning as type's text — it's caller-supplied free text).
 			return input.accept ? "<dialog:accept>" : "<dialog:dismiss>";
+		case "downloads":
+			// A read of already-captured metadata — filenames/URLs are recorded
+			// in the response, not the journal (same distinction as eval/
+			// snapshot/queryText's own content).
+			return "<downloads>";
 		case "eval":
 			return "<script>";
 		case "screenshot":

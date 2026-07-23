@@ -78,3 +78,7 @@ export const SESSION_ACT_EXTRACT_MAX_ITEMS = 200;
 export const SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH = 2_000;
 /** snapshot: max length of the returned YAML accessibility tree — a whole-tree structure, so a larger bound than a single extracted item. */
 export const SESSION_ACT_SNAPSHOT_MAX_LENGTH = 20_000;
+/** Subdirectory name (sibling of the SQLite database, under the same XDG_DATA_HOME) that downloaded files are saved under, one subdirectory per session. */
+export const SESSION_DOWNLOADS_DIRECTORY_NAME = "downloads";
+/** Max downloads tracked per session — oldest evicted first. Bounds memory, not disk (a real limitation: a single huge file is not size-bounded by this). */
+export const SESSION_MAX_DOWNLOADS_TRACKED = 20;

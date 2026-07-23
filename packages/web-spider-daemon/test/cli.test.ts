@@ -423,6 +423,14 @@ describe("runCli session act", () => {
 		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
 	});
 
+	test("downloads requires no extra flags; human output prints the result", async () => {
+		const record = { filename: "spec.pdf", path: "/tmp/spec.pdf", url: "https://x.test/spec.pdf", failure: null };
+		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "downloads", snapshotVersion: 0, result: [record] }) });
+		await runCli(["session", "act", "a", "--action", "downloads", "--snapshot-version", "0"], deps);
+		expect(operations).toHaveLength(1);
+		expect(calls.some((c) => c.includes("spec.pdf"))).toBe(true);
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);
