@@ -526,6 +526,61 @@ describe("SessionService — act: pressKey (does not bump snapshotVersion)", () 
 	});
 });
 
+describe("SessionService — act: consoleMessages (does not bump snapshotVersion)", () => {
+	test("returns already-captured console messages and journals a fixed placeholder", async () => {
+		const record = { type: "error", text: "boom", timestamp: 1_000 };
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { consoleMessagesResult: [record] } : {}));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "consoleMessages" });
+		expect(out.result).toEqual([record]);
+		expect(pages[0]!.listConsoleMessagesCallCount).toBe(1);
+		expect(journal.entries[0]).toMatchObject({ action: "consoleMessages", outcome: "ok", target: "<console-messages>" });
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failListConsoleMessages: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "consoleMessages" })).rejects.toThrow(/simulated listConsoleMessages failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
+describe("SessionService — act: networkRequests (does not bump snapshotVersion)", () => {
+	const apiRequest = { url: "https://x.test/api/data", method: "GET", status: 200, resourceType: "fetch" };
+	const imageRequest = { url: "https://x.test/logo.png", method: "GET", status: 200, resourceType: "image" };
+	const failedImageRequest = { url: "https://x.test/broken.png", method: "GET", status: 404, resourceType: "image" };
+
+	test("excludes successful static resources by default", async () => {
+		const { service, pages } = makeHarness(() => ({ networkRequestsResult: [apiRequest, imageRequest, failedImageRequest] }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" });
+		// The successful image is excluded; the API call and the *failed*
+		// image (not "successful") both remain.
+		expect(out.result).toEqual([apiRequest, failedImageRequest]);
+	});
+
+	test("includeStatic:true includes every request", async () => {
+		const { service } = makeHarness(() => ({ networkRequestsResult: [apiRequest, imageRequest, failedImageRequest] }));
+		await service.create({ name: "a" });
+		const out = await service.act({ name: "a", snapshotVersion: 0, action: "networkRequests", includeStatic: true });
+		expect(out.result).toEqual([apiRequest, imageRequest, failedImageRequest]);
+	});
+
+	test("journals a fixed placeholder", async () => {
+		const { service, journal } = makeHarness();
+		await service.create({ name: "a" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" });
+		expect(journal.entries[0]).toMatchObject({ action: "networkRequests", outcome: "ok", target: "<network-requests>" });
+	});
+
+	test("a page-level failure is journaled and rethrown", async () => {
+		const { service, journal } = makeHarness((i) => (i === 0 ? { failListNetworkRequests: true } : {}));
+		await service.create({ name: "a" });
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" })).rejects.toThrow(/simulated listNetworkRequests failure/);
+		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
+	});
+});
+
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();

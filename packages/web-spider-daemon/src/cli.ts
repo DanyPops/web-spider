@@ -152,6 +152,8 @@ function usage(stderr: (line: string) => void): number {
 		"       web-spider session act <name> --action snapshot --snapshot-version N [--selector CSS] [--depth N] [--boxes] [--mode ai|default] [--timeout-ms N] [--json]",
 		"       web-spider session act <name> --action handleDialog --snapshot-version N (--accept | --dismiss) [--prompt-text STR] [--json]",
 		"       web-spider session act <name> --action downloads --snapshot-version N [--json]",
+		"       web-spider session act <name> --action consoleMessages --snapshot-version N [--json]",
+		"       web-spider session act <name> --action networkRequests --snapshot-version N [--include-static] [--json]",
 		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
 		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
 		"       web-spider session act <name> --action screenshot --snapshot-version N [--full-page | --selector CSS] [--scale css|device] [--json]",
@@ -358,11 +360,11 @@ async function runSessionClose(rest: string[], deps: CliDependencies): Promise<n
 async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [
 		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text", "--key",
-	], ["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss"]);
+	], ["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss", "--include-static"]);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
-	if (action !== "navigate" && action !== "click" && action !== "hover" && action !== "pressKey" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "snapshot" && action !== "handleDialog" && action !== "downloads" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
+	if (action !== "navigate" && action !== "click" && action !== "hover" && action !== "pressKey" && action !== "type" && action !== "select" && action !== "waitFor" && action !== "queryText" && action !== "readTable" && action !== "snapshot" && action !== "handleDialog" && action !== "downloads" && action !== "consoleMessages" && action !== "networkRequests" && action !== "eval" && action !== "screenshot") return usage(deps.stderr);
 	if (action === "handleDialog" && parsed.flags.has("accept") && parsed.flags.has("dismiss")) return usage(deps.stderr);
 	const snapshotVersion = parseIntFlag(parsed.values, "snapshot-version");
 	if (snapshotVersion === undefined || Number.isNaN(snapshotVersion)) return usage(deps.stderr);
@@ -392,6 +394,7 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 			accept: parsed.flags.has("accept") ? true : parsed.flags.has("dismiss") ? false : undefined,
 			promptText: parsed.values["prompt-text"],
 			key: parsed.values.key,
+			includeStatic: parsed.flags.has("include-static") ? true : undefined,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionActResult(result));
 		return 0;

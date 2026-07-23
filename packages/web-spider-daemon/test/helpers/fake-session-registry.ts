@@ -14,6 +14,8 @@ export interface FakePageOptions {
 	failSnapshot?: boolean;
 	failHandleDialog?: boolean;
 	failListDownloads?: boolean;
+	failListConsoleMessages?: boolean;
+	failListNetworkRequests?: boolean;
 	failEvaluate?: boolean;
 	failScreenshot?: boolean;
 	evaluateResult?: unknown;
@@ -22,6 +24,8 @@ export interface FakePageOptions {
 	readTableResult?: string[][];
 	snapshotResult?: string;
 	downloadsResult?: Array<{ filename: string; path: string; url: string; failure: string | null }>;
+	consoleMessagesResult?: Array<{ type: string; text: string; timestamp: number }>;
+	networkRequestsResult?: Array<{ url: string; method: string; status: number; resourceType: string }>;
 }
 
 export interface FakeSessionPage extends SessionPage {
@@ -37,6 +41,8 @@ export interface FakeSessionPage extends SessionPage {
 	snapshotCalls: Array<{ selector?: string; depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeoutMs: number }>;
 	armDialogPolicyCalls: Array<{ accept: boolean; promptText?: string }>;
 	listDownloadsCallCount: number;
+	listConsoleMessagesCallCount: number;
+	listNetworkRequestsCallCount: number;
 	evaluateCalls: string[];
 	screenshotCallCount: number;
 	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
@@ -55,6 +61,8 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 	const snapshotCalls: FakeSessionPage["snapshotCalls"] = [];
 	const armDialogPolicyCalls: FakeSessionPage["armDialogPolicyCalls"] = [];
 	let listDownloadsCallCount = 0;
+	let listConsoleMessagesCallCount = 0;
+	let listNetworkRequestsCallCount = 0;
 	const evaluateCalls: string[] = [];
 	let screenshotCallCount = 0;
 	const screenshotCalls: FakeSessionPage["screenshotCalls"] = [];
@@ -71,6 +79,8 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		snapshotCalls,
 		armDialogPolicyCalls,
 		get listDownloadsCallCount() { return listDownloadsCallCount; },
+		get listConsoleMessagesCallCount() { return listConsoleMessagesCallCount; },
+		get listNetworkRequestsCallCount() { return listNetworkRequestsCallCount; },
 		evaluateCalls,
 		get screenshotCallCount() { return screenshotCallCount; },
 		screenshotCalls,
@@ -125,6 +135,16 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 			listDownloadsCallCount++;
 			if (opts.failListDownloads) throw new Error("simulated listDownloads failure");
 			return opts.downloadsResult ?? [];
+		},
+		async listConsoleMessages() {
+			listConsoleMessagesCallCount++;
+			if (opts.failListConsoleMessages) throw new Error("simulated listConsoleMessages failure");
+			return opts.consoleMessagesResult ?? [];
+		},
+		async listNetworkRequests() {
+			listNetworkRequestsCallCount++;
+			if (opts.failListNetworkRequests) throw new Error("simulated listNetworkRequests failure");
+			return opts.networkRequestsResult ?? [];
 		},
 		async evaluate<T>(script: string) {
 			evaluateCalls.push(script);

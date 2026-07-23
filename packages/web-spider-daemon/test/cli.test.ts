@@ -446,6 +446,21 @@ describe("runCli session act", () => {
 		expect(calls.some((c) => c.includes("spec.pdf"))).toBe(true);
 	});
 
+	test("consoleMessages requires no extra flags", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "consoleMessages", snapshotVersion: 0, result: [] }) });
+		await runCli(["session", "act", "a", "--action", "consoleMessages", "--snapshot-version", "0"], deps);
+		expect(operations).toHaveLength(1);
+	});
+
+	test("networkRequests forwards --include-static", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "networkRequests", snapshotVersion: 0, result: [] }) });
+		await runCli(["session", "act", "a", "--action", "networkRequests", "--snapshot-version", "0"], deps);
+		expect(operations[0]?.input).toMatchObject({ includeStatic: undefined });
+
+		await runCli(["session", "act", "a", "--action", "networkRequests", "--snapshot-version", "0", "--include-static"], deps);
+		expect(operations[1]?.input).toMatchObject({ includeStatic: true });
+	});
+
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);

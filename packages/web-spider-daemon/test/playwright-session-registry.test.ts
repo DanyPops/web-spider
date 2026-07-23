@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
@@ -539,6 +540,47 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		expect(await page.evaluate<boolean>("window.escaped")).toBe(true);
 
 		await registry.close("real-presskey-global-session");
+	}, 30_000);
+
+	test("real listConsoleMessages() captures a real console.error from the page", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-console-session");
+		const page = await registry.page("real-console-session");
+
+		await page.goto("data:text/html,<script>console.error('real-error-marker')</script>");
+		const messages = await page.listConsoleMessages();
+		expect(messages.some((m) => m.type === "error" && m.text === "real-error-marker")).toBe(true);
+
+		await registry.close("real-console-session");
+	}, 30_000);
+
+	test("real listNetworkRequests() captures a real fetch() the page actually made", async () => {
+		// A data: URL has an opaque origin — a fetch() from one is blocked by
+		// CORS regardless of the target server (verified directly: this exact
+		// test failed with a real "Failed to fetch" against a real server
+		// before switching to serving the page itself from the same origin).
+		const server = createServer((req, res) => {
+			if (req.url === "/api/data") { res.writeHead(200, { "content-type": "application/json" }); res.end("{}"); return; }
+			res.writeHead(200, { "content-type": "text/html" });
+			res.end("<div>ready</div>");
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as { port: number }).port;
+
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		await registry.create("real-network-session");
+		const page = await registry.page("real-network-session");
+
+		await page.goto(`http://127.0.0.1:${port}/`);
+		await page.evaluate("fetch('/api/data')");
+		await page.waitFor({ loadState: "networkidle" }, { timeoutMs: 5_000 });
+
+		const requests = await page.listNetworkRequests();
+		const apiRequest = requests.find((r) => r.url.includes("/api/data"));
+		expect(apiRequest).toMatchObject({ method: "GET", status: 200, resourceType: "fetch" });
+
+		await registry.close("real-network-session");
+		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}, 30_000);
 });
 

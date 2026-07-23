@@ -65,6 +65,8 @@ export interface SessionActInput {
 	promptText?: string;
 	/** pressKey action: the key to press (e.g. "Enter", "Escape", "Tab", "ArrowLeft"). Required. */
 	key?: string;
+	/** networkRequests action: include successful static resources (image/stylesheet/font/script) in the result. Default false, matching Playwright MCP's own convention. */
+	includeStatic?: boolean;
 }
 
 export interface SessionActOutput {
@@ -169,7 +171,7 @@ export class SessionService {
 			if (input.action === "handleDialog" && input.accept === undefined) {
 				throw new Error("accept is required for a handleDialog action");
 			}
-			// downloads has no extra validation — a read of already-captured metadata.
+			// downloads/consoleMessages/networkRequests have no extra validation — reads of already-captured metadata.
 
 			const page = await this.registry.page(input.name);
 			let result: unknown;
@@ -238,6 +240,18 @@ export class SessionService {
 				}
 				case "downloads": {
 					result = await page.listDownloads();
+					break;
+				}
+				case "consoleMessages": {
+					result = await page.listConsoleMessages();
+					break;
+				}
+				case "networkRequests": {
+					const requests = await page.listNetworkRequests();
+					const STATIC_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "script"]);
+					result = input.includeStatic
+						? requests
+						: requests.filter((r) => !(STATIC_RESOURCE_TYPES.has(r.resourceType) && r.status >= 200 && r.status < 300));
 					break;
 				}
 				case "eval": {
