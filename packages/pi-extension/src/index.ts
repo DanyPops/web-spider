@@ -22,7 +22,7 @@ import { dirname, join } from "node:path"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import type { Static } from "typebox"
-import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js"
+import { callWebSpider } from "./retrying-client.js"
 import {
   createWebDetails,
   createWebResult,
@@ -56,28 +56,15 @@ export default async function (pi: ExtensionAPI) {
     diag({ level, msg, ...extra !== undefined ? { extra } : {} })
   }
 
-  // One shared connection attempt per session — connectOrStartWebSpiderClient()
-  // auto-starts the daemon transparently on first use if it isn't already
-  // running, so the tool "just works" without a manual `service install` step.
-  let clientPromise: Promise<WebSpiderClient> | null = null
-  const getClient = (): Promise<WebSpiderClient> => {
-    if (!clientPromise) {
-      clientPromise = connectOrStartWebSpiderClient().catch((error: unknown) => {
-        clientPromise = null // allow a retry on the next call rather than caching a permanent failure
-        const message = error instanceof Error ? error.message : String(error)
-        log("error", "daemon connection failed", { error: message })
-        throw error
-      })
-    }
-    return clientPromise
-  }
-
   type Params = Static<typeof paramsSchema>
 
+  // callWebSpider() auto-starts the daemon transparently on first use if it
+  // isn't already running, and retries once against a freshly re-resolved
+  // client if a cached connection turns out stale (the daemon restarted on
+  // a new port since it was cached) -- see retrying-client.ts.
   async function call<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
-    const client = await getClient()
     try {
-      return await client.call<T>(operation, input)
+      return await callWebSpider<T>(operation, input)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log("error", "daemon operation failed", { operation, error: message })
