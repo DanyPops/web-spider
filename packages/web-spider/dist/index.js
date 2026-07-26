@@ -2,15 +2,20 @@
 // Public API — what most consumers need
 // ---------------------------------------------------------------------------
 export { SpiderCache } from "./cache.js";
+export { canonicalizeUrl } from "./cache-key.js";
 export { crawl } from "./crawl.js";
 export { PageGraph } from "./graph.js";
 export { searchPages } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages as fuzzySearch } from "./search.js";
 export { spider } from "./spider.js";
+export { probeLlmsTxt } from "./llms-txt.js";
+export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
+export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+export { parseGitHubUrl, queryGitHub } from "./github.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export { toLean } from "./views.js";
-export { braveSearch, ddgSearch, exaSearch, registerSearchEngine, resolveSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
  *
@@ -34,7 +39,7 @@ export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.

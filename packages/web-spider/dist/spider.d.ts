@@ -56,6 +56,55 @@ export interface SpiderOptions {
      * Default: 10.
      */
     maxImages?: number;
+    /**
+     * When true, probes the target URL's origin for a real llms.txt before
+     * the normal fetch+Readability path. If found, returns a page built
+     * directly from the llms.txt content (viaStrategy: "llms.txt", url set
+     * to the llms.txt URL actually fetched) instead of parsing the requested
+     * URL's own HTML. If not found, falls through to the normal path
+     * unchanged as if this option were never set.
+     * Default: false — preserves the existing fetch contract exactly.
+     */
+    preferLlmsTxt?: boolean;
+    /**
+     * When true, probes for a .md sibling of the exact requested URL (e.g.
+     * Welcome.html -> Welcome.md) before the normal fetch+Readability path.
+     * Verified real against docs.aws.amazon.com; a spreading convention on
+     * other documentation platforms too. Checked after preferLlmsTxt (a
+     * site-wide index) misses or is disabled. Falls through unchanged when
+     * no .md sibling exists.
+     * Default: false — preserves the existing fetch contract exactly.
+     */
+    preferMarkdownVariant?: boolean;
+    /**
+     * When true and the URL looks like a MediaWiki article (Wikipedia,
+     * Wiktionary, Fandom wikis, ArchWiki, Gentoo Wiki, or any self-hosted
+     * instance), queries the wiki's real API (action=parse) for the
+     * article's own content HTML instead of scraping the rendered page
+     * (nav/sidebar/search-box chrome). Unlike preferLlmsTxt/
+     * preferMarkdownVariant, this does not change `url` — it's the same
+     * resource via a different retrieval mechanism, so the result still
+     * goes through the normal Readability/metadata pipeline on the API's
+     * (already much cleaner) HTML. Falls through unchanged when the URL
+     * doesn't look like an article, or the site isn't MediaWiki-based.
+     * Default: false — preserves the existing fetch contract exactly.
+     */
+    preferMediaWiki?: boolean;
+    /**
+     * When true and the URL is a github.com repo/issue/pull-request page,
+     * queries GitHub's real REST API for structured data (repo metadata +
+     * README, or issue/PR title/state/labels/body) instead of scraping
+     * GitHub's JS-heavy rendered pages. Unauthenticated requests are limited
+     * to 60/hour per IP (GitHub's own limit, verified directly) -- pass
+     * githubToken, or set GITHUB_TOKEN/GH_TOKEN in the environment, to raise
+     * this to 5,000/hour. `url` is unchanged (same resource, different
+     * mechanism). Falls through unchanged for blob/wiki/other URL shapes,
+     * non-github.com hosts, or any API failure (rate limit, 404, network).
+     * Default: false — preserves the existing fetch contract exactly.
+     */
+    preferGitHub?: boolean;
+    /** Explicit GitHub token for preferGitHub; falls back to GITHUB_TOKEN/GH_TOKEN env vars. Never logged. */
+    githubToken?: string;
 }
 /** A page with its full DOM tree attached. */
 export interface TreePage extends SpideredPage {

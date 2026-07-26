@@ -29,14 +29,16 @@ export class LightpandaHttpClient {
             if (!response) {
                 throw new Error(`Navigation failed — no response for ${req.url}`);
             }
+            // A non-2xx status is a normal response, not an error — matches the
+            // default fetch()-based IHttpClient's contract exactly (ok reflects the
+            // status, nothing throws). Callers like the .md/llms.txt/robots.txt
+            // discovery strategies rely on this to gracefully fall back on a 404
+            // instead of crashing when this adapter is swapped in for the default.
             const status = response.status();
-            if (status >= 400) {
-                throw new Error(`HTTP ${status} ${response.statusText()} — ${req.url}`);
-            }
             const html = await page.content();
             const headers = await response.allHeaders();
             return {
-                ok: true,
+                ok: status >= 200 && status < 300,
                 status,
                 statusText: response.statusText(),
                 headers: { get: (name) => headers[name.toLowerCase()] ?? null },

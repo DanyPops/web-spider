@@ -1,5 +1,6 @@
 export type { SpiderCacheOptions } from "./cache.js";
 export { SpiderCache } from "./cache.js";
+export { canonicalizeUrl } from "./cache-key.js";
 export type { CrawlOptions, CrawlResult } from "./crawl.js";
 export { crawl } from "./crawl.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./graph.js";
@@ -10,12 +11,20 @@ export { searchPages } from "./search.js";
 export { searchPages as fuzzySearch } from "./search.js";
 export type { SpiderOptions, TreePage } from "./spider.js";
 export { spider } from "./spider.js";
+export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./llms-txt.js";
+export { probeLlmsTxt } from "./llms-txt.js";
+export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./markdown-suffix.js";
+export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
+export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./mediawiki.js";
+export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./github.js";
+export { parseGitHubUrl, queryGitHub } from "./github.js";
 export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveSearchOptions, DdgSearchOptions, ExaSearchOptions, FallbackSearchEngineOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, ddgSearch, exaSearch, registerSearchEngine, resolveSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+export type { BraveSearchOptions, DdgSearchOptions, DefaultSearchEngineOptions, EngineFailureReason, ExaSearchOptions, FallbackSearchEngineOptions, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, TavilySearchOptions, WebSearchResult } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
 import type { ICache } from "./ports.js";
 import type { Chunk, SpideredPage } from "./types.js";
 /**
@@ -41,7 +50,7 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 export type { NDJSONRecord } from "./scribe-bridge.js";
 export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 //# sourceMappingURL=index.d.ts.map

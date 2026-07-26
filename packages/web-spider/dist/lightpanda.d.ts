@@ -6,8 +6,7 @@
  * package, and CDP is a public, standardized protocol — reusing its
  * connection handling avoids writing our own WebSocket/JSON-RPC framing).
  *
- * Deliberately narrow, per
- * decision-proceed-with-lightpandahttpclient-as-a-mere-aggrega-x407:
+ * Deliberately narrow:
  *   - never installs, bundles, downloads, or auto-launches the Lightpanda
  *     binary or a Docker image — the operator runs their own instance and
  *     supplies its endpoint;
@@ -17,8 +16,7 @@
  *   - for the general-purpose fetch/crawl path only (post-JS-executed
  *     DOM/text extraction) — NOT for the UI-audit session work, which needs
  *     real CSS layout/paint/WebGL that Lightpanda's README states it does
- *     not implement (see doc
- *     research-lightweight-browser-engine-options-for-the-session--0z7r).
+ *     not implement.
  *
  * Usage:
  *   const client = createLightpandaClient({ endpoint: "ws://127.0.0.1:9222" })

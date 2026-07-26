@@ -22,6 +22,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
+import { canonicalizeUrl } from "./cache-key.js";
 /** Bump when the on-disk entry shape changes incompatibly. */
 const SCHEMA_VERSION = 2;
 export class DiskCache {
@@ -36,14 +37,7 @@ export class DiskCache {
         this.load();
     }
     key(url) {
-        try {
-            const u = new URL(url);
-            u.hash = "";
-            return u.toString().replace(/\/$/, "");
-        }
-        catch {
-            return url;
-        }
+        return canonicalizeUrl(url);
     }
     set(url, page) {
         const k = this.key(url);

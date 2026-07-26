@@ -1,3 +1,4 @@
+import { canonicalizeUrl } from "./cache-key.js";
 /**
  * LRU cache for spidered pages.
  *
@@ -19,16 +20,9 @@ export class SpiderCache {
         this.maxSize = opts.maxSize ?? 500;
         this.ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
     }
-    /** Normalise a URL so http/https and trailing slashes don't cause misses. */
+    /** Normalise a URL so trailing slashes, fragments, and query-param order don't cause misses. */
     key(url) {
-        try {
-            const u = new URL(url);
-            u.hash = "";
-            return u.toString().replace(/\/$/, "");
-        }
-        catch {
-            return url;
-        }
+        return canonicalizeUrl(url);
     }
     get(url) {
         const k = this.key(url);

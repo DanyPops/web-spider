@@ -26,7 +26,7 @@ export declare class SpiderCache implements ICache<string, SpideredPage> {
     private readonly maxSize;
     private readonly ttlMs;
     constructor(opts?: SpiderCacheOptions);
-    /** Normalise a URL so http/https and trailing slashes don't cause misses. */
+    /** Normalise a URL so trailing slashes, fragments, and query-param order don't cause misses. */
     private key;
     get(url: string): SpideredPage | undefined;
     set(url: string, page: SpideredPage): void;

@@ -1,6 +1,10 @@
 import { Readability } from "@mozilla/readability";
 import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
+import { probeLlmsTxt } from "./llms-txt.js";
+import { probeMarkdownVariant } from "./markdown-suffix.js";
+import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+import { queryGitHub } from "./github.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import { buildTree } from "./tree.js";
 import { toLean } from "./views.js";
@@ -134,6 +138,10 @@ function prettyPrintIfJson(rawText) {
     }
 }
 /** A human-meaningful fallback title when there is no <title> tag to read — the URL's last path segment, or the hostname for a bare root URL. */
+/** Minimal HTML-text escape for wrapping a MediaWiki API title in a synthetic <title> tag. */
+function escapeHtmlText(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 function titleFromUrl(url) {
     try {
         const parsed = new URL(url);
@@ -203,7 +211,7 @@ function buildNonHtmlPage(params) {
     return base;
 }
 export async function spider(url, opts) {
-    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, } = opts ?? {};
+    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, } = opts ?? {};
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {
@@ -224,12 +232,89 @@ export async function spider(url, opts) {
             throttle.setDomainDelay(parsedUrl.hostname, crawlDelayMs);
         }
     }
-    // Fetch with optional throttle + retry on 429/503.
-    const maxRetries = throttle?.maxRetries ?? 0;
+    // llms.txt strategy: cheap probe before the normal fetch+Readability path.
+    // Only attempted after the robots.txt check above already passed for this
+    // host, so a site-wide Disallow still blocks this too. A miss falls
+    // through to the normal path unchanged, as if preferLlmsTxt were never set.
+    if (preferLlmsTxt) {
+        const probe = await probeLlmsTxt(url, httpClient, { timeoutMs, userAgent });
+        if (probe) {
+            const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
+            const page = buildNonHtmlPage({
+                url: probe.url,
+                domain: probeDomain,
+                fetchedAt: new Date().toISOString(),
+                contentTypeHeader: probe.contentType,
+                rawText: probe.content,
+                view,
+                isJson: false,
+            });
+            return { ...page, viaStrategy: "llms.txt" };
+        }
+    }
+    // .md URL-suffix strategy: same page, cleaner variant. Checked after
+    // preferLlmsTxt above (a broader site-wide index) misses or is disabled.
+    if (preferMarkdownVariant) {
+        const probe = await probeMarkdownVariant(url, httpClient, { timeoutMs, userAgent });
+        if (probe) {
+            const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
+            const page = buildNonHtmlPage({
+                url: probe.url,
+                domain: probeDomain,
+                fetchedAt: new Date().toISOString(),
+                contentTypeHeader: probe.contentType,
+                rawText: probe.content,
+                view,
+                isJson: false,
+            });
+            return { ...page, viaStrategy: "markdown-suffix" };
+        }
+    }
+    // GitHub API strategy: repo/issue/PR metadata via the real REST API
+    // instead of scraping GitHub's JS-heavy rendered pages. Same resource,
+    // different mechanism, so url stays the originally requested one.
+    if (preferGitHub) {
+        const result = await queryGitHub(url, httpClient, { token: githubToken, timeoutMs, userAgent });
+        if (result) {
+            const page = buildNonHtmlPage({
+                url,
+                domain: new URL(url).hostname.replace(/^www\./, ""),
+                fetchedAt: new Date().toISOString(),
+                contentTypeHeader: "text/markdown; charset=utf-8",
+                rawText: result.markdown,
+                view,
+                isJson: false,
+            });
+            return { ...page, title: result.title, viaStrategy: "github" };
+        }
+    }
     let html = "";
     let fetchError = null;
     let contentTypeHeader = null;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let viaMediaWiki = false;
+    // MediaWiki strategy: query the platform's real API for the article's own
+    // content HTML instead of scraping the rendered wiki page. Sets html/
+    // contentTypeHeader directly and skips the fetch loop below entirely on a
+    // hit; a miss (not an article URL, or not a MediaWiki site) falls through
+    // to the normal fetch unchanged.
+    if (preferMediaWiki) {
+        const pageTitle = extractWikiPageTitle(url);
+        if (pageTitle) {
+            const siteInfo = await detectMediaWiki(url, httpClient, { timeoutMs, userAgent });
+            if (siteInfo) {
+                const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
+                if (page) {
+                    html = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
+                    contentTypeHeader = "text/html; charset=utf-8";
+                    viaMediaWiki = true;
+                }
+            }
+        }
+    }
+    // Fetch with optional throttle + retry on 429/503 — skipped entirely when
+    // the MediaWiki strategy above already produced content.
+    const maxRetries = throttle?.maxRetries ?? 0;
+    for (let attempt = 0; !viaMediaWiki && attempt <= maxRetries; attempt++) {
         if (throttle)
             await throttle.wait(url);
         const controller = new AbortController();
@@ -345,7 +430,11 @@ export async function spider(url, opts) {
             description: meta("description"),
             author: article.byline ?? meta("author"),
             publishedAt: meta("article:published_time") ?? meta("date"),
-            lang: doc.documentElement.lang ?? "en",
+            // Readability's .parse() call above can mutate the document enough to
+            // null out documentElement on some real pages (confirmed against a
+            // live page, gitlab.com/gitlab-org/gitlab) -- optional chaining, not
+            // an assumption that it's always still there.
+            lang: doc.documentElement?.lang ?? "en",
             tags,
             wordCount,
             readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
@@ -355,7 +444,7 @@ export async function spider(url, opts) {
             markdown: "",
         };
         const lean = toLean(full);
-        return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}) };
+        return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}), ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}) };
     }
     // ---------------------------------------------------------------------------
     // Tree path — build semantic DOM tree, then also produce full markdown
@@ -378,7 +467,9 @@ export async function spider(url, opts) {
             description: meta("description"),
             author: article.byline ?? meta("author"),
             publishedAt: meta("article:published_time") ?? meta("date"),
-            lang: doc.documentElement.lang ?? "en",
+            // See the lean-view branch above: Readability can null out
+            // documentElement on some real pages.
+            lang: doc.documentElement?.lang ?? "en",
             tags,
             wordCount,
             readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
@@ -388,6 +479,7 @@ export async function spider(url, opts) {
             markdown,
             tree,
             ...(images ? { images } : {}),
+            ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
         };
     }
     // ---------------------------------------------------------------------------
@@ -429,7 +521,9 @@ export async function spider(url, opts) {
         description: meta("description"),
         author: article.byline ?? meta("author"),
         publishedAt: meta("article:published_time") ?? meta("date"),
-        lang: doc.documentElement.lang ?? "en",
+        // See the lean-view branch above: Readability can null out
+        // documentElement on some real pages.
+        lang: doc.documentElement?.lang ?? "en",
         tags,
         wordCount,
         readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
@@ -439,6 +533,7 @@ export async function spider(url, opts) {
         markdown: finalMarkdown,
         ...(images ? { images } : {}),
         ...(jsRendered ? { jsRendered: true } : {}),
+        ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
     };
 }
 //# sourceMappingURL=spider.js.map
