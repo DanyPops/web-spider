@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
+import { canonicalizeUrl } from "./cache-key.js";
 import type { ICache } from "./ports.js";
 import type { ImageRef, SpideredPage } from "./types.js";
 
@@ -77,13 +78,7 @@ export class DiskCache implements ICache<string, SpideredPage> {
 	}
 
 	private key(url: string): string {
-		try {
-			const u = new URL(url);
-			u.hash = "";
-			return u.toString().replace(/\/$/, "");
-		} catch {
-			return url;
-		}
+		return canonicalizeUrl(url);
 	}
 
 	set(url: string, page: SpideredPage): void {

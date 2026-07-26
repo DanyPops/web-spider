@@ -1,3 +1,4 @@
+import { canonicalizeUrl } from "./cache-key.js";
 import type { ICache } from "./ports.js";
 import type { SpideredPage } from "./types.js";
 
@@ -38,15 +39,9 @@ export class SpiderCache implements ICache<string, SpideredPage> {
 		this.ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
 	}
 
-	/** Normalise a URL so http/https and trailing slashes don't cause misses. */
+	/** Normalise a URL so trailing slashes, fragments, and query-param order don't cause misses. */
 	private key(url: string): string {
-		try {
-			const u = new URL(url);
-			u.hash = "";
-			return u.toString().replace(/\/$/, "");
-		} catch {
-			return url;
-		}
+		return canonicalizeUrl(url);
 	}
 
 	get(url: string): SpideredPage | undefined {
