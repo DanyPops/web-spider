@@ -22,7 +22,8 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomBytes } from "node:crypto"
-import { spawn } from "node:child_process"
+import { spawn as spawnProcess } from "node:child_process"
+import { connectWithPolicy } from "@danypops/daemon-kit/pi-client"
 
 const LOOPBACK_HOST = "127.0.0.1"
 const WEB_SPIDER_STATE_DIRECTORY = "web-spider"
@@ -130,15 +131,6 @@ function resolveDaemonCliPath(): string {
   return join(dirname(packageJsonPath), "src", "cli.ts")
 }
 
-async function waitForHandle(paths: WebSpiderPaths, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (readDaemonHandle(paths)) return true
-    await new Promise((resolve) => setTimeout(resolve, DAEMON_START_POLL_INTERVAL_MS))
-  }
-  return false
-}
-
 /**
  * Connects to the Web Spider daemon, transparently starting it first if it
  * is not already running — the tool must "just work" without a manual
@@ -146,6 +138,10 @@ async function waitForHandle(paths: WebSpiderPaths, timeoutMs: number): Promise<
  * zero-config DiskCache behavior. Falls back to a clear actionable error if
  * auto-start fails (e.g. bun is not on PATH, or the package files are
  * missing), pointing at manual installation instead of failing silently.
+ * Delegates the actual autoStart-vs-fail-closed policy and spawn/poll loop
+ * to @danypops/daemon-kit's connectWithPolicy() -- the same shared policy
+ * lector/papyrus/pi-packed each independently forked (they fail closed;
+ * this extension is the one that opts into autoStart, explicitly).
  */
 export interface ConnectOrStartOptions {
   /**
@@ -163,28 +159,23 @@ export async function connectOrStartWebSpiderClient(
   paths: WebSpiderPaths = resolveWebSpiderPaths(),
   options: ConnectOrStartOptions = {},
 ): Promise<WebSpiderClient> {
-  if (readDaemonHandle(paths)) {
-    try {
-      return connectWebSpiderClient(paths)
-    } catch {
-      // Stale/unreadable handle — fall through and (re)start.
-    }
-  }
-
-  let cliPath: string
-  try {
-    cliPath = resolveDaemonCliPath()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Web Spider daemon package not found (${message}); run \`packed install npm:@danypops/web-spider-daemon\` then \`web-spider service install\`.`)
-  }
-
-  const child = spawn(cliPath, ["serve"], { detached: true, stdio: "ignore", env: options.env ?? process.env })
-  child.unref()
-
-  const started = await waitForHandle(paths, DAEMON_START_TIMEOUT_MS)
-  if (!started) {
-    throw new Error("Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.")
-  }
-  return connectWebSpiderClient(paths)
+  return connectWithPolicy({
+    readHandle: () => readDaemonHandle(paths),
+    buildClient: (handle) => new WebSpiderClient(`http://${handle.host}:${handle.port}`, ensureAuthToken(paths)),
+    autoStart: true,
+    spawn: () => {
+      let cliPath: string
+      try {
+        cliPath = resolveDaemonCliPath()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(`Web Spider daemon package not found (${message}); run \`packed install npm:@danypops/web-spider-daemon\` then \`web-spider service install\`.`)
+      }
+      const child = spawnProcess(cliPath, ["serve"], { detached: true, stdio: "ignore", env: options.env ?? process.env })
+      child.unref()
+    },
+    fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
+    startTimeoutMs: DAEMON_START_TIMEOUT_MS,
+    pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
+  })
 }
