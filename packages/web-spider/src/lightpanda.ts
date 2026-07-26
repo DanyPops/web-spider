@@ -6,8 +6,7 @@
  * package, and CDP is a public, standardized protocol — reusing its
  * connection handling avoids writing our own WebSocket/JSON-RPC framing).
  *
- * Deliberately narrow, per
- * decision-proceed-with-lightpandahttpclient-as-a-mere-aggrega-x407:
+ * Deliberately narrow:
  *   - never installs, bundles, downloads, or auto-launches the Lightpanda
  *     binary or a Docker image — the operator runs their own instance and
  *     supplies its endpoint;
@@ -17,8 +16,7 @@
  *   - for the general-purpose fetch/crawl path only (post-JS-executed
  *     DOM/text extraction) — NOT for the UI-audit session work, which needs
  *     real CSS layout/paint/WebGL that Lightpanda's README states it does
- *     not implement (see doc
- *     research-lightweight-browser-engine-options-for-the-session--0z7r).
+ *     not implement.
  *
  * Usage:
  *   const client = createLightpandaClient({ endpoint: "ws://127.0.0.1:9222" })
@@ -76,16 +74,18 @@ export class LightpandaHttpClient implements IHttpClient {
 				throw new Error(`Navigation failed — no response for ${req.url}`);
 			}
 
+			// A non-2xx status is a normal response, not an error — matches the
+			// default fetch()-based IHttpClient's contract exactly (ok reflects the
+			// status, nothing throws). Callers like the .md/llms.txt/robots.txt
+			// discovery strategies rely on this to gracefully fall back on a 404
+			// instead of crashing when this adapter is swapped in for the default.
 			const status: number = response.status();
-			if (status >= 400) {
-				throw new Error(`HTTP ${status} ${response.statusText()} — ${req.url}`);
-			}
 
 			const html: string = await page.content();
 			const headers: Record<string, string> = await response.allHeaders();
 
 			return {
-				ok: true,
+				ok: status >= 200 && status < 300,
 				status,
 				statusText: response.statusText(),
 				headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },

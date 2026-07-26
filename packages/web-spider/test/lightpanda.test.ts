@@ -12,6 +12,7 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLightpandaClient, LightpandaHttpClient } from "../src/lightpanda.js";
+import { probeMarkdownVariant } from "../src/markdown-suffix.js";
 import type { IHttpClient } from "../src/ports.js";
 
 const ENV_VAR = "WEB_SPIDER_LIGHTPANDA_ENDPOINT";
@@ -22,10 +23,10 @@ const ENV_VAR = "WEB_SPIDER_LIGHTPANDA_ENDPOINT";
  * network request is made), which this client correctly treats as a
  * navigation failure. A real server gives a real Response to assert against.
  */
-function startFixtureServer(html: string): Promise<{ url: string; close: () => Promise<void> }> {
+function startFixtureServer(html: string, status = 200): Promise<{ url: string; close: () => Promise<void> }> {
 	return new Promise((resolve) => {
 		const server: Server = createServer((_req, res) => {
-			res.writeHead(200, { "content-type": "text/html" });
+			res.writeHead(status, { "content-type": "text/html" });
 			res.end(html);
 		});
 		server.listen(0, "127.0.0.1", () => {
@@ -143,11 +144,35 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 		}
 	}, 30_000);
 
-	it("throws a clear error for a non-2xx/3xx response rather than returning it as ok", async () => {
+	it("still throws for a genuine navigation failure (DNS resolution failure, no response at all)", async () => {
 		const { chromium } = await import("playwright-core");
 		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 2}`] });
 
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 2}` });
 		await expect(client.fetch({ url: "https://this-host-does-not-exist-lightpanda-test.invalid" })).rejects.toThrow();
+	}, 30_000);
+
+	it("resolves with ok:false for a real non-2xx HTTP response, rather than throwing (matches the default fetch()-based IHttpClient's contract)", async () => {
+		fixture = await startFixtureServer("<html><body><h1>not found</h1></body></html>", 404);
+		const { chromium } = await import("playwright-core");
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 3}`] });
+
+		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 3}` });
+		const response = await client.fetch({ url: fixture.url });
+
+		expect(response.ok).toBe(false);
+		expect(response.status).toBe(404);
+		expect(await response.text()).toContain("not found");
+	}, 30_000);
+
+	it("end-to-end: probeMarkdownVariant gracefully falls back (returns null) against a real 404 .md variant through this adapter, rather than the whole probe throwing", async () => {
+		fixture = await startFixtureServer("<html><body><h1>not found</h1></body></html>", 404);
+		const { chromium } = await import("playwright-core");
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 4}`] });
+
+		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 4}` });
+		// fixture.url already ends in "/" (extensionless) so probeMarkdownVariant appends ".md" and probes that -- the fixture server 404s every path identically.
+		const result = await probeMarkdownVariant(fixture.url, client);
+		expect(result).toBeNull();
 	}, 30_000);
 });
