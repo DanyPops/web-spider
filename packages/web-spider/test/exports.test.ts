@@ -19,6 +19,7 @@ import {
 	RobotsCache,
 	SpiderCache,
 	braveSearch,
+	canonicalizeUrl,
 	ddgSearch,
 	buildTree,
 	crawl,
@@ -75,6 +76,7 @@ describe("functions", () => {
 		["braveSearch", braveSearch],
 		["tavilySearch", tavilySearch],
 		["ddgSearch", ddgSearch],
+		["canonicalizeUrl", canonicalizeUrl],
 	])("%s is a function", (_name, fn) => {
 		expect(typeof fn).toBe("function");
 	});

@@ -4,6 +4,7 @@
 
 export type { SpiderCacheOptions } from "./cache.js";
 export { SpiderCache } from "./cache.js";
+export { canonicalizeUrl } from "./cache-key.js";
 export type { CrawlOptions, CrawlResult } from "./crawl.js";
 export { crawl } from "./crawl.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./graph.js";
@@ -26,8 +27,8 @@ export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveSearchOptions, DdgSearchOptions, ExaSearchOptions, FallbackSearchEngineOptions, SearchEngine, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, ddgSearch, exaSearch, registerSearchEngine, resolveSearchEngine, tavilySearch, webSearch } from "./web-search.js";
+export type { BraveSearchOptions, DdgSearchOptions, DefaultSearchEngineOptions, EngineFailureReason, ExaSearchOptions, FallbackSearchEngineOptions, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, TavilySearchOptions, WebSearchResult } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -72,7 +73,7 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

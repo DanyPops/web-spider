@@ -27,7 +27,7 @@ import { resolveWebSpiderPaths } from "./state.ts";
 import { isSessionAction } from "./domain/session-audit.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
-const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"] as const;
+const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"] as const;
 
 export interface SystemdUnitOptions {
 	bunBin: string;

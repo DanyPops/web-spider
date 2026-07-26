@@ -71,6 +71,15 @@ describe("renderSystemdUnit", () => {
 		});
 		expect(unit).toContain('Environment="BRAVE_SEARCH_API_KEY=weird\\"value\\\\with-escapes"');
 	});
+
+	test("forwards SERPER_API_KEY and SERPAPI_API_KEY, same as the other providers", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			searchApiKeys: { SERPER_API_KEY: "test-serper-key", SERPAPI_API_KEY: "test-serpapi-key" },
+		});
+		expect(unit).toContain('Environment="SERPER_API_KEY=test-serper-key"');
+		expect(unit).toContain('Environment="SERPAPI_API_KEY=test-serpapi-key"');
+	});
 });
 
 describe("runCli — serve / service (unchanged surface)", () => {

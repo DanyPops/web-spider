@@ -40,7 +40,7 @@ export interface TavilySearchOptions {
 	topic?: "news" | "general";
 }
 
-export type SearchEngine = "brave" | "tavily" | "exa" | "ddg";
+export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "ddg";
 
 export interface ExaSearchOptions {
 	/** API key. Defaults to process.env.EXA_API_KEY. */
@@ -210,6 +210,108 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 	}));
 }
 
+export interface SerperSearchOptions {
+	/** API key. Defaults to process.env.SERPER_API_KEY. */
+	apiKey?: string;
+	/** Number of results. Default 10. */
+	numResults?: number;
+}
+
+/**
+ * Search the web via Serper.dev (Google-backed SERP API).
+ * https://serper.dev/
+ *
+ * Response shape (organic[]/knowledgeGraph) verified directly against
+ * serper.dev's own homepage sample response. Request contract (POST,
+ * X-API-KEY header, {q} body) is long-standing, widely-documented public
+ * convention -- not independently re-confirmed against a formal docs page
+ * this session (their playground page is JS-rendered/cookie-walled).
+ */
+export async function serperSearch(query: string, opts: SerperSearchOptions = {}): Promise<WebSearchResult[]> {
+	const apiKey = opts.apiKey ?? process.env["SERPER_API_KEY"];
+	if (!apiKey) throw new Error("Serper API key required — set SERPER_API_KEY or pass opts.apiKey");
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 10_000);
+	let res: Response;
+	try {
+		res = await fetch("https://google.serper.dev/search", {
+			method: "POST",
+			signal: controller.signal,
+			headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+			body: JSON.stringify({ q: query, num: opts.numResults ?? 10 }),
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`Serper API error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		organic?: Array<{ title: string; link: string; snippet?: string; date?: string }>;
+	};
+
+	return (data.organic ?? []).map((r) => ({
+		url: r.link,
+		title: r.title,
+		snippet: r.snippet ?? "",
+		...(r.date ? { publishedAt: r.date } : {}),
+	}));
+}
+
+export interface SerpApiSearchOptions {
+	/** API key. Defaults to process.env.SERPAPI_API_KEY. */
+	apiKey?: string;
+	/** Number of results. Default 10. */
+	numResults?: number;
+}
+
+/**
+ * Search the web via SerpApi (scraped, real Google SERPs -- not a curated
+ * index). https://serpapi.com/search-api
+ *
+ * Request/response shape verified directly against SerpApi's own docs:
+ * GET /search.json with engine/q/api_key/num params, organic_results[] in
+ * the response. SerpApi can also return HTTP 200 with a top-level `error`
+ * field for some failures (documented behavior, e.g. an exhausted plan) --
+ * checked explicitly, not just res.ok.
+ */
+export async function serpApiSearch(query: string, opts: SerpApiSearchOptions = {}): Promise<WebSearchResult[]> {
+	const apiKey = opts.apiKey ?? process.env["SERPAPI_API_KEY"];
+	if (!apiKey) throw new Error("SerpApi key required — set SERPAPI_API_KEY or pass opts.apiKey");
+
+	const params = new URLSearchParams({
+		engine: "google",
+		q: query,
+		api_key: apiKey,
+		num: String(opts.numResults ?? 10),
+	});
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 15_000);
+	let res: Response;
+	try {
+		res = await fetch(`https://serpapi.com/search.json?${params}`, { signal: controller.signal });
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`SerpApi error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		error?: string;
+		organic_results?: Array<{ title: string; link: string; snippet?: string; date?: string }>;
+	};
+	if (data.error) throw new Error(`SerpApi error: ${data.error}`);
+
+	return (data.organic_results ?? []).map((r) => ({
+		url: r.link,
+		title: r.title,
+		snippet: r.snippet ?? "",
+		...(r.date ? { publishedAt: r.date } : {}),
+	}));
+}
+
 // ---------------------------------------------------------------------------
 // DuckDuckGo Instant Answer API — no key required, zero-cost fallback
 // ---------------------------------------------------------------------------
@@ -374,6 +476,8 @@ function envKeyForEngine(name: string): string {
 		brave: "BRAVE_SEARCH_API_KEY",
 		tavily: "TAVILY_API_KEY",
 		exa: "EXA_API_KEY",
+		serper: "SERPER_API_KEY",
+		serpapi: "SERPAPI_API_KEY",
 	};
 	return envKeys[name] ?? "";
 }
@@ -391,6 +495,14 @@ registerSearchEngine("tavily", (key) => {
 registerSearchEngine("exa", (key) => {
 	if (!key) throw new Error("EXA_API_KEY not set");
 	return new ExaSearchEngine(key);
+});
+registerSearchEngine("serper", (key) => {
+	if (!key) throw new Error("SERPER_API_KEY not set");
+	return new SerperSearchEngine(key);
+});
+registerSearchEngine("serpapi", (key) => {
+	if (!key) throw new Error("SERPAPI_API_KEY not set");
+	return new SerpApiSearchEngine(key);
 });
 registerSearchEngine("ddg", () => new DdgSearchEngine());
 
@@ -444,6 +556,24 @@ export class ExaSearchEngine implements ISearchEngine {
 	}
 }
 
+/** Serper.dev adapter implementing ISearchEngine. */
+export class SerperSearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return serperSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+	}
+}
+
+/** SerpApi adapter implementing ISearchEngine. */
+export class SerpApiSearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+	}
+}
+
 /** DuckDuckGo Instant Answer adapter — no API key required. */
 export class DdgSearchEngine implements ISearchEngine {
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
@@ -454,6 +584,18 @@ export class DdgSearchEngine implements ISearchEngine {
 // ---------------------------------------------------------------------------
 // FallbackSearchEngine — strategy composite
 // ---------------------------------------------------------------------------
+
+/** True for a rate-limit/quota response worth cooling down rather than retrying immediately: standard 429, Tavily's non-standard 432, and common quota-shaped message text. */
+export function isLikelyRateLimitError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	if (/\b(429|432)\b/.test(error.message)) return true;
+	return /rate.?limit|quota|usage limit|too many requests/i.test(error.message);
+}
+
+export type RateLimitPredicate = (error: unknown) => boolean;
+
+/** "error": the engine's search() call itself threw. "cooldown": skipped without even calling it, because a recent rate-limit failure hasn't cleared yet. */
+export type EngineFailureReason = "error" | "cooldown";
 
 export interface FallbackSearchEngineOptions {
 	/**
@@ -466,11 +608,21 @@ export interface FallbackSearchEngineOptions {
 	 * Default: true.
 	 */
 	fallbackOnError?: boolean;
+	/** How long (ms) to skip an engine after a rate-limit-shaped failure, so an exhausted quota isn't retried on every call. Default 10 minutes. 0 disables cooldown. */
+	cooldownMs?: number;
+	/** Defaults to isLikelyRateLimitError. */
+	isRateLimitError?: RateLimitPredicate;
+	/** Clock, injectable for tests. Defaults to Date.now. */
+	now?: () => number;
+	/** Called once per engine failure, including a cooldown skip -- e.g. wire to a logger. Not called for a genuine empty result. Index only, not a name -- a caller that wants names maps it itself. */
+	onEngineFailure?: (engineIndex: number, error: unknown, reason: EngineFailureReason) => void;
 }
 
 /**
  * A composite ISearchEngine that tries each engine in order, falling back
- * to the next when the current one returns empty results or throws.
+ * to the next when the current one returns empty results or throws, and
+ * skipping an engine for a cooldown window after a rate-limit-shaped
+ * failure rather than retrying an already-exhausted quota on every call.
  *
  * Because it implements ISearchEngine itself it is fully composable —
  * nest FallbackSearchEngines, wrap them in caches, inject stubs in tests.
@@ -485,6 +637,12 @@ export interface FallbackSearchEngineOptions {
 export class FallbackSearchEngine implements ISearchEngine {
 	private readonly fallbackOnEmpty: boolean;
 	private readonly fallbackOnError: boolean;
+	private readonly cooldownMs: number;
+	private readonly isRateLimitError: RateLimitPredicate;
+	private readonly now: () => number;
+	private readonly onEngineFailure: FallbackSearchEngineOptions["onEngineFailure"];
+	/** engines[i]'s cooldown expiry (epoch ms); 0 means never in cooldown. */
+	private readonly cooldownUntil: number[];
 
 	constructor(
 		private readonly engines: ISearchEngine[],
@@ -493,26 +651,135 @@ export class FallbackSearchEngine implements ISearchEngine {
 		if (engines.length === 0) throw new Error("FallbackSearchEngine requires at least one engine");
 		this.fallbackOnEmpty = opts.fallbackOnEmpty ?? true;
 		this.fallbackOnError = opts.fallbackOnError ?? true;
+		this.cooldownMs = opts.cooldownMs ?? 10 * 60_000;
+		this.isRateLimitError = opts.isRateLimitError ?? isLikelyRateLimitError;
+		this.now = opts.now ?? Date.now;
+		this.onEngineFailure = opts.onEngineFailure;
+		this.cooldownUntil = engines.map(() => 0);
 	}
 
 	async search(req: SearchQuery): Promise<WebSearchResult[]> {
 		let lastError: unknown;
+		// Gates the final throw below: a later engine completing with zero hits
+		// is a real empty result, never masked by an earlier engine's error.
+		let anySucceeded = false;
 
-		for (const engine of this.engines) {
+		for (let i = 0; i < this.engines.length; i++) {
+			if ((this.cooldownUntil[i] as number) > this.now()) {
+				const cooldownError = new Error(`engine ${i} skipped: in cooldown after a recent rate-limit error`);
+				lastError = cooldownError;
+				this.onEngineFailure?.(i, cooldownError, "cooldown");
+				continue;
+			}
 			try {
-				const results = await engine.search(req);
+				const results = await (this.engines[i] as ISearchEngine).search(req);
+				anySucceeded = true;
 				if (results.length > 0 || !this.fallbackOnEmpty) return results;
 				// Empty + fallbackOnEmpty → try next engine
 			} catch (err) {
 				if (!this.fallbackOnError) throw err;
 				lastError = err;
+				if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
+					this.cooldownUntil[i] = this.now() + this.cooldownMs;
+				}
+				this.onEngineFailure?.(i, err, "error");
 				// Error + fallbackOnError → try next engine
 			}
 		}
 
-		// All engines exhausted — surface the last error or return empty
-		if (lastError) throw lastError;
+		if (!anySucceeded && lastError) throw lastError;
 		return [];
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RoundRobinSearchEngine — quota-spreading composite
+// ---------------------------------------------------------------------------
+
+export interface RoundRobinSearchEngineOptions {
+	/** How long (ms) to skip an engine's rotation slot after a rate-limit-shaped failure. Default 10 minutes. 0 disables cooldown. */
+	cooldownMs?: number;
+	/** Defaults to isLikelyRateLimitError. */
+	isRateLimitError?: RateLimitPredicate;
+	/** Clock, injectable for tests. Defaults to Date.now. */
+	now?: () => number;
+	/** Called once per engine failure, including a cooldown skip. Index only, not a name (mirrors FallbackSearchEngineOptions.onEngineFailure). */
+	onEngineFailure?: (engineIndex: number, error: unknown, reason: EngineFailureReason) => void;
+}
+
+/**
+ * A composite ISearchEngine that spreads calls evenly across equal-tier
+ * engines instead of always hitting the first one -- unlike
+ * FallbackSearchEngine's fixed priority order (best engine first, worse
+ * ones as fallback), round-robin treats every engine as an interchangeable
+ * peer and cycles through them one call at a time.
+ *
+ * Tracks cooldown per engine (not per composite), so nesting this inside a
+ * FallbackSearchEngine never lets one member's rate limit collapse the
+ * whole group's fate -- the entire reason to round-robin quota-limited
+ * peers is to keep their quotas independent. A cooling-down slot is
+ * skipped in favor of the next available one; if every engine is cooling
+ * down, the call throws (letting an outer FallbackSearchEngine fall
+ * through to its next entry, e.g. DDG).
+ *
+ * Still does no fallback on a genuine call failure -- the picked engine's
+ * error propagates as-is rather than trying a sibling within the same
+ * call. That stays the outer FallbackSearchEngine's job.
+ *
+ * @example
+ * // Spread load across three paid engines, DDG as the zero-cost last resort
+ * const engine = new FallbackSearchEngine([
+ *   new RoundRobinSearchEngine([tavily, serper, serpapi]),
+ *   new DdgSearchEngine(),
+ * ]);
+ */
+export class RoundRobinSearchEngine implements ISearchEngine {
+	private cursor = 0;
+	private readonly cooldownMs: number;
+	private readonly isRateLimitError: RateLimitPredicate;
+	private readonly now: () => number;
+	private readonly onEngineFailure: RoundRobinSearchEngineOptions["onEngineFailure"];
+	private readonly cooldownUntil: number[];
+
+	constructor(
+		private readonly engines: ISearchEngine[],
+		opts: RoundRobinSearchEngineOptions = {},
+	) {
+		if (engines.length === 0) throw new Error("RoundRobinSearchEngine requires at least one engine");
+		this.cooldownMs = opts.cooldownMs ?? 10 * 60_000;
+		this.isRateLimitError = opts.isRateLimitError ?? isLikelyRateLimitError;
+		this.now = opts.now ?? Date.now;
+		this.onEngineFailure = opts.onEngineFailure;
+		this.cooldownUntil = engines.map(() => 0);
+	}
+
+	async search(req: SearchQuery): Promise<WebSearchResult[]> {
+		const start = this.cursor;
+		this.cursor = (start + 1) % this.engines.length;
+
+		let index = -1;
+		for (let attempt = 0; attempt < this.engines.length; attempt++) {
+			const candidate = (start + attempt) % this.engines.length;
+			if ((this.cooldownUntil[candidate] as number) > this.now()) {
+				const cooldownError = new Error(`engine ${candidate} skipped: in cooldown after a recent rate-limit error`);
+				this.onEngineFailure?.(candidate, cooldownError, "cooldown");
+				continue;
+			}
+			index = candidate;
+			break;
+		}
+
+		if (index === -1) throw new Error("RoundRobinSearchEngine: every engine is currently in cooldown");
+
+		try {
+			return await (this.engines[index] as ISearchEngine).search(req);
+		} catch (err) {
+			if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
+				this.cooldownUntil[index] = this.now() + this.cooldownMs;
+			}
+			this.onEngineFailure?.(index, err, "error");
+			throw err;
+		}
 	}
 }
 
@@ -521,28 +788,84 @@ export class FallbackSearchEngine implements ISearchEngine {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a FallbackSearchEngine chain from environment variables.
+ * Build a search chain from environment variables: every keyed engine
+ * (brave/tavily/exa/serper/serpapi) that actually has an API key
+ * configured is round-robined as an equal-tier peer -- spreading quota
+ * consumption across whichever are available instead of always hitting
+ * one first -- with DuckDuckGo always appended as the zero-cost last
+ * resort. An engine with no key and no usable free tier is auto-skipped,
+ * same as today: it's simply never added to the chain, never throws.
  *
- * Priority order for keyed engines: Brave → Tavily → Exa.
- * DuckDuckGo is always appended as the zero-cost last resort.
+ * Falls back to a single ungrouped engine (no RoundRobinSearchEngine
+ * wrapper) when only one keyed engine is configured -- rotating among one
+ * option is a no-op, and skipping the wrapper keeps single-key behavior
+ * (still the common case, e.g. Tavily-only) and its onEngineFailure naming
+ * identical to before round-robin existed.
  *
  * The returned engine implements ISearchEngine — swap it for any stub
  * in tests without touching call sites.
  */
-export function defaultSearchEngine(): ISearchEngine {
-	const engines: ISearchEngine[] = [];
+export interface DefaultSearchEngineOptions {
+	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.cooldownMs. */
+	cooldownMs?: number;
+	/**
+	 * Reports every engine failure by real name ("brave"/"tavily"/"exa"/
+	 * "serper"/"serpapi"/"ddg"), including one inside the round-robin group --
+	 * never the generic "rotation-group" placeholder, which only ever reaches
+	 * the outer fallback chain's own accounting once every peer in the group
+	 * is already exhausted.
+	 */
+	onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
+}
+
+export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
+	const rotationEngines: ISearchEngine[] = [];
+	const rotationNames: string[] = [];
 
 	const brave = process.env["BRAVE_SEARCH_API_KEY"];
-	if (brave) engines.push(new BraveSearchEngine(brave));
+	if (brave) { rotationEngines.push(new BraveSearchEngine(brave)); rotationNames.push("brave"); }
 
 	const tavily = process.env["TAVILY_API_KEY"];
-	if (tavily) engines.push(new TavilySearchEngine(tavily));
+	if (tavily) { rotationEngines.push(new TavilySearchEngine(tavily)); rotationNames.push("tavily"); }
 
 	const exa = process.env["EXA_API_KEY"];
-	if (exa) engines.push(new ExaSearchEngine(exa));
+	if (exa) { rotationEngines.push(new ExaSearchEngine(exa)); rotationNames.push("exa"); }
+
+	const serper = process.env["SERPER_API_KEY"];
+	if (serper) { rotationEngines.push(new SerperSearchEngine(serper)); rotationNames.push("serper"); }
+
+	const serpapi = process.env["SERPAPI_API_KEY"];
+	if (serpapi) { rotationEngines.push(new SerpApiSearchEngine(serpapi)); rotationNames.push("serpapi"); }
+
+	const engines: ISearchEngine[] = [];
+	const outerNames: string[] = [];
+
+	if (rotationEngines.length === 1) {
+		engines.push(rotationEngines[0] as ISearchEngine);
+		outerNames.push(rotationNames[0] as string);
+	} else if (rotationEngines.length > 1) {
+		engines.push(new RoundRobinSearchEngine(rotationEngines, {
+			cooldownMs: opts.cooldownMs,
+			onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
+		}));
+		outerNames.push("rotation-group");
+	}
 
 	// DDG always last — no key needed, never throws the "no key" error
 	engines.push(new DdgSearchEngine());
+	outerNames.push("ddg");
 
-	return new FallbackSearchEngine(engines);
+	// The round-robin group already tracks cooldown per real engine inside
+	// itself. If the outer chain also cooled down the *group's own slot*
+	// whenever one member's rate-limit error bubbles up through it, a single
+	// exhausted peer would collapse the whole group's fate one layer up --
+	// exactly the bug round-robin exists to avoid. Disable the outer layer's
+	// cooldown whenever there's a group to protect; the single-keyed-engine
+	// case (no group) keeps its own outer cooldown exactly as before.
+	const outerCooldownMs = rotationEngines.length > 1 ? 0 : opts.cooldownMs;
+
+	return new FallbackSearchEngine(engines, {
+		cooldownMs: outerCooldownMs,
+		onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(outerNames[index] ?? `engine-${index}`, error, reason) : undefined,
+	});
 }
