@@ -250,7 +250,7 @@ function argPreview(args: Record<string, unknown>): string | undefined {
 function callText(args: Record<string, unknown>): string {
   const operation = typeof args.operation === "string" ? args.operation : "act"
   const name = typeof args.name === "string" ? args.name : undefined
-  if (operation !== "act") return [operation[0]!.toUpperCase() + operation.slice(1), name].filter(Boolean).join(" · ")
+  if (operation !== "act") return [(operation[0] ?? "").toUpperCase() + operation.slice(1), name].filter(Boolean).join(" · ")
   const action = typeof args.action === "string" ? args.action : "act"
   const preview = argPreview(args)
   return [action, name, preview].filter(Boolean).join(" · ")

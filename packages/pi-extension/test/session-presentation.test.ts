@@ -43,6 +43,10 @@ describe("web_session dual-channel presentation", () => {
     }
   })
 
+  it("does not throw when operation is an empty string", () => {
+    expect(() => renderWebSessionCall({ operation: "", name: "s1" }, theme).render(120)).not.toThrow()
+  })
+
   it("renders lifecycle outcomes for create/list/close", () => {
     expect(render(createSessionLifecycleDetails("create", "s1", { snapshotVersion: 0 }))).toContain("Session created")
     expect(render(createSessionLifecycleDetails("close", "s1", { closed: true }))).toContain("Session closed")
