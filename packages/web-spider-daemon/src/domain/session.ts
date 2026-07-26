@@ -1,7 +1,6 @@
 /**
  * Pure domain types and validation for browser sessions — no Playwright
- * import here, so this stays trivially unit-testable. See design doc
- * decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l.
+ * import here, so this stays trivially unit-testable.
  */
 
 /** Bounds match constants.ts SESSION_NAME_MAX_LENGTH; kept in sync there. */

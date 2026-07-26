@@ -1,8 +1,8 @@
 /**
- * Layout/alignment assertions — the second half of the UI-audit toolkit
- * (see decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l).
- * Catches exactly the bug that triggered this work: inconsistent padding
- * between agent-deck's message bubbles and its tool-call card.
+ * Layout/alignment assertions — the second half of the UI-audit toolkit,
+ * built alongside the session/act tooling for driving and inspecting real
+ * browser UIs. Catches exactly the bug that triggered this work: inconsistent
+ * padding between agent-deck's message bubbles and its tool-call card.
  *
  * Given a session's page and a set of CSS selectors expected to share a
  * layout property (e.g. "all these cards should have the same left

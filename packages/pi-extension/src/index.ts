@@ -5,8 +5,7 @@
  * this file owns the tool contract (parameters, output shapes, presentation)
  * and daemon connection lifecycle; it no longer performs any fetching,
  * crawling, caching, throttling, robots.txt checking, or Playwright
- * rendering itself — the daemon does all of that. See design doc
- * web-spider-daemon-architecture-and-papyrus-integration-contr-5s14.
+ * rendering itself — the daemon does all of that.
  *
  * The daemon's operations return tool-agnostic data (see e.g.
  * fetch-service.ts/crawl-service.ts's own doc comments); this file

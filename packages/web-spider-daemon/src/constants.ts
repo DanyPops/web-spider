@@ -57,8 +57,8 @@ export const TREE_CACHE_MAX_ENTRIES = 20;
 export const PAPYRUS_INGEST_MAX_BATCH = 20;
 
 // ---------------------------------------------------------------------------
-// Session registry (tmux-style browser sessions — see decision doc
-// decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l)
+// Session registry — tmux-style browser sessions: named, persistent across
+// separate tool calls, surviving until explicitly closed.
 // ---------------------------------------------------------------------------
 /** Each session owns a full separate Playwright Browser process — local-dev-scale, not a hosted fleet. */
 export const SESSION_REGISTRY_MAX_CONCURRENT = 5;

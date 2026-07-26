@@ -95,9 +95,7 @@ export interface CreateSessionOptions {
 	/**
 	 * Force the full installed chrome/chromium channel instead of Playwright's
 	 * own default (chromium-headless-shell in headless mode). A deliberate,
-	 * explicit per-call choice — see research doc
-	 * research-lightweight-browser-engine-options-for-the-session--0z7r —
-	 * never a silent default either way.
+	 * explicit per-call choice, never a silent default either way.
 	 */
 	forceChromeChannel?: boolean;
 }

@@ -1,9 +1,6 @@
 /**
  * Drift-proof coverage: keeps the daemon operation registry, the CLI
- * surface, and the documented web_fetch tool contract in lock-step, per
- * web-spider-daemon-add-drift-proof-operationclitool-parity-te-ymnp
- * (mirrors Papyrus's "cli-parity-add-drift-proof-operation-and-tool-coverage-tests"
- * task intent).
+ * surface, and the documented web_fetch tool contract in lock-step.
  *
  * The core mechanism is compile-time, not just a runtime assertion:
  * OPERATION_CLI_INVOCATIONS below is typed `Record<OperationName, string[]>`.
