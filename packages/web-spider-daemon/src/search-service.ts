@@ -46,7 +46,7 @@ export function createEngineResolver(env: Record<string, string | undefined> = p
 	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
 		if (!name) {
-			if (!cachedDefault) cachedDefault = defaultSearchEngine({ onEngineFailure });
+			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure });
 			return cachedDefault;
 		}
 		const envVar = ENGINE_ENV_VARS[name];

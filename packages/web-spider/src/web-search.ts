@@ -806,6 +806,8 @@ export class RoundRobinSearchEngine implements ISearchEngine {
  * in tests without touching call sites.
  */
 export interface DefaultSearchEngineOptions {
+	/** Reads provider API keys from here. Defaults to process.env. */
+	env?: Record<string, string | undefined>;
 	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.cooldownMs. */
 	cooldownMs?: number;
 	/**
@@ -819,22 +821,23 @@ export interface DefaultSearchEngineOptions {
 }
 
 export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
+	const env = opts.env ?? process.env;
 	const rotationEngines: ISearchEngine[] = [];
 	const rotationNames: string[] = [];
 
-	const brave = process.env["BRAVE_SEARCH_API_KEY"];
+	const brave = env["BRAVE_SEARCH_API_KEY"];
 	if (brave) { rotationEngines.push(new BraveSearchEngine(brave)); rotationNames.push("brave"); }
 
-	const tavily = process.env["TAVILY_API_KEY"];
+	const tavily = env["TAVILY_API_KEY"];
 	if (tavily) { rotationEngines.push(new TavilySearchEngine(tavily)); rotationNames.push("tavily"); }
 
-	const exa = process.env["EXA_API_KEY"];
+	const exa = env["EXA_API_KEY"];
 	if (exa) { rotationEngines.push(new ExaSearchEngine(exa)); rotationNames.push("exa"); }
 
-	const serper = process.env["SERPER_API_KEY"];
+	const serper = env["SERPER_API_KEY"];
 	if (serper) { rotationEngines.push(new SerperSearchEngine(serper)); rotationNames.push("serper"); }
 
-	const serpapi = process.env["SERPAPI_API_KEY"];
+	const serpapi = env["SERPAPI_API_KEY"];
 	if (serpapi) { rotationEngines.push(new SerpApiSearchEngine(serpapi)); rotationNames.push("serpapi"); }
 
 	const engines: ISearchEngine[] = [];

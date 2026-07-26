@@ -100,6 +100,41 @@ describe("createEngineResolver", () => {
 		expect(resolver("ddg")).not.toBe(resolver("ddg"));
 	});
 
+	test("the auto-detecting default also never falls back to the real process.env when an explicit env object is supplied", async () => {
+		// Same guard as the forced-engine test above, but for the no-name auto-detect
+		// path -- defaultSearchEngine() used to always read the real process.env
+		// directly regardless of what was passed here, silently defeating env
+		// isolation in exactly this case (caught by a real CI failure: a test
+		// planting only TAVILY_API_KEY in an explicit env object still picked up
+		// whatever the ambient process.env happened to have configured).
+		const previousBrave = process.env["BRAVE_SEARCH_API_KEY"];
+		const previousTavily = process.env["TAVILY_API_KEY"];
+		process.env["BRAVE_SEARCH_API_KEY"] = "ambient-key-should-be-ignored";
+		delete process.env["TAVILY_API_KEY"];
+		try {
+			// If the ambient BRAVE key leaked in, the auto-detect chain would include
+			// two engines (brave + tavily) and report a "rotation-group" failure
+			// instead of staying on the single explicitly-configured tavily engine.
+			const calls: Array<{ name: string }> = [];
+			const resolver = createEngineResolver({ TAVILY_API_KEY: "explicit-key" }, (name) => { calls.push({ name }); });
+			const engine = resolver();
+
+			const originalFetch = globalThis.fetch;
+			globalThis.fetch = (async (_input: string | URL | Request) => new Response("error", { status: 500, statusText: "Internal Server Error" })) as typeof fetch;
+			try {
+				await expect(engine.search({ query: "x" })).rejects.toThrow();
+			} finally {
+				globalThis.fetch = originalFetch;
+			}
+
+			expect(calls[0]).toEqual({ name: "tavily" });
+		} finally {
+			if (previousBrave === undefined) delete process.env["BRAVE_SEARCH_API_KEY"];
+			else process.env["BRAVE_SEARCH_API_KEY"] = previousBrave;
+			if (previousTavily !== undefined) process.env["TAVILY_API_KEY"] = previousTavily;
+		}
+	});
+
 	test("forwards onEngineFailure so a degraded engine is reported with its real name", async () => {
 		const calls: Array<{ name: string; reason: string }> = [];
 		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, (name, _error, reason) => { calls.push({ name, reason }); });

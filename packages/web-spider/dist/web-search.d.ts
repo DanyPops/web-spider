@@ -304,6 +304,8 @@ export declare class RoundRobinSearchEngine implements ISearchEngine {
  * in tests without touching call sites.
  */
 export interface DefaultSearchEngineOptions {
+    /** Reads provider API keys from here. Defaults to process.env. */
+    env?: Record<string, string | undefined>;
     /** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.cooldownMs. */
     cooldownMs?: number;
     /**
