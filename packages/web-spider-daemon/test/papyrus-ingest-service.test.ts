@@ -129,7 +129,7 @@ describe("PapyrusIngestService — search results", () => {
 			{ url: "https://a.example/hit1", docId: "doc-1" },
 			{ url: "https://a.example/hit2", docId: "doc-2" },
 		]);
-		expect(papyrus.created.every((d) => d.subtype === "web-search-result")).toBe(true);
+		expect(papyrus.created.every((d) => d.subtype === "web-spider:web-search-result")).toBe(true);
 	});
 
 	test("bounds the batch to PAPYRUS_INGEST_MAX_BATCH", async () => {

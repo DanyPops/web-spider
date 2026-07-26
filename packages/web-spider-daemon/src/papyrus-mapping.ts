@@ -1,12 +1,12 @@
 /**
- * SpideredPage / search result → Papyrus Doc mapping — design doc §6, with
- * subtype corrected per correction-papyrus-ingestion-subtype-is-web-not-scraped-page-7hoh
- * ("web" / "web-search-result", not the original "scraped-page" / "search-result",
- * so the subtype alone makes it obvious a Doc came from the web).
+ * SpideredPage / search result → Papyrus Doc mapping — design doc §6. Subtypes are namespaced
+ * as "web-spider:<specific>" so this tool's subtype vocabulary can never collide with another
+ * external tool's; existing ingested Docs created before this rename keep their bare "web" /
+ * "web-search-result" subtype (Papyrus Docs are immutable once created, so they are
+ * grandfathered rather than rewritten).
  *
- * Pure functions — no network, no Papyrus dependency here. Ingested Docs are
- * immutable service output (invariant-web-spider-papyrus-ingested-docs-are-immutable-ser-mnhe):
- * these functions only ever produce a *new* Doc's fields, never an update.
+ * Pure functions — no network, no Papyrus dependency here. Ingested Docs are immutable
+ * service output: these functions only ever produce a *new* Doc's fields, never an update.
  */
 import type { SpideredPage, WebSearchResult } from "@danypops/web-spider";
 import type { PapyrusDocInput } from "./ports/papyrus-ingest.ts";
@@ -40,7 +40,7 @@ export function pageToPapyrusDoc(page: SpideredPage): PapyrusDocInput {
 
 	return {
 		title: page.title || page.url,
-		subtype: "web",
+		subtype: "web-spider:web",
 		body: sections.join("\n\n"),
 		labels: ["source:web-spider", `domain:${page.domain}`, ...page.tags.map((tag) => `tag:${tag}`)],
 		extra: omitEmptyExtra({
@@ -64,7 +64,7 @@ export interface SearchResultIngestContext {
 export function searchResultToPapyrusDoc(result: WebSearchResult, context: SearchResultIngestContext): PapyrusDocInput {
 	return {
 		title: result.title || result.url,
-		subtype: "web-search-result",
+		subtype: "web-spider:web-search-result",
 		body: result.snippet,
 		labels: ["source:web-spider", `domain:${hostnameOf(result.url)}`],
 		extra: omitEmptyExtra({

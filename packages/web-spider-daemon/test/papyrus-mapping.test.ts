@@ -24,8 +24,8 @@ function page(overrides: Partial<SpideredPage> = {}): SpideredPage {
 }
 
 describe("pageToPapyrusDoc", () => {
-	test("subtype is 'web', not the earlier 'scraped-page'", () => {
-		expect(pageToPapyrusDoc(page()).subtype).toBe("web");
+	test("subtype is 'web-spider:web', namespaced so it can't collide with another tool's subtype", () => {
+		expect(pageToPapyrusDoc(page()).subtype).toBe("web-spider:web");
 	});
 
 	test("title falls back to the url when the page has no title", () => {
@@ -72,8 +72,8 @@ describe("pageToPapyrusDoc", () => {
 describe("searchResultToPapyrusDoc", () => {
 	const result: WebSearchResult = { url: "https://a.example/hit", title: "Hit Title", snippet: "A snippet of the result." };
 
-	test("subtype is 'web-search-result'", () => {
-		expect(searchResultToPapyrusDoc(result, { query: "q" }).subtype).toBe("web-search-result");
+	test("subtype is 'web-spider:web-search-result', namespaced so it can't collide with another tool's subtype", () => {
+		expect(searchResultToPapyrusDoc(result, { query: "q" }).subtype).toBe("web-spider:web-search-result");
 	});
 
 	test("title falls back to the url when the result has no title", () => {

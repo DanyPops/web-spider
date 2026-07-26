@@ -88,7 +88,7 @@ export default async function (pi: ExtensionAPI) {
   // Papyrus ingestion — Web Spider is a context source, Papyrus is the context
   // mesh. Explicit opt-in only (params.ingest === true): never triggered by an
   // ordinary fetch/search, matching the daemon's own "papyrus.ingest" contract
-  // (bounded batch, "web"/"web-search-result" subtypes, immutable service output).
+  // (bounded batch, "web-spider:web"/"web-spider:web-search-result" subtypes, immutable service output).
   // Scoped to a single-page fetch and a search, not crawl or cache views — a
   // crawl can produce more pages than the ingest batch bound and picking which
   // ones matter is a separate design question left for a follow-up.
