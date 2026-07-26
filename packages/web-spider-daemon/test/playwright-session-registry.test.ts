@@ -3,8 +3,20 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
+import type { Logger } from "@danypops/daemon-kit/logging";
+import { defaultBrowserLauncher, PlaywrightSessionRegistry, wrapPlaywrightPage, type PlaywrightDialogLike, type PlaywrightDownloadLike, type PlaywrightPageLike } from "../src/adapters/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
+
+function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {
+	const warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+	return {
+		warnCalls,
+		debug: () => {},
+		info: () => {},
+		warn: (msg, fields) => { warnCalls.push({ msg, fields }); },
+		error: () => {},
+	};
+}
 
 describe("PlaywrightSessionRegistry — create", () => {
 	test("returns a fresh SessionInfo and forwards forceChromeChannel (default false)", async () => {
@@ -143,6 +155,57 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 		await registry.create("b");
 		await expect(registry.closeAll()).resolves.toBeUndefined();
 		expect(registry.list()).toHaveLength(0);
+	});
+});
+
+describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
+	function fakePage(overrides: Partial<PlaywrightPageLike> = {}): { page: PlaywrightPageLike; handlers: Record<string, (arg: never) => void | Promise<void>> } {
+		const handlers: Record<string, (arg: never) => void | Promise<void>> = {};
+		const page = {
+			goto: async () => {},
+			click: async () => {},
+			url: () => "about:blank",
+			title: async () => "",
+			close: async () => {},
+			locator: () => { throw new Error("not used in this test"); },
+			getByText: () => { throw new Error("not used in this test"); },
+			waitForLoadState: async () => {},
+			evaluate: async () => undefined,
+			screenshot: async () => new Uint8Array(),
+			ariaSnapshot: async () => "",
+			on: (event: string, handler: (arg: never) => void | Promise<void>) => { handlers[event] = handler; },
+			keyboard: { press: async () => {} },
+			...overrides,
+		} as unknown as PlaywrightPageLike;
+		return { page, handlers };
+	}
+
+	test("a rejecting dialog.accept() is caught and logged, never an unhandled rejection", async () => {
+		const { page, handlers } = fakePage();
+		const logger = fakeLogger();
+		const sessionPage = wrapPlaywrightPage(page, "/tmp/unused", logger);
+		await sessionPage.armDialogPolicy({ accept: true });
+		const dialog: PlaywrightDialogLike = { accept: async () => { throw new Error("simulated accept failure"); }, dismiss: async () => {} };
+
+		// The registered handler itself must never reject — it's Playwright's own
+		// event dispatch that calls this, which awaits nothing.
+		await expect((handlers.dialog as (d: PlaywrightDialogLike) => Promise<void>)(dialog)).resolves.toBeUndefined();
+		expect(logger.warnCalls).toEqual([{ msg: "session_dialog_handler_failed", fields: { error: "Error: simulated accept failure" } }]);
+	});
+
+	test("a rejecting download.saveAs() is caught and logged, never an unhandled rejection", async () => {
+		const { page, handlers } = fakePage();
+		const logger = fakeLogger();
+		wrapPlaywrightPage(page, "/tmp/unused", logger);
+		const download: PlaywrightDownloadLike = {
+			suggestedFilename: () => "report.pdf",
+			saveAs: async () => { throw new Error("simulated saveAs failure"); },
+			url: () => "https://example.com/report.pdf",
+			failure: async () => null,
+		};
+
+		await expect((handlers.download as (d: PlaywrightDownloadLike) => Promise<void>)(download)).resolves.toBeUndefined();
+		expect(logger.warnCalls).toEqual([{ msg: "session_download_handler_failed", fields: { error: "Error: simulated saveAs failure", filename: "report.pdf" } }]);
 	});
 });
 

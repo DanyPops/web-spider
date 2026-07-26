@@ -56,6 +56,8 @@ describe("createEngineResolver", () => {
 		expect(() => resolver("brave")).toThrow(/BRAVE_SEARCH_API_KEY not set/);
 		expect(() => resolver("tavily")).toThrow(/TAVILY_API_KEY not set/);
 		expect(() => resolver("exa")).toThrow(/EXA_API_KEY not set/);
+		expect(() => resolver("serper")).toThrow(/SERPER_API_KEY not set/);
+		expect(() => resolver("serpapi")).toThrow(/SERPAPI_API_KEY not set/);
 	});
 
 	test("forcing ddg never requires a key", () => {
@@ -86,5 +88,31 @@ describe("createEngineResolver", () => {
 	test("no forced engine falls back to the auto-detecting default (never throws by itself)", () => {
 		const resolver = createEngineResolver({});
 		expect(() => resolver()).not.toThrow();
+	});
+
+	test("the auto-detecting default is built once and reused across calls, not rebuilt per call", () => {
+		const resolver = createEngineResolver({});
+		expect(resolver()).toBe(resolver());
+	});
+
+	test("forcing a specific engine still resolves a fresh instance each time (not cached)", () => {
+		const resolver = createEngineResolver({});
+		expect(resolver("ddg")).not.toBe(resolver("ddg"));
+	});
+
+	test("forwards onEngineFailure so a degraded engine is reported with its real name", async () => {
+		const calls: Array<{ name: string; reason: string }> = [];
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, (name, _error, reason) => { calls.push({ name, reason }); });
+		const engine = resolver();
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) => new Response("rate limited", { status: 432, statusText: "Usage Limit Exceeded" })) as typeof fetch;
+		try {
+			await expect(engine.search({ query: "x" })).rejects.toThrow();
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(calls[0]).toEqual({ name: "tavily", reason: "error" });
 	});
 });

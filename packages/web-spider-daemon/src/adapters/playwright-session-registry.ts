@@ -1,9 +1,8 @@
 /**
  * Playwright-backed SessionRegistry — one owned Browser process per named
  * session (full-process isolation, agent-browser's model, not
- * browser.newContext()). See decision doc
- * decision-extend-web-spider-daemon-with-tmux-style-browser-se-ua4l and
- * research doc research-lightweight-browser-engine-options-for-the-session--0z7r.
+ * browser.newContext()) so a session's cookies/storage/navigation history
+ * are never shared with another session or the operator's own browser.
  *
  * Default launch uses channel:"chromium" (Playwright's own bundled build,
  * "new headless mode") — never channel:"chrome" (the operator's own system-
@@ -22,6 +21,7 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_MAX_TABS, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
 import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "../ports/session-registry.ts";
@@ -62,6 +62,7 @@ interface Tab {
 function wrapPlaywrightBrowser(
 	browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> },
 	downloadsDir: string,
+	logger?: Logger,
 ): LaunchedBrowser {
 	const tabs: Tab[] = [];
 	let activeIndex = -1; // -1: no tab created yet
@@ -73,7 +74,7 @@ function wrapPlaywrightBrowser(
 	function ensureFirstTab(): Promise<void> {
 		if (!ensureFirstTabPromise) {
 			ensureFirstTabPromise = browser.newPage().then((playwrightPage) => {
-				tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir), version: 0 });
+				tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger), version: 0 });
 				activeIndex = 0;
 			});
 		}
@@ -100,7 +101,7 @@ function wrapPlaywrightBrowser(
 			if (tabs.length >= SESSION_MAX_TABS) throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
 			const playwrightPage = await browser.newPage();
 			if (url !== undefined) await playwrightPage.goto(url);
-			tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir), version: 0 });
+			tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger), version: 0 });
 			activeIndex = tabs.length - 1;
 			return describeTab(activeIndex);
 		},
@@ -166,12 +167,12 @@ interface PlaywrightLocatorLike {
 	ariaSnapshot(opts?: { depth?: number; boxes?: boolean; mode?: "ai" | "default"; timeout?: number }): Promise<string>;
 }
 
-interface PlaywrightDialogLike {
+export interface PlaywrightDialogLike {
 	accept(promptText?: string): Promise<void>;
 	dismiss(): Promise<void>;
 }
 
-interface PlaywrightDownloadLike {
+export interface PlaywrightDownloadLike {
 	suggestedFilename(): string;
 	saveAs(path: string): Promise<void>;
 	url(): string;
@@ -195,7 +196,7 @@ interface PlaywrightResponseLike {
 	request(): PlaywrightRequestLike;
 }
 
-interface PlaywrightPageLike {
+export interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
 	url(): string;
@@ -216,7 +217,7 @@ interface PlaywrightPageLike {
 	keyboard: { press(key: string): Promise<void> };
 }
 
-function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): SessionPage {
+export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string, logger?: Logger): SessionPage {
 	// Registered once, at page creation, so no dialog triggered by any
 	// future action can ever occur before this exists (solves the real
 	// ordering problem: a dialog can appear as a side effect of the very
@@ -228,10 +229,17 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 	page.on("dialog", async (dialog) => {
 		const policy = armedPolicy;
 		armedPolicy = undefined;
-		if (policy?.accept) {
-			await dialog.accept(policy.promptText);
-		} else {
-			await dialog.dismiss();
+		try {
+			if (policy?.accept) {
+				await dialog.accept(policy.promptText);
+			} else {
+				await dialog.dismiss();
+			}
+		} catch (error) {
+			// Playwright never awaits this handler — an uncaught rejection here
+			// would be an unhandled promise rejection, not an error any caller
+			// could ever catch. Swallow it, but make the failure observable.
+			logger?.warn("session_dialog_handler_failed", { error: String(error) });
 		}
 	});
 
@@ -247,9 +255,17 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 	page.on("download", async (download) => {
 		const filename = download.suggestedFilename();
 		const path = join(downloadsDir, filename);
-		await download.saveAs(path);
-		downloads.push({ filename, path, url: download.url(), failure: await download.failure() });
-		if (downloads.length > SESSION_MAX_DOWNLOADS_TRACKED) downloads.shift();
+		try {
+			await download.saveAs(path);
+			downloads.push({ filename, path, url: download.url(), failure: await download.failure() });
+			if (downloads.length > SESSION_MAX_DOWNLOADS_TRACKED) downloads.shift();
+		} catch (error) {
+			// Same rationale as the dialog handler above: nothing awaits this
+			// handler, so an uncaught rejection here (e.g. disk full, permission
+			// denied, invalid downloadsDir) would be unhandled, not catchable by
+			// any caller. Swallow it, but make the failure observable.
+			logger?.warn("session_download_handler_failed", { error: String(error), filename });
+		}
 	});
 
 	// Same bounded-buffer pattern — registered once at page creation so
@@ -344,13 +360,13 @@ function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string): Ses
 }
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
-export function defaultBrowserLauncher(): BrowserLauncher {
+export function defaultBrowserLauncher(logger?: Logger): BrowserLauncher {
 	return async ({ forceChromeChannel, downloadsDir }) => {
 		const { chromium } = await import("playwright-core");
 		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { channel: "chromium" as const, headless: true };
 		const browser = await chromium.launch(launchOpts);
 		mkdirSync(downloadsDir, { recursive: true });
-		return wrapPlaywrightBrowser(browser, downloadsDir);
+		return wrapPlaywrightBrowser(browser, downloadsDir, logger);
 	};
 }
 
@@ -361,6 +377,8 @@ export interface PlaywrightSessionRegistryOptions {
 	now?: () => number;
 	/** Base directory downloaded files are saved under, one subdirectory per session name. Defaults to a directory under the OS temp dir if omitted — callers wiring the real daemon should pass the real XDG-based path (see service.ts). */
 	downloadsBaseDir?: string;
+	/** Structured logger for otherwise-unobservable failures (dialog/download event handlers that nothing awaits). Optional so existing tests/wiring that don't care about it keep working unchanged. */
+	logger?: Logger;
 }
 
 export class PlaywrightSessionRegistry implements SessionRegistry {
@@ -374,7 +392,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly downloadsBaseDir: string;
 
 	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
-		this.launcher = opts.launcher ?? defaultBrowserLauncher();
+		this.launcher = opts.launcher ?? defaultBrowserLauncher(opts.logger);
 		this.maxConcurrent = opts.maxConcurrent ?? SESSION_REGISTRY_MAX_CONCURRENT;
 		this.maxNameLength = opts.maxNameLength ?? SESSION_NAME_MAX_LENGTH;
 		this.now = opts.now ?? Date.now;

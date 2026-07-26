@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
-import { createLogger } from "@danypops/daemon-kit/logging";
+import { createLogger, type Logger } from "@danypops/daemon-kit/logging";
 import { SERVICE_MAX_BODY_BYTES, SESSION_DOWNLOADS_DIRECTORY_NAME, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
@@ -247,7 +247,7 @@ export interface WebSpiderService {
 	close(): void;
 }
 
-export function createWebSpiderService(path: string): WebSpiderService {
+export function createWebSpiderService(path: string, deps: { logger?: Logger } = {}): WebSpiderService {
 	const db = openWebSpiderDb(path);
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
@@ -257,9 +257,13 @@ export function createWebSpiderService(path: string): WebSpiderService {
 	// directory to spill downloaded files into.
 	const downloadsBaseDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
 	const store = new SQLiteCacheStore(db, { imagesDir });
+	const logger = deps.logger ?? createLogger("web-spider-daemon");
 	// Provider API keys are read from this (daemon) process's own environment only —
-	// never accepted as operation input, never logged.
-	const webSearch = new WebSearchService(createEngineResolver());
+	// never accepted as operation input, never logged; onEngineFailure logs only
+	// the engine name and error message, never a key.
+	const webSearch = new WebSearchService(createEngineResolver(process.env, (engineName, error, reason) => {
+		logger.warn("web_search_engine_degraded", { engine: engineName, reason, error: error instanceof Error ? error.message : String(error) });
+	}));
 
 	// Daemon-process-wide throttle/robots singletons — replaces the pi-extension's
 	// per-session instances with per-daemon ones, a more correct scope since the
@@ -276,16 +280,15 @@ export function createWebSpiderService(path: string): WebSpiderService {
 		}
 		return playwrightClient;
 	};
-	const logger = createLogger("web-spider-daemon");
 	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	// Papyrus is a peer daemon, reached only through its own authenticated
 	// client (PapyrusHttpAdapter) — never opened as a database directly.
 	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());
 
-	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir });
+	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, logger });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
-	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal);
+	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
 	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService);
 	return {
@@ -309,7 +312,7 @@ export function createWebSpiderService(path: string): WebSpiderService {
 			// once and reused for the daemon's whole lifetime (see getPlaywrightClient()
 			// above) -- found via a real leaked Chrome process still running hours after
 			// the fetch that launched it: nothing ever closed it, including on shutdown.
-			void playwrightClient?.close?.();
+			playwrightClient?.close?.().catch((err) => logger.warn("playwright_close_failed", { error: String(err) }));
 			void sessionRegistry.closeAll();
 			db.exec("PRAGMA optimize");
 			db.close();

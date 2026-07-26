@@ -13,7 +13,20 @@
  */
 import { createServer, type Server } from "node:http";
 import { describe, expect, test } from "bun:test";
+import { PlaywrightHttpClient } from "@danypops/web-spider";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { createWebSpiderService } from "../src/service.ts";
+
+function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {
+	const warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+	return {
+		warnCalls,
+		debug: () => {},
+		info: () => {},
+		warn: (msg, fields) => { warnCalls.push({ msg, fields }); },
+		error: () => {},
+	};
+}
 
 function startFixtureServer(html: string): Promise<{ url: string; close: () => Promise<void> }> {
 	return new Promise((resolve) => {
@@ -49,4 +62,26 @@ describe("createWebSpiderService — Playwright client lifecycle", () => {
 		const service = createWebSpiderService(":memory:");
 		expect(() => service.close()).not.toThrow();
 	});
+
+	test("a rejecting playwrightClient.close() during shutdown is logged, not silently swallowed", async () => {
+		const originalClose = PlaywrightHttpClient.prototype.close;
+		PlaywrightHttpClient.prototype.close = async () => { throw new Error("simulated browser.close() failure"); };
+		const logger = fakeLogger();
+		const service = createWebSpiderService(":memory:", { logger });
+		const fixture = await startFixtureServer("<html><head><title>T</title></head><body><article><h1>T</h1><p>Enough real article body text for readability to treat this as the main content here.</p></article></body></html>");
+		try {
+			await service.execute("fetch", { url: fixture.url, enhanced: true });
+		} finally {
+			await fixture.close();
+		}
+
+		expect(() => service.close()).not.toThrow();
+		// service.close() fires the rejecting close() and attaches .catch() synchronously,
+		// but the rejection itself resolves on a later microtask — flush the microtask queue.
+		await Promise.resolve();
+		await Promise.resolve();
+
+		PlaywrightHttpClient.prototype.close = originalClose;
+		expect(logger.warnCalls).toContainEqual({ msg: "playwright_close_failed", fields: { error: "Error: simulated browser.close() failure" } });
+	}, 30_000);
 });

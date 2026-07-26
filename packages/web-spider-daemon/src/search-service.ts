@@ -5,7 +5,7 @@
  * @danypops/web-spider's existing defaultSearchEngine()/resolveSearchEngine()
  * adapters rather than re-implementing provider calls.
  */
-import { defaultSearchEngine, resolveSearchEngine, type ISearchEngine, type SearchEngine, type WebSearchResult } from "@danypops/web-spider";
+import { defaultSearchEngine, resolveSearchEngine, type EngineFailureReason, type ISearchEngine, type SearchEngine, type WebSearchResult } from "@danypops/web-spider";
 import { SEARCH_DEFAULT_NUM_RESULTS, SEARCH_MAX_NUM_RESULTS_CEILING } from "./constants.ts";
 
 export interface WebSearchInput {
@@ -29,12 +29,26 @@ const ENGINE_ENV_VARS: Partial<Record<SearchEngine, string>> = {
 	brave: "BRAVE_SEARCH_API_KEY",
 	tavily: "TAVILY_API_KEY",
 	exa: "EXA_API_KEY",
+	serper: "SERPER_API_KEY",
+	serpapi: "SERPAPI_API_KEY",
 };
 
-/** Builds an EngineResolver reading API keys from the given environment (the daemon's own — never the client's). */
-export function createEngineResolver(env: Record<string, string | undefined> = process.env): EngineResolver {
+export type EngineFailureHandler = (engineName: string, error: unknown, reason: EngineFailureReason) => void;
+
+/**
+ * Builds an EngineResolver reading API keys from the given environment (the
+ * daemon's own — never the client's). The auto-detect chain (name omitted)
+ * is built once and reused, not rebuilt per call — its cooldown state needs
+ * to persist across searches to actually skip a rate-limited engine on
+ * later calls, not just within the one call that first hit it.
+ */
+export function createEngineResolver(env: Record<string, string | undefined> = process.env, onEngineFailure?: EngineFailureHandler): EngineResolver {
+	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
-		if (!name) return defaultSearchEngine();
+		if (!name) {
+			if (!cachedDefault) cachedDefault = defaultSearchEngine({ onEngineFailure });
+			return cachedDefault;
+		}
 		const envVar = ENGINE_ENV_VARS[name];
 		return resolveSearchEngine(name, envVar ? env[envVar] : undefined);
 	};
