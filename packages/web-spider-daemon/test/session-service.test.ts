@@ -1,9 +1,22 @@
 import { describe, expect, test } from "bun:test";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
 import type { SessionAuditEntry } from "../src/domain/session-audit.ts";
 import type { SessionAuditJournal } from "../src/ports/session-audit-journal.ts";
 import { SessionNotFoundError, SessionService, StaleSnapshotError } from "../src/session-service.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
+
+interface FakeLoggerCall { level: "debug" | "info" | "warn" | "error"; msg: string; fields?: Record<string, unknown> }
+function fakeLogger(): Logger & { calls: FakeLoggerCall[] } {
+	const calls: FakeLoggerCall[] = [];
+	return {
+		calls,
+		debug: (msg, fields) => { calls.push({ level: "debug", msg, fields }); },
+		info: (msg, fields) => { calls.push({ level: "info", msg, fields }); },
+		warn: (msg, fields) => { calls.push({ level: "warn", msg, fields }); },
+		error: (msg, fields) => { calls.push({ level: "error", msg, fields }); },
+	};
+}
 
 class FakeAuditJournal implements SessionAuditJournal {
 	entries: SessionAuditEntry[] = [];
@@ -15,11 +28,11 @@ class FakeAuditJournal implements SessionAuditJournal {
 	pruneOldest(): number { return 0; }
 }
 
-function makeHarness(pageOptionsForSession?: NonNullable<Parameters<typeof fakeLauncher>[0]>["pageOptionsForSession"]) {
+function makeHarness(pageOptionsForSession?: NonNullable<Parameters<typeof fakeLauncher>[0]>["pageOptionsForSession"], logger?: Logger) {
 	const { launcher, pages } = fakeLauncher({ pageOptionsForSession });
 	const registry = new PlaywrightSessionRegistry({ launcher, now: () => 1_000 });
 	const journal = new FakeAuditJournal();
-	const service = new SessionService(registry, journal, () => 2_000);
+	const service = new SessionService(registry, journal, () => 2_000, logger);
 	return { service, journal, registry, pages };
 }
 
@@ -669,5 +682,79 @@ describe("SessionService — act: fails closed", () => {
 			.rejects.toThrow(/simulated click failure/);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 		expect(journal.entries[0]!.error).toMatch(/simulated click failure/);
+	});
+});
+
+describe("SessionService — structured logging", () => {
+	test("create logs a debug event with sessionName/outcome/durationMs on success", async () => {
+		const logger = fakeLogger();
+		const { launcher } = fakeLauncher();
+		const registry = new PlaywrightSessionRegistry({ launcher, now: () => 1_000 });
+		const service = new SessionService(registry, new FakeAuditJournal(), () => 2_000, logger);
+
+		await service.create({ name: "a" });
+		expect(logger.calls).toEqual([{ level: "debug", msg: "session_create", fields: { sessionName: "a", outcome: "ok", durationMs: 0 } }]);
+	});
+
+	test("create logs a warn event on failure (e.g. a duplicate session name), never throwing from the logger itself", async () => {
+		const logger = fakeLogger();
+		const { launcher } = fakeLauncher();
+		const registry = new PlaywrightSessionRegistry({ launcher, now: () => 1_000 });
+		const service = new SessionService(registry, new FakeAuditJournal(), () => 2_000, logger);
+		await service.create({ name: "a" });
+
+		await expect(service.create({ name: "a" })).rejects.toThrow(/session already exists/);
+		const failureLog = logger.calls.find((c) => c.level === "warn");
+		expect(failureLog).toMatchObject({ msg: "session_create", fields: { sessionName: "a", outcome: "error" } });
+		expect(failureLog?.fields?.error).toMatch(/session already exists/);
+	});
+
+	test("close logs a debug event on success", async () => {
+		const logger = fakeLogger();
+		const { service } = makeHarness(undefined, logger);
+		await service.create({ name: "a" });
+		logger.calls.length = 0; // ignore the create log, isolate close's
+		await service.close({ name: "a" });
+		expect(logger.calls).toEqual([{ level: "debug", msg: "session_close", fields: { sessionName: "a", outcome: "ok", durationMs: 0 } }]);
+	});
+
+	test("act logs a debug event on success with sessionName/action/target/outcome/durationMs, never eval script content", async () => {
+		const logger = fakeLogger();
+		const { service } = makeHarness(undefined, logger);
+		await service.create({ name: "a" });
+		logger.calls.length = 0;
+		await service.act({ name: "a", snapshotVersion: 0, action: "eval", script: "document.title = 'secretApiKey123'" });
+
+		expect(logger.calls).toEqual([{ level: "debug", msg: "session_act", fields: { sessionName: "a", action: "eval", target: "<script>", outcome: "ok", durationMs: 0 } }]);
+		expect(JSON.stringify(logger.calls)).not.toContain("secretApiKey123");
+	});
+
+	test("act logs a warn event on failure with the bounded error message, and on a stale-snapshot rejection", async () => {
+		const logger = fakeLogger();
+		const { service } = makeHarness((i) => (i === 0 ? { failClick: true } : {}), logger);
+		await service.create({ name: "a" });
+		logger.calls.length = 0;
+
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#missing" })).rejects.toThrow();
+		expect(logger.calls).toHaveLength(1);
+		expect(logger.calls[0]).toMatchObject({ level: "warn", msg: "session_act", fields: { sessionName: "a", action: "click", outcome: "error" } });
+		expect(logger.calls[0]?.fields?.error).toMatch(/simulated click failure/);
+
+		logger.calls.length = 0;
+		await expect(service.act({ name: "a", snapshotVersion: 99, action: "click", selector: "#x" })).rejects.toThrow(StaleSnapshotError);
+		expect(logger.calls[0]).toMatchObject({ level: "warn", msg: "session_act", fields: { outcome: "stale-snapshot" } });
+	});
+
+	test("never logs typed text or promptText verbatim", async () => {
+		const logger = fakeLogger();
+		const { service } = makeHarness(undefined, logger);
+		await service.create({ name: "a" });
+		logger.calls.length = 0;
+		await service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#field", text: "hunter2-the-secret-password" });
+		await service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true, promptText: "another-secret-value" });
+
+		const serialized = JSON.stringify(logger.calls);
+		expect(serialized).not.toContain("hunter2-the-secret-password");
+		expect(serialized).not.toContain("another-secret-value");
 	});
 });

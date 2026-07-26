@@ -12,11 +12,12 @@
  *   - script/url/selector inputs are never written to the journal verbatim
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { SESSION_ACT_DEFAULT_TIMEOUT_MS, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_SNAPSHOT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
-import type { CreateSessionOptions, SessionRegistry } from "./ports/session-registry.ts";
+import type { CreateSessionOptions, SessionPage, SessionRegistry } from "./ports/session-registry.ts";
 
 export class SessionNotFoundError extends Error {}
 export class StaleSnapshotError extends Error {}
@@ -89,15 +90,234 @@ function boundExtractedItems<T extends string | string[]>(items: T[]): T[] {
 	return items.slice(0, SESSION_ACT_EXTRACT_MAX_ITEMS).map((item) => (typeof item === "string" ? item.slice(0, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH) : item) as T);
 }
 
+interface ActionRunResult {
+	result?: unknown;
+	screenshotBase64?: string;
+}
+
+/**
+ * One entry per SessionAction. Adding a new action means registering a new
+ * entry here — no existing branch is ever edited. Replaces what used to be
+ * two parallel structures (a validation if-chain and a dispatch switch) both
+ * keyed on the same action name, both requiring a new branch for every new
+ * action (a real, observed growth pattern — hover/pressKey, tabs, dialogs,
+ * downloads, console/network, and screenshot were all added as separate
+ * changes to those two structures).
+ */
+interface ActionHandler {
+	/** Throws for invalid input. Runs before the browser page is ever touched. */
+	validate(input: SessionActInput): void;
+	run(page: SessionPage, input: SessionActInput, registry: SessionRegistry, name: string): Promise<ActionRunResult>;
+}
+
+const noValidation: ActionHandler["validate"] = () => {};
+
+const ACTION_HANDLERS: Record<SessionAction, ActionHandler> = {
+	navigate: {
+		validate(input) {
+			if (!input.url) throw new Error("url is required for a navigate action");
+		},
+		async run(page, input) {
+			await page.goto(input.url as string, { timeoutMs: input.timeoutMs });
+			return {};
+		},
+	},
+	click: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a click action");
+		},
+		async run(page, input) {
+			await page.click(input.selector as string, { timeoutMs: input.timeoutMs });
+			return {};
+		},
+	},
+	hover: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a hover action");
+		},
+		async run(page, input) {
+			await page.hover(input.selector as string, { timeoutMs: input.timeoutMs });
+			return {};
+		},
+	},
+	pressKey: {
+		validate(input) {
+			if (!input.key) throw new Error("key is required for a pressKey action");
+		},
+		async run(page, input) {
+			await page.pressKey(input.key as string, { selector: input.selector, timeoutMs: input.timeoutMs });
+			return {};
+		},
+	},
+	type: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a type action");
+			if (input.text === undefined) throw new Error("text is required for a type action");
+			if (input.text.length > SESSION_ACT_TEXT_MAX_LENGTH) throw new Error(`text exceeds ${SESSION_ACT_TEXT_MAX_LENGTH} characters`);
+		},
+		async run(page, input) {
+			await page.type(input.selector as string, input.text as string, { timeoutMs: input.timeoutMs, clear: input.clear });
+			return {};
+		},
+	},
+	select: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a select action");
+			if (input.value === undefined && input.label === undefined) throw new Error("value or label is required for a select action");
+			if (input.value !== undefined && input.label !== undefined) throw new Error("select accepts only one of value or label, not both");
+		},
+		async run(page, input) {
+			await page.select(input.selector as string, { value: input.value, label: input.label }, { timeoutMs: input.timeoutMs });
+			return {};
+		},
+	},
+	waitFor: {
+		validate(input) {
+			const targets = [input.selector, input.text, input.loadState].filter((v) => v !== undefined);
+			if (targets.length === 0) throw new Error("waitFor requires exactly one of selector, text, or loadState");
+			if (targets.length > 1) throw new Error("waitFor accepts only one of selector, text, or loadState, not more than one");
+			if (input.loadState !== undefined && input.state !== undefined) throw new Error("state is not valid alongside loadState");
+		},
+		async run(page, input) {
+			await page.waitFor(
+				{ selector: input.selector, text: input.text, loadState: input.loadState },
+				{ timeoutMs: input.timeoutMs, state: input.state },
+			);
+			return {};
+		},
+	},
+	queryText: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a queryText action");
+		},
+		async run(page, input) {
+			const texts = await page.queryText(input.selector as string, { timeoutMs: input.timeoutMs });
+			return { result: boundExtractedItems(texts) };
+		},
+	},
+	readTable: {
+		validate(input) {
+			if (!input.selector) throw new Error("selector is required for a readTable action");
+		},
+		async run(page, input) {
+			const rows = await page.readTable(input.selector as string, { timeoutMs: input.timeoutMs });
+			return { result: boundExtractedItems(rows).map((row) => boundExtractedItems(row)) };
+		},
+	},
+	snapshot: {
+		validate(input) {
+			if (input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0)) throw new Error("depth must be a non-negative integer");
+		},
+		async run(page, input) {
+			// Playwright's own default timeout for ariaSnapshot is 0 (no timeout) —
+			// unlike every other action here, an explicit bounded fallback is
+			// required rather than relying on Playwright's own default, or an
+			// unresponsive page could hang this action forever.
+			const tree = await page.snapshot({
+				selector: input.selector,
+				depth: input.depth,
+				boxes: input.boxes,
+				mode: input.mode,
+				timeoutMs: input.timeoutMs ?? SESSION_ACT_DEFAULT_TIMEOUT_MS,
+			});
+			return { result: tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree };
+		},
+	},
+	handleDialog: {
+		validate(input) {
+			if (input.accept === undefined) throw new Error("accept is required for a handleDialog action");
+		},
+		async run(page, input) {
+			await page.armDialogPolicy({ accept: input.accept as boolean, promptText: input.promptText });
+			return {};
+		},
+	},
+	// downloads/consoleMessages/networkRequests have no extra validation — reads of already-captured metadata.
+	downloads: {
+		validate: noValidation,
+		async run(page) {
+			return { result: await page.listDownloads() };
+		},
+	},
+	consoleMessages: {
+		validate: noValidation,
+		async run(page) {
+			return { result: await page.listConsoleMessages() };
+		},
+	},
+	networkRequests: {
+		validate: noValidation,
+		async run(page, input) {
+			const requests = await page.listNetworkRequests();
+			const STATIC_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "script"]);
+			const result = input.includeStatic
+				? requests
+				: requests.filter((r) => !(STATIC_RESOURCE_TYPES.has(r.resourceType) && r.status >= 200 && r.status < 300));
+			return { result };
+		},
+	},
+	tabs: {
+		validate(input) {
+			const validOps = new Set(["list", "new", "close", "select"]);
+			if (!input.tabOperation || !validOps.has(input.tabOperation)) {
+				throw new Error('tabOperation is required for a tabs action and must be one of "list", "new", "close", "select"');
+			}
+			if (input.tabOperation === "select" && input.tabIndex === undefined) {
+				throw new Error("tabIndex is required for tabs tabOperation=select");
+			}
+		},
+		// tabOperation's own 4-way dispatch is a small, stable, Playwright-tab-
+		// convention-bounded sub-choice, not the growing action switch this map
+		// replaces — left as a plain switch rather than a second registry.
+		async run(_page, input, registry, name) {
+			switch (input.tabOperation) {
+				case "list": return { result: await registry.listTabs(name) };
+				case "new": return { result: await registry.newTab(name, input.url) };
+				case "close": return { result: await registry.closeTab(name, input.tabIndex) };
+				case "select": return { result: await registry.selectTab(name, input.tabIndex as number) };
+				default: return {};
+			}
+		},
+	},
+	eval: {
+		validate(input) {
+			if (!input.script) throw new Error("script is required for an eval action");
+			if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH) throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
+		},
+		async run(page, input) {
+			return { result: await page.evaluate(input.script as string) };
+		},
+	},
+	screenshot: {
+		validate(input) {
+			if (input.fullPage === true && input.selector !== undefined) throw new Error("screenshot accepts fullPage or selector, not both");
+		},
+		async run(page, input) {
+			const png = await page.screenshot({ fullPage: input.fullPage, selector: input.selector, scale: input.scale });
+			return { screenshotBase64: Buffer.from(png).toString("base64") };
+		},
+	},
+};
+
 export class SessionService {
 	constructor(
 		private readonly registry: SessionRegistry,
 		private readonly journal: SessionAuditJournal,
 		private readonly now: () => number = Date.now,
+		/** Structured logger for session lifecycle/action events — optional so existing tests/wiring that don't care about it keep working unchanged. */
+		private readonly logger?: Logger,
 	) {}
 
-	create(input: SessionCreateInput): Promise<SessionInfo> {
-		return this.registry.create(input.name, { forceChromeChannel: input.forceChromeChannel });
+	async create(input: SessionCreateInput): Promise<SessionInfo> {
+		const start = this.now();
+		try {
+			const info = await this.registry.create(input.name, { forceChromeChannel: input.forceChromeChannel });
+			this.logger?.debug("session_create", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
+			return info;
+		} catch (error) {
+			this.logger?.warn("session_create", { sessionName: input.name, outcome: "error", error: boundedJournalError(error), durationMs: this.now() - start });
+			throw error;
+		}
 	}
 
 	list(): SessionInfo[] {
@@ -105,12 +325,25 @@ export class SessionService {
 	}
 
 	async close(input: SessionCloseInput): Promise<{ name: string; closed: true }> {
-		await this.registry.close(input.name);
-		return { name: input.name, closed: true };
+		const start = this.now();
+		try {
+			await this.registry.close(input.name);
+			this.logger?.debug("session_close", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
+			return { name: input.name, closed: true };
+		} catch (error) {
+			this.logger?.warn("session_close", { sessionName: input.name, outcome: "error", error: boundedJournalError(error), durationMs: this.now() - start });
+			throw error;
+		}
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
+		const start = this.now();
 		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept, key: input.key, tabOperation: input.tabOperation, tabIndex: input.tabIndex });
+		// One structured event per act() call, success or failure — the counterpart
+		// to the audit journal below, which is deliberately content-free and not a
+		// substitute for operational logging. target/error are already redacted/
+		// bounded for the journal (see domain/session-audit.ts) and are exactly as
+		// safe to log here — never eval script source, typed text, or promptText.
 		const record = (outcome: "ok" | "error" | "stale-snapshot", error: string) => {
 			this.journal.record({
 				ts: this.now(),
@@ -121,6 +354,9 @@ export class SessionService {
 				outcome,
 				error,
 			});
+			const fields = { sessionName: input.name, action: input.action, target, outcome, durationMs: this.now() - start };
+			if (outcome === "ok") this.logger?.debug("session_act", fields);
+			else this.logger?.warn("session_act", { ...fields, error });
 		};
 
 		const current = this.registry.get(input.name);
@@ -136,156 +372,14 @@ export class SessionService {
 		}
 
 		try {
+			const handler = ACTION_HANDLERS[input.action];
 			// Validate action-specific inputs before ever touching the browser page
 			// (an oversized eval script, or a missing url/selector, should never
 			// cause a page/browser round trip at all).
-			if (input.action === "navigate" && !input.url) throw new Error("url is required for a navigate action");
-			if (input.action === "click" && !input.selector) throw new Error("selector is required for a click action");
-			if (input.action === "hover" && !input.selector) throw new Error("selector is required for a hover action");
-			if (input.action === "pressKey" && !input.key) throw new Error("key is required for a pressKey action");
-			if (input.action === "eval") {
-				if (!input.script) throw new Error("script is required for an eval action");
-				if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH) throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
-			}
-			if (input.action === "type") {
-				if (!input.selector) throw new Error("selector is required for a type action");
-				if (input.text === undefined) throw new Error("text is required for a type action");
-				if (input.text.length > SESSION_ACT_TEXT_MAX_LENGTH) throw new Error(`text exceeds ${SESSION_ACT_TEXT_MAX_LENGTH} characters`);
-			}
-			if (input.action === "select") {
-				if (!input.selector) throw new Error("selector is required for a select action");
-				if (input.value === undefined && input.label === undefined) throw new Error("value or label is required for a select action");
-				if (input.value !== undefined && input.label !== undefined) throw new Error("select accepts only one of value or label, not both");
-			}
-			if (input.action === "waitFor") {
-				const targets = [input.selector, input.text, input.loadState].filter((v) => v !== undefined);
-				if (targets.length === 0) throw new Error("waitFor requires exactly one of selector, text, or loadState");
-				if (targets.length > 1) throw new Error("waitFor accepts only one of selector, text, or loadState, not more than one");
-				if (input.loadState !== undefined && input.state !== undefined) throw new Error("state is not valid alongside loadState");
-			}
-			if ((input.action === "queryText" || input.action === "readTable") && !input.selector) {
-				throw new Error(`selector is required for a ${input.action} action`);
-			}
-			if (input.action === "screenshot" && input.fullPage === true && input.selector !== undefined) {
-				throw new Error("screenshot accepts fullPage or selector, not both");
-			}
-			if (input.action === "snapshot" && input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0)) {
-				throw new Error("depth must be a non-negative integer");
-			}
-			if (input.action === "handleDialog" && input.accept === undefined) {
-				throw new Error("accept is required for a handleDialog action");
-			}
-			// downloads/consoleMessages/networkRequests have no extra validation — reads of already-captured metadata.
-			if (input.action === "tabs") {
-				const validOps = new Set(["list", "new", "close", "select"]);
-				if (!input.tabOperation || !validOps.has(input.tabOperation)) {
-					throw new Error('tabOperation is required for a tabs action and must be one of "list", "new", "close", "select"');
-				}
-				if (input.tabOperation === "select" && input.tabIndex === undefined) {
-					throw new Error("tabIndex is required for tabs tabOperation=select");
-				}
-			}
+			handler.validate(input);
 
 			const page = await this.registry.page(input.name);
-			let result: unknown;
-			let screenshotBase64: string | undefined;
-
-			switch (input.action) {
-				case "navigate": {
-					await page.goto(input.url as string, { timeoutMs: input.timeoutMs });
-					break;
-				}
-				case "click": {
-					await page.click(input.selector as string, { timeoutMs: input.timeoutMs });
-					break;
-				}
-				case "hover": {
-					await page.hover(input.selector as string, { timeoutMs: input.timeoutMs });
-					break;
-				}
-				case "pressKey": {
-					await page.pressKey(input.key as string, { selector: input.selector, timeoutMs: input.timeoutMs });
-					break;
-				}
-				case "type": {
-					await page.type(input.selector as string, input.text as string, { timeoutMs: input.timeoutMs, clear: input.clear });
-					break;
-				}
-				case "select": {
-					await page.select(input.selector as string, { value: input.value, label: input.label }, { timeoutMs: input.timeoutMs });
-					break;
-				}
-				case "waitFor": {
-					await page.waitFor(
-						{ selector: input.selector, text: input.text, loadState: input.loadState },
-						{ timeoutMs: input.timeoutMs, state: input.state },
-					);
-					break;
-				}
-				case "queryText": {
-					const texts = await page.queryText(input.selector as string, { timeoutMs: input.timeoutMs });
-					result = boundExtractedItems(texts);
-					break;
-				}
-				case "readTable": {
-					const rows = await page.readTable(input.selector as string, { timeoutMs: input.timeoutMs });
-					result = boundExtractedItems(rows).map((row) => boundExtractedItems(row));
-					break;
-				}
-				case "snapshot": {
-					// Playwright's own default timeout for ariaSnapshot is 0 (no
-					// timeout) — unlike every other action here, an explicit bounded
-					// fallback is required rather than relying on Playwright's own
-					// default, or an unresponsive page could hang this action forever.
-					const tree = await page.snapshot({
-						selector: input.selector,
-						depth: input.depth,
-						boxes: input.boxes,
-						mode: input.mode,
-						timeoutMs: input.timeoutMs ?? SESSION_ACT_DEFAULT_TIMEOUT_MS,
-					});
-					result = tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree;
-					break;
-				}
-				case "handleDialog": {
-					await page.armDialogPolicy({ accept: input.accept as boolean, promptText: input.promptText });
-					break;
-				}
-				case "downloads": {
-					result = await page.listDownloads();
-					break;
-				}
-				case "consoleMessages": {
-					result = await page.listConsoleMessages();
-					break;
-				}
-				case "networkRequests": {
-					const requests = await page.listNetworkRequests();
-					const STATIC_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "script"]);
-					result = input.includeStatic
-						? requests
-						: requests.filter((r) => !(STATIC_RESOURCE_TYPES.has(r.resourceType) && r.status >= 200 && r.status < 300));
-					break;
-				}
-				case "tabs": {
-					switch (input.tabOperation) {
-						case "list": result = await this.registry.listTabs(input.name); break;
-						case "new": result = await this.registry.newTab(input.name, input.url); break;
-						case "close": result = await this.registry.closeTab(input.name, input.tabIndex); break;
-						case "select": result = await this.registry.selectTab(input.name, input.tabIndex as number); break;
-					}
-					break;
-				}
-				case "eval": {
-					result = await page.evaluate(input.script as string);
-					break;
-				}
-				case "screenshot": {
-					const png = await page.screenshot({ fullPage: input.fullPage, selector: input.selector, scale: input.scale });
-					screenshotBase64 = Buffer.from(png).toString("base64");
-					break;
-				}
-			}
+			const { result, screenshotBase64 } = await handler.run(page, input, this.registry, input.name);
 
 			const updated = input.action === "navigate" ? this.registry.bumpSnapshotVersion(input.name) : this.registry.touchActivity(input.name);
 			record("ok", "");
