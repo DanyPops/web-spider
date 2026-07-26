@@ -14,7 +14,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { searchPages, type ImageRef, type SpideredPage } from "@danypops/web-spider";
+import { canonicalizeUrl, searchPages, type ImageRef, type SpideredPage } from "@danypops/web-spider";
 import {
 	CACHE_DEFAULT_INLINE_IMAGE_THRESHOLD,
 	CACHE_DEFAULT_MAX_ENTRIES,
@@ -117,15 +117,9 @@ interface ImageRow {
 	file_path: string | null;
 }
 
-/** Normalizes a URL to a stable cache key — strips the hash and trailing slash (same rule DiskCache uses). */
+/** Normalizes a URL to a stable cache key — same canonicalization every cache in this project shares (see @danypops/web-spider's canonicalizeUrl). */
 export function pageKey(url: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.hash = "";
-		return parsed.toString().replace(/\/$/, "");
-	} catch {
-		return url;
-	}
+	return canonicalizeUrl(url);
 }
 
 export class SQLiteCacheStore implements CacheStore {
@@ -186,9 +180,8 @@ export class SQLiteCacheStore implements CacheStore {
 				`).run(chunk.id, row.id, chunk.index, chunk.heading, chunk.text, chunk.wordCount, chunk.contentType);
 			}
 
-			const oldImagePaths = (this.db.query("SELECT file_path FROM images WHERE page_id = ? AND file_path IS NOT NULL").all(row.id) as Array<{ file_path: string }>).map((r) => r.file_path);
+			this.removePageImageFiles([row.id]);
 			this.db.query("DELETE FROM images WHERE page_id = ?").run(row.id);
-			for (const path of oldImagePaths) { try { rmSync(path, { force: true }); } catch { /* best-effort */ } }
 			for (const image of this.spill(page.images ?? [])) {
 				this.db.query(`
 					INSERT INTO images (page_id, src, mime_type, alt, base64, file_path)
@@ -205,9 +198,8 @@ export class SQLiteCacheStore implements CacheStore {
 		const key = pageKey(url);
 		const row = this.db.query("SELECT id FROM pages WHERE url_key = ?").get(key) as { id: number } | null;
 		if (!row) return;
-		const paths = (this.db.query("SELECT file_path FROM images WHERE page_id = ? AND file_path IS NOT NULL").all(row.id) as Array<{ file_path: string }>).map((r) => r.file_path);
+		this.removePageImageFiles([row.id]);
 		this.db.query("DELETE FROM pages WHERE id = ?").run(row.id);
-		for (const path of paths) { try { rmSync(path, { force: true }); } catch { /* best-effort */ } }
 	}
 
 	values(): SpideredPage[] {
@@ -262,12 +254,13 @@ export class SQLiteCacheStore implements CacheStore {
 	}
 
 	pruneExpired(now: number): number {
-		// Pre-count rather than trust the DELETE's reported `changes`: bun:sqlite's
-		// changes count includes rows removed by an ON DELETE CASCADE (chunks/images
-		// for each evicted page), which would overcount "pages removed" here.
-		const { n } = this.db.query("SELECT COUNT(*) AS n FROM pages WHERE expires_at <= ?").get(now) as { n: number };
+		// Collect ids first (not just a COUNT) so their spilled image files can be
+		// removed before the rows disappear -- the ON DELETE CASCADE only cleans
+		// up the images table rows, never the files on disk.
+		const idsToRemove = (this.db.query("SELECT id FROM pages WHERE expires_at <= ?").all(now) as Array<{ id: number }>).map((r) => r.id);
+		this.removePageImageFiles(idsToRemove);
 		this.db.query("DELETE FROM pages WHERE expires_at <= ?").run(now);
-		return n;
+		return idsToRemove.length;
 	}
 
 	close(): void {
@@ -277,7 +270,21 @@ export class SQLiteCacheStore implements CacheStore {
 	// ── Eviction ───────────────────────────────────────────────────────────────
 
 	private evict(): void {
+		const idsToEvict = (
+			this.db.query("SELECT id FROM pages WHERE id NOT IN (SELECT id FROM pages ORDER BY fetched_at DESC LIMIT ?)").all(this.maxSize) as Array<{ id: number }>
+		).map((r) => r.id);
+		this.removePageImageFiles(idsToEvict);
 		this.db.query("DELETE FROM pages WHERE id NOT IN (SELECT id FROM pages ORDER BY fetched_at DESC LIMIT ?)").run(this.maxSize);
+	}
+
+	/** Removes the on-disk spilled image files for the given page ids -- the images table's own rows are cleaned up separately (either an explicit DELETE FROM images, or an ON DELETE CASCADE when the page row itself is removed), but nothing else ever removes the files a page's images were spilled to. Must be called before the page/images rows disappear. */
+	private removePageImageFiles(pageIds: number[]): void {
+		if (pageIds.length === 0) return;
+		const placeholders = pageIds.map(() => "?").join(",");
+		const rows = this.db.query(`SELECT file_path FROM images WHERE page_id IN (${placeholders}) AND file_path IS NOT NULL`).all(...pageIds) as Array<{ file_path: string }>;
+		for (const row of rows) {
+			try { rmSync(row.file_path, { force: true }); } catch { /* best-effort */ }
+		}
 	}
 
 	// ── Image spill / hydrate (ported from DiskCache) ──────────────────────────

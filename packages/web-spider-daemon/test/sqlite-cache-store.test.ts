@@ -46,6 +46,9 @@ describe("pageKey", () => {
 	test("falls back to the raw string for unparseable input", () => {
 		expect(pageKey("not a url")).toBe("not a url");
 	});
+	test("sorts query parameters, so a different param order is the same key", () => {
+		expect(pageKey("https://example.com/search?b=2&a=1")).toBe(pageKey("https://example.com/search?a=1&b=2"));
+	});
 });
 
 describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
@@ -63,6 +66,13 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		expect(hydrated?.chunks).toEqual([{ id: "https://a.example/1#chunk-0", index: 0, heading: "One", text: "hello world", wordCount: 2, contentType: "text" }]);
 		expect(hydrated?.headings).toEqual([{ level: 1, text: "One" }]);
 		expect(store.has("https://a.example/1")).toBe(true);
+	});
+
+	test("set() with one query-param order then get() with a different order hits the same cache entry, not a miss", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/search?b=2&a=1", page({ url: "https://a.example/search?b=2&a=1" }));
+		expect(store.get("https://a.example/search?a=1&b=2")).toBeDefined();
+		expect(store.has("https://a.example/search?a=1&b=2")).toBe(true);
 	});
 
 	test("set() on the same URL replaces chunks rather than accumulating them", () => {
@@ -143,6 +153,48 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		expect(store.values()).toEqual([]);
 		const deleted = store.pruneExpired(Date.now() + 1);
 		expect(deleted).toBe(1);
+	});
+
+	test("eviction removes the evicted page's spilled image file from disk, not just its DB rows", () => {
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const store = new SQLiteCacheStore(db, { imagesDir, maxSize: 2 });
+		const largeBase64 = Buffer.alloc(64 * 1024, 3).toString("base64");
+		store.set("https://a.example/1", page({
+			url: "https://a.example/1",
+			fetchedAt: new Date(Date.now() - 3_000).toISOString(),
+			images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
+		}));
+		const evictedPath = store.get("https://a.example/1")?.images?.[0]?.filePath as string;
+		expect(evictedPath).toBeDefined();
+		expect(readFileSync(evictedPath)).toBeDefined(); // exists before eviction
+
+		store.set("https://a.example/2", page({ url: "https://a.example/2", fetchedAt: new Date(Date.now() - 2_000).toISOString() }));
+		store.set("https://a.example/3", page({ url: "https://a.example/3", fetchedAt: new Date(Date.now() - 1_000).toISOString() })); // pushes /1 past maxSize:2
+
+		expect(store.get("https://a.example/1")).toBeUndefined();
+		expect(() => readFileSync(evictedPath)).toThrow(); // the file, not just the DB row, is gone
+		rmSync(imagesDir, { recursive: true, force: true });
+	});
+
+	test("pruneExpired() removes an expired page's spilled image file from disk, not just its DB rows", () => {
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const store = new SQLiteCacheStore(db, { imagesDir, ttlMs: -1 }); // expires immediately
+		const largeBase64 = Buffer.alloc(64 * 1024, 4).toString("base64");
+		store.set("https://a.example/img", page({
+			url: "https://a.example/img",
+			images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
+		}));
+		// Read the spilled path directly from the DB (get() already excludes the
+		// already-expired row, so it can't be read back through the public API).
+		const filePathRow = db.query("SELECT file_path FROM images LIMIT 1").get() as { file_path: string };
+		expect(readFileSync(filePathRow.file_path)).toBeDefined(); // exists before pruning
+
+		const deleted = store.pruneExpired(Date.now() + 1);
+		expect(deleted).toBe(1);
+		expect(() => readFileSync(filePathRow.file_path)).toThrow(); // the file, not just the DB row, is gone
+		rmSync(imagesDir, { recursive: true, force: true });
 	});
 });
 
