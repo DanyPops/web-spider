@@ -80,10 +80,11 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 
 | Parameter | Type | Description |
 |---|---|---|
-| `searchEngine` | `"brave"` \| `"tavily"` \| `"exa"` | Force a specific engine. Auto-detected from available API keys when omitted. |
+| `searchEngine` | `"brave"` \| `"tavily"` \| `"exa"` \| `"serper"` \| `"serpapi"` \| `"you"` | Force a specific engine. Auto-detected from available API keys when omitted. |
 | `numResults` | `number` | Number of search results (default `10`). |
 | `timeRange` | `"day"` \| `"week"` \| `"month"` \| `"year"` | Restrict results to content published within this window. Supported by Tavily and Brave. Use `"month"` when asked for recent or latest news. |
 | `topic` | `"news"` \| `"general"` | Search topic mode. `"news"` prioritises freshly indexed news articles (Tavily only). Combine with `timeRange: "month"` for the freshest results. |
+| `siteFilter` | `string` | Restrict results to one domain (e.g. `"reddit.com"`). Routed by which configured engine has actually returned matching results for that domain before -- some domains (Reddit, which blocked most search engines' crawlers in 2024) have real coverage from only a subset of providers regardless of which one is asked first. |
 
 ---
 
@@ -268,14 +269,19 @@ Every keyed engine with an API key set is round-robined as an equal-tier peer, s
 | Engine | Env var | Notes |
 |---|---|---|
 | Brave | `BRAVE_SEARCH_API_KEY` | Full web index. $5 free/month. |
-| Tavily | `TAVILY_API_KEY` | AI-optimised. $1 000 free credits. |
+| Tavily | `TAVILY_API_KEY` | AI-optimised. $1 000 free credits. Also the reference `searchForAnswer()` implementation (synthesized, cited answer instead of a results list) via Tavily's own `include_answer`. |
 | Exa | `EXA_API_KEY` | Neural/semantic search. |
 | Serper | `SERPER_API_KEY` | Google-backed SERP API. |
 | SerpApi | `SERPAPI_API_KEY` | Scraped, real Google SERPs. |
+| You.com | `YOU_API_KEY` | Independent index, multiple pre-ranked snippets per result. |
 
-Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"serper"` | `"serpapi"`.
+Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"serper"` | `"serpapi"` | `"you"`.
 
 DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it was removed. It's not a web search index — it only returns data for single named entities with a Wikipedia-style knowledge panel, and returns an empty (but HTTP-successful) response for nearly every other query. As the final entry in the fallback chain, an empty-but-successful DDG call masked real upstream failures (e.g. a quota-exhausted key) as an ordinary empty result instead of surfacing the error.
+
+### Site-restricted queries and per-domain routing
+
+Some domains block most search engines' crawlers outright -- Reddit updated its robots.txt in 2024 to disallow every crawler except Google's (and whoever licenses Google's index, e.g. Kagi), so Bing, DuckDuckGo, and most independent-index engines return little to no recent Reddit content regardless of query. Passing `siteFilter: "reddit.com"` restricts results to that domain and routes the query by which *configured* engine has actually returned matching results for it before -- an engine with no real coverage of the site is learned once (not re-paid on every call) and tried last, while the verdict still expires after 24h so a later-fixed engine isn't written off forever. Works automatically for a literal `site:domain.tld` operator typed directly into the query text too, not just the structured `siteFilter` parameter.
 
 ---
 

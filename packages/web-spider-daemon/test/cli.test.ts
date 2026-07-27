@@ -198,6 +198,12 @@ describe("runCli search", () => {
 		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "rate limiting", numResults: 5, searchEngine: "serper", timeRange: "month" }) }]);
 	});
 
+	test("forwards --site-filter to the search operation", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ query: "q", results: [] }) });
+		await runCli(["search", "best pizza", "--site-filter", "reddit.com"], deps);
+		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "best pizza", siteFilter: "reddit.com" }) }]);
+	});
+
 	test("missing query prints usage and returns exit code 2", async () => {
 		const { deps, calls } = fakeDeps();
 		expect(await runCli(["search"], deps)).toBe(2);

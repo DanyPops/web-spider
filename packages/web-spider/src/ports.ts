@@ -106,6 +106,18 @@ export interface SearchQuery {
 	 * Supported by Tavily. Ignored by engines that don't support it.
 	 */
 	topic?: "news" | "general";
+	/**
+	 * Restrict results to one domain (e.g. "reddit.com"). Adapters with a
+	 * native domain filter (Tavily's includeDomains, Exa's includeDomains,
+	 * You.com's include_domains) map it directly; keyword/SERP-style engines
+	 * with no structured param (Brave, Serper, SerpApi) append a `site:`
+	 * operator to the query text instead. {@link SiteRoutedSearchEngine}
+	 * uses this field to track, per site, which configured engines actually
+	 * return matching results -- some domains (e.g. reddit.com, which
+	 * blocked all crawlers but Google's in its 2024 robots.txt change)
+	 * return zero real coverage from most engines regardless of the filter.
+	 */
+	siteFilter?: string;
 }
 
 /**
@@ -119,6 +131,57 @@ export interface WebSearchResult {
 	snippet: string;
 	/** ISO-8601 or human-readable date, if the engine returned one. */
 	publishedAt?: string;
+	/** Additional pre-extracted passages beyond the single snippet, when the engine returns more than one (Exa, You.com). Never fabricated -- absent when the engine only ever returns one. */
+	highlights?: string[];
+	/** Full page content (markdown/HTML/raw text), only populated when the caller opted into fetching it (e.g. Tavily's includeRawContent) -- absent by default since it costs more and inflates payload size. */
+	content?: string;
+}
+
+/**
+ * Result of an answer-first engine call: a synthesized answer plus the
+ * sources it was built from, as distinct from {@link ISearchEngine}'s
+ * results-first list. Kept as a separate port rather than folded into
+ * WebSearchResult[] -- an answer-first response isn't a ranked list of
+ * pages, and squeezing it into one would either fabricate a fake single
+ * "result" or silently make one engine's search() return richer data than
+ * the interface promises every other caller.
+ */
+export interface AnswerResult {
+	answer: string;
+	sources: WebSearchResult[];
+}
+
+/**
+ * Answer-first web search port -- distinct from {@link ISearchEngine}.
+ * Adapters implement this alongside ISearchEngine when the underlying API
+ * supports both modes (e.g. TavilySearchEngine, via Tavily's own
+ * include_answer). A caller that only wants a synthesized, cited answer
+ * uses this instead of search() + doing its own summarization.
+ */
+export interface IAnswerSearchEngine {
+	searchForAnswer(req: SearchQuery): Promise<AnswerResult>;
+}
+
+/**
+ * Tracks, per site (domain), which configured search engines have actually
+ * returned matching results versus come back empty -- so a caller doesn't
+ * re-pay the same "try every engine" cost on every call against a site
+ * some engines have no real coverage of (see {@link SiteRoutedSearchEngine}).
+ * A verdict is advisory, not a hard exclusion: implementations should let a
+ * previously-blocked engine be retried after some interval, since access
+ * can change (a new licensing deal, a policy reversal) independently of
+ * this process's own lifetime.
+ */
+export interface SiteAvailabilityTracker {
+	/** Record whether `engineName` returned at least one matching result for `site` on this attempt. */
+	recordAttempt(site: string, engineName: string, matched: boolean): void;
+	/**
+	 * Reorders `engineNames` for `site`: engines with a past match first,
+	 * untested engines next, currently-verified-blocked engines last.
+	 * Never drops an engine -- only reorders, so a query can still reach a
+	 * blocked-but-now-fixed backend if every preferred one also fails.
+	 */
+	order(site: string, engineNames: readonly string[]): string[];
 }
 
 /**

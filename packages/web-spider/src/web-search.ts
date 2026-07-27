@@ -9,9 +9,20 @@
 
 // WebSearchResult is defined in ports.ts (the abstraction layer).
 // web-search.ts is an adapter — it imports from the port, not the other way.
-export type { WebSearchResult } from "./ports.js";
-import type { EngineUsage, ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
+export type { AnswerResult, IAnswerSearchEngine, SiteAvailabilityTracker, WebSearchResult } from "./ports.js";
+import type { AnswerResult, EngineUsage, IAnswerSearchEngine, ISearchEngine, SearchQuery, SiteAvailabilityTracker, WebSearchResult } from "./ports.js";
 export type { EngineUsage } from "./ports.js";
+
+/**
+ * Appends a `site:` operator to a raw keyword query for engines with no
+ * structured domain-filter parameter (Brave, Serper, SerpApi) -- all three
+ * are Google-style keyword search under the hood (Serper/SerpApi literally
+ * scrape Google's own SERP), where `site:` is standard, widely-honoured
+ * syntax. No-op when siteFilter is unset.
+ */
+function withSiteFilter(query: string, siteFilter: string | undefined): string {
+	return siteFilter ? `${query} site:${siteFilter}` : query;
+}
 
 export interface BraveSearchOptions {
 	/** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY. */
@@ -26,6 +37,8 @@ export interface BraveSearchOptions {
 	 * Pass directly when bypassing the adapter, or set timeRange on SearchQuery.
 	 */
 	freshness?: "pd" | "pw" | "pm" | "py";
+	/** Restrict results to one domain. Brave has no structured domain-filter param -- appended as a `site:` operator in the query text instead. */
+	siteFilter?: string;
 	/**
 	 * Called once with any rate-limit/quota-shaped response headers Brave sent,
 	 * when it sent any. Unlike Tavily/Exa, Brave's actual header behavior was
@@ -51,11 +64,15 @@ export interface TavilySearchOptions {
 	timeRange?: "day" | "week" | "month" | "year";
 	/** Topic mode: "news" prioritises fresh news articles. */
 	topic?: "news" | "general";
+	/** Restrict results to one domain. Maps to Tavily's own `include_domains` array param (we only ever send one entry). */
+	siteFilter?: string;
+	/** Include each result's full cleaned/parsed page content in {@link WebSearchResult.content}. Off by default -- costs more and inflates payload size (Tavily's own `include_raw_content`). */
+	includeRawContent?: boolean;
 	/** Called once with this call's own credit cost, when Tavily reports one. */
 	onUsage?: (usage: EngineUsage) => void;
 }
 
-export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi";
+export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "you";
 
 export interface ExaSearchOptions {
 	/** API key. Defaults to process.env.EXA_API_KEY. */
@@ -69,6 +86,8 @@ export interface ExaSearchOptions {
 	 * "keyword" — traditional keyword search.
 	 */
 	type?: "auto" | "neural" | "keyword";
+	/** Restrict results to one domain. Maps to Exa's own `includeDomains` array param (accepts domains, path prefixes, and subdomain wildcards per Exa's docs -- we only ever send one entry). */
+	siteFilter?: string;
 	/** Called once with this call's own dollar cost, when Exa reports one (only non-zero costs are included in its response). */
 	onUsage?: (usage: EngineUsage) => void;
 }
@@ -101,6 +120,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 				contents: {
 					highlights: { numSentences: 2, highlightsPerUrl: 3 },
 				},
+				...(opts.siteFilter ? { includeDomains: [opts.siteFilter] } : {}),
 			}),
 		});
 	} finally {
@@ -126,6 +146,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 		title: r.title,
 		snippet: r.highlights?.join(" … ") ?? "",
 		...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
+		...(r.highlights && r.highlights.length > 0 ? { highlights: r.highlights } : {}),
 	}));
 }
 
@@ -138,7 +159,7 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 	if (!apiKey) throw new Error("Brave Search API key required — set BRAVE_SEARCH_API_KEY or pass opts.apiKey");
 
 	const params = new URLSearchParams({
-		q: query,
+		q: withSiteFilter(query, opts.siteFilter),
 		count: String(Math.min(opts.numResults ?? 10, 20)),
 	});
 	if (opts.country) params.set("country", opts.country);
@@ -208,12 +229,13 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 				api_key: apiKey,
 				max_results: opts.numResults ?? 5,
 				search_depth: opts.depth ?? "basic",
-				include_raw_content: false,
+				include_raw_content: opts.includeRawContent ?? false,
 				// Free (no extra cost, per Tavily's own docs) -- just adds a `usage`
 				// field to the response reporting this one call's own credit cost.
 				include_usage: true,
 				...(opts.timeRange ? { time_range: opts.timeRange } : {}),
 				...(opts.topic ? { topic: opts.topic } : {}),
+				...(opts.siteFilter ? { include_domains: [opts.siteFilter] } : {}),
 			}),
 		});
 	} finally {
@@ -228,6 +250,7 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 			title: string;
 			content?: string;
 			published_date?: string;
+			raw_content?: string;
 		}>;
 		usage?: { credits: number };
 	};
@@ -239,7 +262,69 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 		title: r.title,
 		snippet: r.content ?? "",
 		...(r.published_date ? { publishedAt: r.published_date } : {}),
+		...(r.raw_content ? { content: r.raw_content } : {}),
 	}));
+}
+
+export interface TavilyAnswerSearchOptions extends Omit<TavilySearchOptions, "includeRawContent"> {
+	/** "basic" (quick) or "advanced" (more detailed) answer synthesis. Default "basic", matching Tavily's own default. */
+	answerDepth?: "basic" | "advanced";
+}
+
+/**
+ * Search via Tavily with `include_answer` enabled -- returns a synthesized,
+ * LLM-generated answer plus the sources it was built from, instead of a
+ * plain results list. Reference implementation of the answer-first port
+ * ({@link IAnswerSearchEngine}): reuses Tavily's existing search endpoint
+ * and API key rather than requiring a new vendor.
+ */
+export async function tavilySearchForAnswer(query: string, opts: TavilyAnswerSearchOptions = {}): Promise<AnswerResult> {
+	const apiKey = opts.apiKey ?? process.env["TAVILY_API_KEY"];
+	if (!apiKey) throw new Error("Tavily API key required — set TAVILY_API_KEY or pass opts.apiKey");
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 15_000);
+	let res: Response;
+	try {
+		res = await fetch("https://api.tavily.com/search", {
+			method: "POST",
+			signal: controller.signal,
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				query,
+				api_key: apiKey,
+				max_results: opts.numResults ?? 5,
+				search_depth: opts.depth ?? "basic",
+				include_answer: opts.answerDepth ?? true,
+				include_usage: true,
+				...(opts.timeRange ? { time_range: opts.timeRange } : {}),
+				...(opts.topic ? { topic: opts.topic } : {}),
+				...(opts.siteFilter ? { include_domains: [opts.siteFilter] } : {}),
+			}),
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`Tavily API error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		answer?: string;
+		results?: Array<{ url: string; title: string; content?: string; published_date?: string }>;
+		usage?: { credits: number };
+	};
+
+	if (data.usage?.credits !== undefined) opts.onUsage?.({ credits: data.usage.credits });
+
+	return {
+		answer: data.answer ?? "",
+		sources: (data.results ?? []).map((r) => ({
+			url: r.url,
+			title: r.title,
+			snippet: r.content ?? "",
+			...(r.published_date ? { publishedAt: r.published_date } : {}),
+		})),
+	};
 }
 
 export interface SerperSearchOptions {
@@ -247,6 +332,8 @@ export interface SerperSearchOptions {
 	apiKey?: string;
 	/** Number of results. Default 10. */
 	numResults?: number;
+	/** Restrict results to one domain. Serper scrapes Google's own SERP, so a `site:` operator in the query text works natively -- no structured param exists. */
+	siteFilter?: string;
 }
 
 /**
@@ -271,7 +358,7 @@ export async function serperSearch(query: string, opts: SerperSearchOptions = {}
 			method: "POST",
 			signal: controller.signal,
 			headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-			body: JSON.stringify({ q: query, num: opts.numResults ?? 10 }),
+			body: JSON.stringify({ q: withSiteFilter(query, opts.siteFilter), num: opts.numResults ?? 10 }),
 		});
 	} finally {
 		clearTimeout(timer);
@@ -296,6 +383,8 @@ export interface SerpApiSearchOptions {
 	apiKey?: string;
 	/** Number of results. Default 10. */
 	numResults?: number;
+	/** Restrict results to one domain. SerpApi scrapes real Google SERPs, so a `site:` operator in the query text works natively -- no structured param exists. */
+	siteFilter?: string;
 }
 
 /**
@@ -314,7 +403,7 @@ export async function serpApiSearch(query: string, opts: SerpApiSearchOptions = 
 
 	const params = new URLSearchParams({
 		engine: "google",
-		q: query,
+		q: withSiteFilter(query, opts.siteFilter),
 		api_key: apiKey,
 		num: String(opts.numResults ?? 10),
 	});
@@ -344,6 +433,68 @@ export async function serpApiSearch(query: string, opts: SerpApiSearchOptions = 
 	}));
 }
 
+export interface YouComSearchOptions {
+	/** API key. Defaults to process.env.YOU_API_KEY. */
+	apiKey?: string;
+	/** Number of results. Default 10. */
+	numResults?: number;
+	/** Restrict results to one domain. Maps to You.com's own `include_domains` query param (comma-separated on the wire; we only ever send one entry). */
+	siteFilter?: string;
+}
+
+/**
+ * Search the web via the You.com Search API (independent index, AI-first
+ * response format). https://you.com/docs/guides/search
+ *
+ * Each web result can carry multiple pre-ranked `snippets` -- richer than
+ * the single-description shape most other engines return, surfaced via
+ * {@link WebSearchResult.highlights}.
+ */
+export async function youComSearch(query: string, opts: YouComSearchOptions = {}): Promise<WebSearchResult[]> {
+	const apiKey = opts.apiKey ?? process.env["YOU_API_KEY"];
+	if (!apiKey) throw new Error("You.com API key required — set YOU_API_KEY or pass opts.apiKey");
+
+	const params = new URLSearchParams({
+		query,
+		count: String(opts.numResults ?? 10),
+	});
+	if (opts.siteFilter) params.set("include_domains", opts.siteFilter);
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 10_000);
+	let res: Response;
+	try {
+		res = await fetch(`https://ydc-index.io/v1/search?${params}`, {
+			signal: controller.signal,
+			headers: { "X-API-Key": apiKey, Accept: "application/json" },
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+
+	if (!res.ok) throw new Error(`You.com API error: ${res.status} ${res.statusText}`);
+
+	const data = (await res.json()) as {
+		results?: {
+			web?: Array<{
+				url: string;
+				title: string;
+				description?: string;
+				snippets?: string[];
+				page_age?: string;
+			}>;
+		};
+	};
+
+	return (data.results?.web ?? []).map((r) => ({
+		url: r.url,
+		title: r.title,
+		snippet: r.description ?? r.snippets?.[0] ?? "",
+		...(r.page_age ? { publishedAt: r.page_age } : {}),
+		...(r.snippets && r.snippets.length > 0 ? { highlights: r.snippets } : {}),
+	}));
+}
+
 /**
  * Search using whichever engine is explicitly requested or has an API key
  * available. Throws when no provider key is configured — see
@@ -359,6 +510,7 @@ export async function webSearch(
 		numResults?: number;
 		timeRange?: "day" | "week" | "month" | "year";
 		topic?: "news" | "general";
+		siteFilter?: string;
 	} = {},
 ): Promise<WebSearchResult[]> {
 	const engine = opts.engine
@@ -369,6 +521,7 @@ export async function webSearch(
 		numResults: opts.numResults,
 		timeRange: opts.timeRange,
 		topic: opts.topic,
+		siteFilter: opts.siteFilter,
 	});
 }
 
@@ -414,6 +567,7 @@ function envKeyForEngine(name: string): string {
 		exa: "EXA_API_KEY",
 		serper: "SERPER_API_KEY",
 		serpapi: "SERPAPI_API_KEY",
+		you: "YOU_API_KEY",
 	};
 	return envKeys[name] ?? "";
 }
@@ -440,6 +594,10 @@ registerSearchEngine("serpapi", (key) => {
 	if (!key) throw new Error("SERPAPI_API_KEY not set");
 	return new SerpApiSearchEngine(key);
 });
+registerSearchEngine("you", (key) => {
+	if (!key) throw new Error("YOU_API_KEY not set");
+	return new YouComSearchEngine(key);
+});
 
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters — concrete implementations of the port
@@ -464,13 +622,14 @@ export class BraveSearchEngine implements ISearchEngine {
 			numResults: req.numResults,
 			country: this.country,
 			freshness,
+			siteFilter: req.siteFilter,
 			onUsage: this.onUsage,
 		});
 	}
 }
 
-/** Tavily adapter implementing ISearchEngine. */
-export class TavilySearchEngine implements ISearchEngine {
+/** Tavily adapter implementing ISearchEngine and IAnswerSearchEngine (reference implementation of the answer-first port, via Tavily's own include_answer). */
+export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
 	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
@@ -479,6 +638,18 @@ export class TavilySearchEngine implements ISearchEngine {
 			numResults: req.numResults,
 			timeRange: req.timeRange,
 			topic: req.topic,
+			siteFilter: req.siteFilter,
+			onUsage: this.onUsage,
+		});
+	}
+
+	searchForAnswer(req: SearchQuery): Promise<AnswerResult> {
+		return tavilySearchForAnswer(req.query, {
+			apiKey: this.apiKey,
+			numResults: req.numResults,
+			timeRange: req.timeRange,
+			topic: req.topic,
+			siteFilter: req.siteFilter,
 			onUsage: this.onUsage,
 		});
 	}
@@ -489,7 +660,7 @@ export class ExaSearchEngine implements ISearchEngine {
 	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, onUsage: this.onUsage });
+		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage });
 	}
 }
 
@@ -498,7 +669,7 @@ export class SerperSearchEngine implements ISearchEngine {
 	constructor(private readonly apiKey: string) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return serperSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+		return serperSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
 	}
 }
 
@@ -507,7 +678,16 @@ export class SerpApiSearchEngine implements ISearchEngine {
 	constructor(private readonly apiKey: string) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+		return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
+	}
+}
+
+/** You.com adapter implementing ISearchEngine. */
+export class YouComSearchEngine implements ISearchEngine {
+	constructor(private readonly apiKey: string) {}
+
+	search(req: SearchQuery): Promise<WebSearchResult[]> {
+		return youComSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
 	}
 }
 
@@ -748,25 +928,195 @@ export class RoundRobinSearchEngine implements ISearchEngine {
 }
 
 // ---------------------------------------------------------------------------
+// SiteAvailabilityTracker — remembers which engine actually covers a site
+// ---------------------------------------------------------------------------
+
+export interface InMemorySiteAvailabilityTrackerOptions {
+	/** Max distinct sites tracked; the oldest (by last-touched) is evicted first once exceeded. Default 500. */
+	maxSites?: number;
+	/** How long a "blocked" verdict (zero matching results) is trusted before that engine is worth retrying for the site. Default 24h -- long enough to stop re-paying the cost every call, short enough that a real policy change (a new licensing deal, e.g.) is eventually rediscovered. */
+	blockedTtlMs?: number;
+	/** Clock, injectable for tests. Defaults to Date.now. */
+	now?: () => number;
+}
+
+interface SiteRecord {
+	workingEngines: Set<string>;
+	blockedUntil: Map<string, number>;
+}
+
+/**
+ * Default {@link SiteAvailabilityTracker}: an in-memory, bounded map from
+ * site to per-engine verdicts. Process-lifetime only -- a daemon wanting
+ * cross-restart persistence injects its own implementation of the same
+ * port (e.g. backed by its existing SQLite store) instead.
+ */
+export class InMemorySiteAvailabilityTracker implements SiteAvailabilityTracker {
+	private readonly records = new Map<string, SiteRecord>();
+	private readonly maxSites: number;
+	private readonly blockedTtlMs: number;
+	private readonly now: () => number;
+
+	constructor(opts: InMemorySiteAvailabilityTrackerOptions = {}) {
+		this.maxSites = opts.maxSites ?? 500;
+		this.blockedTtlMs = opts.blockedTtlMs ?? 24 * 60 * 60_000;
+		this.now = opts.now ?? Date.now;
+	}
+
+	recordAttempt(site: string, engineName: string, matched: boolean): void {
+		const key = site.toLowerCase();
+		let rec = this.records.get(key);
+		if (rec) {
+			this.records.delete(key); // refresh LRU position -- re-inserted below
+		} else {
+			if (this.records.size >= this.maxSites) {
+				const oldest = this.records.keys().next().value;
+				if (oldest !== undefined) this.records.delete(oldest);
+			}
+			rec = { workingEngines: new Set(), blockedUntil: new Map() };
+		}
+		if (matched) {
+			rec.workingEngines.add(engineName);
+			rec.blockedUntil.delete(engineName);
+		} else {
+			rec.blockedUntil.set(engineName, this.now() + this.blockedTtlMs);
+		}
+		this.records.set(key, rec);
+	}
+
+	order(site: string, engineNames: readonly string[]): string[] {
+		const rec = this.records.get(site.toLowerCase());
+		if (!rec) return [...engineNames];
+		const now = this.now();
+		const working: string[] = [];
+		const untested: string[] = [];
+		const blocked: string[] = [];
+		for (const name of engineNames) {
+			const blockedUntil = rec.blockedUntil.get(name);
+			if (blockedUntil !== undefined && blockedUntil > now) blocked.push(name);
+			else if (rec.workingEngines.has(name)) working.push(name);
+			else untested.push(name);
+		}
+		return [...working, ...untested, ...blocked];
+	}
+}
+
+export interface NamedSearchEngine {
+	name: string;
+	engine: ISearchEngine;
+}
+
+export interface SiteRoutedSearchEngineOptions {
+	/** Defaults to a fresh InMemorySiteAvailabilityTracker. */
+	tracker?: SiteAvailabilityTracker;
+}
+
+/**
+ * Wraps a set of named engines plus a plain fallback/rotation engine. For a
+ * site-filtered query (SearchQuery.siteFilter, or a `site:domain` operator
+ * detected in the raw query text) it tries the named engines in an order
+ * informed by which have actually returned matching results for that site
+ * before -- known-working first, untested next, recently-verified-blocked
+ * last -- filtering each engine's raw results down to ones that genuinely
+ * match the requested domain (an engine that ignores the filter entirely,
+ * or has no real crawl coverage of the site, reports zero matches rather
+ * than off-topic results). Every attempt updates the tracker, so a real
+ * block (e.g. Reddit's 2024 robots.txt change locking out every search
+ * engine but Google-backed ones) is learned once per site instead of
+ * re-paid on every subsequent call -- while the verdict still expires
+ * (see {@link InMemorySiteAvailabilityTrackerOptions.blockedTtlMs}), so a
+ * later-fixed engine gets retried instead of being written off forever.
+ *
+ * Falls straight through to the plain engine, untouched, for a query with
+ * no site filter -- this composite only ever activates for domain-
+ * restricted queries.
+ */
+export class SiteRoutedSearchEngine implements ISearchEngine {
+	private readonly tracker: SiteAvailabilityTracker;
+
+	constructor(
+		private readonly engines: NamedSearchEngine[],
+		private readonly plain: ISearchEngine,
+		opts: SiteRoutedSearchEngineOptions = {},
+	) {
+		if (engines.length === 0) throw new Error("SiteRoutedSearchEngine requires at least one engine");
+		this.tracker = opts.tracker ?? new InMemorySiteAvailabilityTracker();
+	}
+
+	async search(req: SearchQuery): Promise<WebSearchResult[]> {
+		const site = (req.siteFilter ?? extractSiteFromQuery(req.query))?.toLowerCase();
+		if (!site) return this.plain.search(req);
+
+		const byName = new Map(this.engines.map((e) => [e.name, e] as const));
+		const order = this.tracker.order(site, this.engines.map((e) => e.name));
+
+		let lastError: unknown;
+		let anySucceeded = false;
+		for (const name of order) {
+			const entry = byName.get(name);
+			if (!entry) continue;
+			try {
+				const results = await entry.engine.search({ ...req, siteFilter: req.siteFilter ?? site });
+				anySucceeded = true;
+				const matching = results.filter((r) => hostMatchesSite(r.url, site));
+				this.tracker.recordAttempt(site, name, matching.length > 0);
+				if (matching.length > 0) return matching;
+			} catch (err) {
+				lastError = err;
+				this.tracker.recordAttempt(site, name, false);
+			}
+		}
+
+		if (!anySucceeded && lastError) throw lastError;
+		return [];
+	}
+}
+
+/** True when url's hostname is, or is a subdomain of, site. Invalid URLs never match rather than throwing. */
+function hostMatchesSite(url: string, site: string): boolean {
+	try {
+		const host = new URL(url).hostname.toLowerCase();
+		return host === site || host.endsWith(`.${site}`);
+	} catch {
+		return false;
+	}
+}
+
+/** Detects a `site:domain.tld` operator already present in raw query text, so a caller typing it directly (not via the structured siteFilter field) still benefits from tracked routing. */
+function extractSiteFromQuery(query: string): string | undefined {
+	return /\bsite:([a-z0-9.-]+\.[a-z]{2,})\b/i.exec(query)?.[1]?.toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
 // Wiring — compose engines from environment variables
 // ---------------------------------------------------------------------------
 
 /**
  * Build a search chain from environment variables: every keyed engine
- * (brave/tavily/exa/serper/serpapi) that actually has an API key
+ * (brave/tavily/exa/serper/serpapi/you) that actually has an API key
  * configured is round-robined as an equal-tier peer -- spreading quota
  * consumption across whichever are available instead of always hitting
  * one first. An engine with no key configured is auto-skipped, never
  * throws by itself; calling this with zero keys configured throws a
  * single descriptive error instead of silently returning a no-op engine.
  *
- * Returns the RoundRobinSearchEngine directly when 2+ keys are configured --
- * no outer FallbackSearchEngine wrapper. There's no keyless engine left to
- * fall through to, so a wrapper around a single entry (the round-robin group
- * itself) would add nothing but a duplicate, generically-named
- * onEngineFailure report for a failure the round-robin already reports by
- * real engine name; its own cooldown would also have to be force-disabled to
- * avoid one member's failure cooling down the whole group a second time.
+ * The whole chain is wrapped in {@link SiteRoutedSearchEngine}: a query
+ * with no site filter passes straight through to the round-robin/fallback
+ * chain described above, unchanged; a site-filtered query (or one
+ * containing a literal `site:domain` operator) is instead routed by which
+ * configured engines have actually returned matching results for that
+ * site before, so a domain a given engine has no real coverage of (e.g.
+ * Reddit, which blocked every crawler but Google-backed ones in 2024) is
+ * learned once and skipped on later calls instead of re-paid every time.
+ *
+ * Returns the RoundRobinSearchEngine directly (before the SiteRoutedSearchEngine
+ * wrap) when 2+ keys are configured -- no outer FallbackSearchEngine wrapper
+ * for the unfiltered path. There's no keyless engine left to fall through to,
+ * so a wrapper around a single entry (the round-robin group itself) would add
+ * nothing but a duplicate, generically-named onEngineFailure report for a
+ * failure the round-robin already reports by real engine name; its own
+ * cooldown would also have to be force-disabled to avoid one member's
+ * failure cooling down the whole group a second time.
  *
  * With exactly one keyed engine, wraps it in a single-entry
  * FallbackSearchEngine purely for the cooldown/quota-cooldown circuit
@@ -784,10 +1134,12 @@ export interface DefaultSearchEngineOptions {
 	cooldownMs?: number;
 	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.quotaCooldownMs. */
 	quotaCooldownMs?: number;
-	/** Reports every engine failure by its real name ("brave"/"tavily"/"exa"/"serper"/"serpapi") -- never a generic placeholder, whether the failure came from the sole configured engine or one member of the round-robin group. */
+	/** Reports every engine failure by its real name ("brave"/"tavily"/"exa"/"serper"/"serpapi"/"you") -- never a generic placeholder, whether the failure came from the sole configured engine or one member of the round-robin group. */
 	onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
 	/** Reports every successful call's own usage/cost data by real engine name, when the engine reported any. Never called for a call that failed or reported nothing. */
 	onUsage?: (engineName: string, usage: EngineUsage) => void;
+	/** Tracks per-site engine coverage for site-filtered queries. Defaults to a fresh InMemorySiteAvailabilityTracker (process-lifetime only); inject a persistent implementation for cross-restart memory. See {@link SiteRoutedSearchEngine}. */
+	siteAvailabilityTracker?: SiteAvailabilityTracker;
 }
 
 export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
@@ -810,25 +1162,33 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 	const serpapi = env["SERPAPI_API_KEY"];
 	if (serpapi) { rotationEngines.push(new SerpApiSearchEngine(serpapi)); rotationNames.push("serpapi"); }
 
+	const you = env["YOU_API_KEY"];
+	if (you) { rotationEngines.push(new YouComSearchEngine(you)); rotationNames.push("you"); }
+
 	if (rotationEngines.length === 0) {
 		throw new Error(
 			"No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
-				"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, or SERPAPI_API_KEY.",
+				"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.",
 		);
 	}
 
+	const namedEngines: NamedSearchEngine[] = rotationEngines.map((engine, i) => ({ name: rotationNames[i] as string, engine }));
+
+	let plain: ISearchEngine;
 	if (rotationEngines.length > 1) {
-		return new RoundRobinSearchEngine(rotationEngines, {
+		plain = new RoundRobinSearchEngine(rotationEngines, {
 			cooldownMs: opts.cooldownMs,
 			quotaCooldownMs: opts.quotaCooldownMs,
 			onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
 		});
+	} else {
+		const soleName = rotationNames[0] as string;
+		plain = new FallbackSearchEngine(rotationEngines, {
+			cooldownMs: opts.cooldownMs,
+			quotaCooldownMs: opts.quotaCooldownMs,
+			onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.(soleName, error, reason) : undefined,
+		});
 	}
 
-	const soleName = rotationNames[0] as string;
-	return new FallbackSearchEngine(rotationEngines, {
-		cooldownMs: opts.cooldownMs,
-		quotaCooldownMs: opts.quotaCooldownMs,
-		onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.(soleName, error, reason) : undefined,
-	});
+	return new SiteRoutedSearchEngine(namedEngines, plain, { tracker: opts.siteAvailabilityTracker });
 }

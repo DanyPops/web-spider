@@ -15,6 +15,8 @@ export interface WebSearchInput {
 	topic?: "news" | "general";
 	/** Force a specific engine. Auto-detected from available API keys when omitted. */
 	searchEngine?: SearchEngine;
+	/** Restrict results to one domain (e.g. "reddit.com"). Routed by SiteRoutedSearchEngine against whichever configured engines have actually returned matching results for that site before -- see @danypops/web-spider's defaultSearchEngine(). */
+	siteFilter?: string;
 }
 
 export interface WebSearchOutput {
@@ -31,6 +33,7 @@ const ENGINE_ENV_VARS: Partial<Record<SearchEngine, string>> = {
 	exa: "EXA_API_KEY",
 	serper: "SERPER_API_KEY",
 	serpapi: "SERPAPI_API_KEY",
+	you: "YOU_API_KEY",
 };
 
 export type EngineFailureHandler = (engineName: string, error: unknown, reason: EngineFailureReason) => void;
@@ -77,6 +80,7 @@ export class WebSearchService {
 			numResults: clampNumResults(input.numResults),
 			timeRange: input.timeRange,
 			topic: input.topic,
+			siteFilter: input.siteFilter,
 		});
 		return { query, results };
 	}

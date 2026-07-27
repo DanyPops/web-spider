@@ -6,6 +6,16 @@
  *   BRAVE_SEARCH_API_KEY
  *   TAVILY_API_KEY
  */
+/**
+ * Appends a `site:` operator to a raw keyword query for engines with no
+ * structured domain-filter parameter (Brave, Serper, SerpApi) -- all three
+ * are Google-style keyword search under the hood (Serper/SerpApi literally
+ * scrape Google's own SERP), where `site:` is standard, widely-honoured
+ * syntax. No-op when siteFilter is unset.
+ */
+function withSiteFilter(query, siteFilter) {
+    return siteFilter ? `${query} site:${siteFilter}` : query;
+}
 /** Header names worth capturing when present -- never a blanket capture of every response header. */
 const RATE_LIMIT_HEADER_PATTERN = /rate.?limit|remaining|quota/i;
 /**
@@ -36,6 +46,7 @@ export async function exaSearch(query, opts = {}) {
                 contents: {
                     highlights: { numSentences: 2, highlightsPerUrl: 3 },
                 },
+                ...(opts.siteFilter ? { includeDomains: [opts.siteFilter] } : {}),
             }),
         });
     }
@@ -52,6 +63,7 @@ export async function exaSearch(query, opts = {}) {
         title: r.title,
         snippet: r.highlights?.join(" … ") ?? "",
         ...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
+        ...(r.highlights && r.highlights.length > 0 ? { highlights: r.highlights } : {}),
     }));
 }
 /**
@@ -63,7 +75,7 @@ export async function braveSearch(query, opts = {}) {
     if (!apiKey)
         throw new Error("Brave Search API key required — set BRAVE_SEARCH_API_KEY or pass opts.apiKey");
     const params = new URLSearchParams({
-        q: query,
+        q: withSiteFilter(query, opts.siteFilter),
         count: String(Math.min(opts.numResults ?? 10, 20)),
     });
     if (opts.country)
@@ -124,12 +136,13 @@ export async function tavilySearch(query, opts = {}) {
                 api_key: apiKey,
                 max_results: opts.numResults ?? 5,
                 search_depth: opts.depth ?? "basic",
-                include_raw_content: false,
+                include_raw_content: opts.includeRawContent ?? false,
                 // Free (no extra cost, per Tavily's own docs) -- just adds a `usage`
                 // field to the response reporting this one call's own credit cost.
                 include_usage: true,
                 ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
                 ...(opts.topic ? { topic: opts.topic } : {}),
+                ...(opts.siteFilter ? { include_domains: [opts.siteFilter] } : {}),
             }),
         });
     }
@@ -146,7 +159,58 @@ export async function tavilySearch(query, opts = {}) {
         title: r.title,
         snippet: r.content ?? "",
         ...(r.published_date ? { publishedAt: r.published_date } : {}),
+        ...(r.raw_content ? { content: r.raw_content } : {}),
     }));
+}
+/**
+ * Search via Tavily with `include_answer` enabled -- returns a synthesized,
+ * LLM-generated answer plus the sources it was built from, instead of a
+ * plain results list. Reference implementation of the answer-first port
+ * ({@link IAnswerSearchEngine}): reuses Tavily's existing search endpoint
+ * and API key rather than requiring a new vendor.
+ */
+export async function tavilySearchForAnswer(query, opts = {}) {
+    const apiKey = opts.apiKey ?? process.env["TAVILY_API_KEY"];
+    if (!apiKey)
+        throw new Error("Tavily API key required — set TAVILY_API_KEY or pass opts.apiKey");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let res;
+    try {
+        res = await fetch("https://api.tavily.com/search", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query,
+                api_key: apiKey,
+                max_results: opts.numResults ?? 5,
+                search_depth: opts.depth ?? "basic",
+                include_answer: opts.answerDepth ?? true,
+                include_usage: true,
+                ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
+                ...(opts.topic ? { topic: opts.topic } : {}),
+                ...(opts.siteFilter ? { include_domains: [opts.siteFilter] } : {}),
+            }),
+        });
+    }
+    finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok)
+        throw new Error(`Tavily API error: ${res.status} ${res.statusText}`);
+    const data = (await res.json());
+    if (data.usage?.credits !== undefined)
+        opts.onUsage?.({ credits: data.usage.credits });
+    return {
+        answer: data.answer ?? "",
+        sources: (data.results ?? []).map((r) => ({
+            url: r.url,
+            title: r.title,
+            snippet: r.content ?? "",
+            ...(r.published_date ? { publishedAt: r.published_date } : {}),
+        })),
+    };
 }
 /**
  * Search the web via Serper.dev (Google-backed SERP API).
@@ -170,7 +234,7 @@ export async function serperSearch(query, opts = {}) {
             method: "POST",
             signal: controller.signal,
             headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-            body: JSON.stringify({ q: query, num: opts.numResults ?? 10 }),
+            body: JSON.stringify({ q: withSiteFilter(query, opts.siteFilter), num: opts.numResults ?? 10 }),
         });
     }
     finally {
@@ -202,7 +266,7 @@ export async function serpApiSearch(query, opts = {}) {
         throw new Error("SerpApi key required — set SERPAPI_API_KEY or pass opts.apiKey");
     const params = new URLSearchParams({
         engine: "google",
-        q: query,
+        q: withSiteFilter(query, opts.siteFilter),
         api_key: apiKey,
         num: String(opts.numResults ?? 10),
     });
@@ -228,6 +292,47 @@ export async function serpApiSearch(query, opts = {}) {
     }));
 }
 /**
+ * Search the web via the You.com Search API (independent index, AI-first
+ * response format). https://you.com/docs/guides/search
+ *
+ * Each web result can carry multiple pre-ranked `snippets` -- richer than
+ * the single-description shape most other engines return, surfaced via
+ * {@link WebSearchResult.highlights}.
+ */
+export async function youComSearch(query, opts = {}) {
+    const apiKey = opts.apiKey ?? process.env["YOU_API_KEY"];
+    if (!apiKey)
+        throw new Error("You.com API key required — set YOU_API_KEY or pass opts.apiKey");
+    const params = new URLSearchParams({
+        query,
+        count: String(opts.numResults ?? 10),
+    });
+    if (opts.siteFilter)
+        params.set("include_domains", opts.siteFilter);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let res;
+    try {
+        res = await fetch(`https://ydc-index.io/v1/search?${params}`, {
+            signal: controller.signal,
+            headers: { "X-API-Key": apiKey, Accept: "application/json" },
+        });
+    }
+    finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok)
+        throw new Error(`You.com API error: ${res.status} ${res.statusText}`);
+    const data = (await res.json());
+    return (data.results?.web ?? []).map((r) => ({
+        url: r.url,
+        title: r.title,
+        snippet: r.description ?? r.snippets?.[0] ?? "",
+        ...(r.page_age ? { publishedAt: r.page_age } : {}),
+        ...(r.snippets && r.snippets.length > 0 ? { highlights: r.snippets } : {}),
+    }));
+}
+/**
  * Search using whichever engine is explicitly requested or has an API key
  * available. Throws when no provider key is configured — see
  * {@link defaultSearchEngine} for the "no engine configured" error shape.
@@ -244,6 +349,7 @@ export async function webSearch(query, opts = {}) {
         numResults: opts.numResults,
         timeRange: opts.timeRange,
         topic: opts.topic,
+        siteFilter: opts.siteFilter,
     });
 }
 /** The global engine registry. Seeded with built-in engines below. */
@@ -276,6 +382,7 @@ function envKeyForEngine(name) {
         exa: "EXA_API_KEY",
         serper: "SERPER_API_KEY",
         serpapi: "SERPAPI_API_KEY",
+        you: "YOU_API_KEY",
     };
     return envKeys[name] ?? "";
 }
@@ -306,6 +413,11 @@ registerSearchEngine("serpapi", (key) => {
         throw new Error("SERPAPI_API_KEY not set");
     return new SerpApiSearchEngine(key);
 });
+registerSearchEngine("you", (key) => {
+    if (!key)
+        throw new Error("YOU_API_KEY not set");
+    return new YouComSearchEngine(key);
+});
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------
@@ -330,11 +442,12 @@ export class BraveSearchEngine {
             numResults: req.numResults,
             country: this.country,
             freshness,
+            siteFilter: req.siteFilter,
             onUsage: this.onUsage,
         });
     }
 }
-/** Tavily adapter implementing ISearchEngine. */
+/** Tavily adapter implementing ISearchEngine and IAnswerSearchEngine (reference implementation of the answer-first port, via Tavily's own include_answer). */
 export class TavilySearchEngine {
     constructor(apiKey, onUsage) {
         this.apiKey = apiKey;
@@ -346,6 +459,17 @@ export class TavilySearchEngine {
             numResults: req.numResults,
             timeRange: req.timeRange,
             topic: req.topic,
+            siteFilter: req.siteFilter,
+            onUsage: this.onUsage,
+        });
+    }
+    searchForAnswer(req) {
+        return tavilySearchForAnswer(req.query, {
+            apiKey: this.apiKey,
+            numResults: req.numResults,
+            timeRange: req.timeRange,
+            topic: req.topic,
+            siteFilter: req.siteFilter,
             onUsage: this.onUsage,
         });
     }
@@ -357,7 +481,7 @@ export class ExaSearchEngine {
         this.onUsage = onUsage;
     }
     search(req) {
-        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, onUsage: this.onUsage });
+        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage });
     }
 }
 /** Serper.dev adapter implementing ISearchEngine. */
@@ -366,7 +490,7 @@ export class SerperSearchEngine {
         this.apiKey = apiKey;
     }
     search(req) {
-        return serperSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+        return serperSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
     }
 }
 /** SerpApi adapter implementing ISearchEngine. */
@@ -375,7 +499,16 @@ export class SerpApiSearchEngine {
         this.apiKey = apiKey;
     }
     search(req) {
-        return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+        return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
+    }
+}
+/** You.com adapter implementing ISearchEngine. */
+export class YouComSearchEngine {
+    constructor(apiKey) {
+        this.apiKey = apiKey;
+    }
+    search(req) {
+        return youComSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter });
     }
 }
 // ---------------------------------------------------------------------------
@@ -544,6 +677,134 @@ export class RoundRobinSearchEngine {
         }
     }
 }
+/**
+ * Default {@link SiteAvailabilityTracker}: an in-memory, bounded map from
+ * site to per-engine verdicts. Process-lifetime only -- a daemon wanting
+ * cross-restart persistence injects its own implementation of the same
+ * port (e.g. backed by its existing SQLite store) instead.
+ */
+export class InMemorySiteAvailabilityTracker {
+    constructor(opts = {}) {
+        this.records = new Map();
+        this.maxSites = opts.maxSites ?? 500;
+        this.blockedTtlMs = opts.blockedTtlMs ?? 24 * 60 * 60_000;
+        this.now = opts.now ?? Date.now;
+    }
+    recordAttempt(site, engineName, matched) {
+        const key = site.toLowerCase();
+        let rec = this.records.get(key);
+        if (rec) {
+            this.records.delete(key); // refresh LRU position -- re-inserted below
+        }
+        else {
+            if (this.records.size >= this.maxSites) {
+                const oldest = this.records.keys().next().value;
+                if (oldest !== undefined)
+                    this.records.delete(oldest);
+            }
+            rec = { workingEngines: new Set(), blockedUntil: new Map() };
+        }
+        if (matched) {
+            rec.workingEngines.add(engineName);
+            rec.blockedUntil.delete(engineName);
+        }
+        else {
+            rec.blockedUntil.set(engineName, this.now() + this.blockedTtlMs);
+        }
+        this.records.set(key, rec);
+    }
+    order(site, engineNames) {
+        const rec = this.records.get(site.toLowerCase());
+        if (!rec)
+            return [...engineNames];
+        const now = this.now();
+        const working = [];
+        const untested = [];
+        const blocked = [];
+        for (const name of engineNames) {
+            const blockedUntil = rec.blockedUntil.get(name);
+            if (blockedUntil !== undefined && blockedUntil > now)
+                blocked.push(name);
+            else if (rec.workingEngines.has(name))
+                working.push(name);
+            else
+                untested.push(name);
+        }
+        return [...working, ...untested, ...blocked];
+    }
+}
+/**
+ * Wraps a set of named engines plus a plain fallback/rotation engine. For a
+ * site-filtered query (SearchQuery.siteFilter, or a `site:domain` operator
+ * detected in the raw query text) it tries the named engines in an order
+ * informed by which have actually returned matching results for that site
+ * before -- known-working first, untested next, recently-verified-blocked
+ * last -- filtering each engine's raw results down to ones that genuinely
+ * match the requested domain (an engine that ignores the filter entirely,
+ * or has no real crawl coverage of the site, reports zero matches rather
+ * than off-topic results). Every attempt updates the tracker, so a real
+ * block (e.g. Reddit's 2024 robots.txt change locking out every search
+ * engine but Google-backed ones) is learned once per site instead of
+ * re-paid on every subsequent call -- while the verdict still expires
+ * (see {@link InMemorySiteAvailabilityTrackerOptions.blockedTtlMs}), so a
+ * later-fixed engine gets retried instead of being written off forever.
+ *
+ * Falls straight through to the plain engine, untouched, for a query with
+ * no site filter -- this composite only ever activates for domain-
+ * restricted queries.
+ */
+export class SiteRoutedSearchEngine {
+    constructor(engines, plain, opts = {}) {
+        this.engines = engines;
+        this.plain = plain;
+        if (engines.length === 0)
+            throw new Error("SiteRoutedSearchEngine requires at least one engine");
+        this.tracker = opts.tracker ?? new InMemorySiteAvailabilityTracker();
+    }
+    async search(req) {
+        const site = (req.siteFilter ?? extractSiteFromQuery(req.query))?.toLowerCase();
+        if (!site)
+            return this.plain.search(req);
+        const byName = new Map(this.engines.map((e) => [e.name, e]));
+        const order = this.tracker.order(site, this.engines.map((e) => e.name));
+        let lastError;
+        let anySucceeded = false;
+        for (const name of order) {
+            const entry = byName.get(name);
+            if (!entry)
+                continue;
+            try {
+                const results = await entry.engine.search({ ...req, siteFilter: req.siteFilter ?? site });
+                anySucceeded = true;
+                const matching = results.filter((r) => hostMatchesSite(r.url, site));
+                this.tracker.recordAttempt(site, name, matching.length > 0);
+                if (matching.length > 0)
+                    return matching;
+            }
+            catch (err) {
+                lastError = err;
+                this.tracker.recordAttempt(site, name, false);
+            }
+        }
+        if (!anySucceeded && lastError)
+            throw lastError;
+        return [];
+    }
+}
+/** True when url's hostname is, or is a subdomain of, site. Invalid URLs never match rather than throwing. */
+function hostMatchesSite(url, site) {
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        return host === site || host.endsWith(`.${site}`);
+    }
+    catch {
+        return false;
+    }
+}
+/** Detects a `site:domain.tld` operator already present in raw query text, so a caller typing it directly (not via the structured siteFilter field) still benefits from tracked routing. */
+function extractSiteFromQuery(query) {
+    return /\bsite:([a-z0-9.-]+\.[a-z]{2,})\b/i.exec(query)?.[1]?.toLowerCase();
+}
 export function defaultSearchEngine(opts = {}) {
     const env = opts.env ?? process.env;
     const rotationEngines = [];
@@ -573,22 +834,32 @@ export function defaultSearchEngine(opts = {}) {
         rotationEngines.push(new SerpApiSearchEngine(serpapi));
         rotationNames.push("serpapi");
     }
+    const you = env["YOU_API_KEY"];
+    if (you) {
+        rotationEngines.push(new YouComSearchEngine(you));
+        rotationNames.push("you");
+    }
     if (rotationEngines.length === 0) {
         throw new Error("No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
-            "TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, or SERPAPI_API_KEY.");
+            "TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.");
     }
+    const namedEngines = rotationEngines.map((engine, i) => ({ name: rotationNames[i], engine }));
+    let plain;
     if (rotationEngines.length > 1) {
-        return new RoundRobinSearchEngine(rotationEngines, {
+        plain = new RoundRobinSearchEngine(rotationEngines, {
             cooldownMs: opts.cooldownMs,
             quotaCooldownMs: opts.quotaCooldownMs,
             onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
         });
     }
-    const soleName = rotationNames[0];
-    return new FallbackSearchEngine(rotationEngines, {
-        cooldownMs: opts.cooldownMs,
-        quotaCooldownMs: opts.quotaCooldownMs,
-        onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.(soleName, error, reason) : undefined,
-    });
+    else {
+        const soleName = rotationNames[0];
+        plain = new FallbackSearchEngine(rotationEngines, {
+            cooldownMs: opts.cooldownMs,
+            quotaCooldownMs: opts.quotaCooldownMs,
+            onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.(soleName, error, reason) : undefined,
+        });
+    }
+    return new SiteRoutedSearchEngine(namedEngines, plain, { tracker: opts.siteAvailabilityTracker });
 }
 //# sourceMappingURL=web-search.js.map

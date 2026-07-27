@@ -131,6 +131,7 @@ export default async function (pi: ExtensionAPI) {
     const result = await call<{ query: string; results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }> }>("search", {
       query,
       numResults: params.limit ?? 10,
+      siteFilter: params.siteFilter,
     })
     log("info", "web search done", { query, hits: result.results.length })
     const papyrus = await maybeIngestSearch(params, query, result.results)
@@ -527,8 +528,17 @@ export default async function (pi: ExtensionAPI) {
       Type.String({
         description:
           "Web search query. Pass instead of url when you don't know the exact URL. " +
-          "Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/Serper/SerpApi. " +
+          "Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/Serper/SerpApi/You.com. " +
           "Use the returned URLs to fetch the actual page content.",
+      })
+    ),
+    siteFilter: Type.Optional(
+      Type.String({
+        description:
+          "Restrict searchQuery results to one domain (e.g. \"reddit.com\"). Routed by which " +
+          "configured provider has actually returned matching results for that domain before -- " +
+          "some domains (e.g. reddit.com, which blocks most search engines' crawlers) return " +
+          "real coverage from only a subset of providers regardless of which one answers first.",
       })
     ),
     timeoutMs: Type.Optional(

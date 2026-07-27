@@ -7,7 +7,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch, tavilySearch } from "../src/web-search.js";
+import { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, youComSearch } from "../src/web-search.js";
+import type { NamedSearchEngine } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1192,7 +1193,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 		try {
 			const engine = defaultSearchEngine();
-			expect(engine).toBeInstanceOf(RoundRobinSearchEngine); // no outer FallbackSearchEngine wrapper
+			expect(engine).toBeInstanceOf(SiteRoutedSearchEngine); // SiteRoutedSearchEngine wraps the round-robin group, not an outer FallbackSearchEngine
 			// Tavily is checked before Serper, so the round-robin's first turn
 			// always lands on it -- that call legitimately throws (no keyless
 			// fallback exists to mask a real failure anymore). The point of this
@@ -1204,5 +1205,479 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// youComSearch / YouComSearchEngine
+// ---------------------------------------------------------------------------
+
+describe("youComSearch", () => {
+	it("throws when no API key is provided and env var is absent", async () => {
+		delete process.env["YOU_API_KEY"];
+		await expect(youComSearch("test")).rejects.toThrow(/YOU_API_KEY/);
+	});
+
+	it("GETs ydc-index.io/v1/search with X-API-Key header", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		let capturedHeaders: Record<string, string> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+			capturedUrl = url;
+			capturedHeaders = init?.headers as Record<string, string>;
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				json: async () => ({ results: { web: [] } }),
+			};
+		}) as typeof fetch;
+
+		try {
+			await youComSearch("coffee", { apiKey: "test-key", numResults: 5 });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(capturedUrl).toContain("https://ydc-index.io/v1/search?");
+		expect(capturedUrl).toContain("query=coffee");
+		expect(capturedUrl).toContain("count=5");
+		expect(capturedHeaders["X-API-Key"]).toBe("test-key");
+	});
+
+	it("maps results.web[] to WebSearchResult[], including multiple snippets as highlights", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			statusText: "OK",
+			json: async () => ({
+				results: {
+					web: [
+						{
+							url: "https://a.example",
+							title: "A",
+							description: "desc a",
+							snippets: ["first passage", "second passage"],
+							page_age: "2025-01-01",
+						},
+					],
+				},
+			}),
+		}) as unknown as typeof fetch;
+
+		try {
+			const results = await youComSearch("test", { apiKey: "key" });
+			expect(results).toEqual([
+				{ url: "https://a.example", title: "A", snippet: "desc a", publishedAt: "2025-01-01", highlights: ["first passage", "second passage"] },
+			]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("falls back to the first snippet when description is absent", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: { web: [{ url: "https://a.example", title: "A", snippets: ["only this"] }] } }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await youComSearch("test", { apiKey: "key" });
+			expect(results[0]?.snippet).toBe("only this");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("sends siteFilter as include_domains", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: { web: [] } }) };
+		}) as typeof fetch;
+		try {
+			await youComSearch("test", { apiKey: "key", siteFilter: "reddit.com" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedUrl).toContain("include_domains=reddit.com");
+	});
+
+	it("throws a descriptive error on a non-2xx response", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" }) as unknown as typeof fetch;
+		try {
+			await expect(youComSearch("test", { apiKey: "key" })).rejects.toThrow(/You\.com API error: 401/);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe("YouComSearchEngine — port conformance", () => {
+	it("implements ISearchEngine", () => {
+		const engine: ISearchEngine = new YouComSearchEngine("key");
+		expect(typeof engine.search).toBe("function");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// exaSearch — highlights field
+// ---------------------------------------------------------------------------
+
+describe("exaSearch — highlights field", () => {
+	it("populates WebSearchResult.highlights from Exa's highlights array", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [{ url: "https://a.example", title: "A", highlights: ["h1", "h2"] }] }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await exaSearch("test", { apiKey: "key" });
+			expect(results[0]?.highlights).toEqual(["h1", "h2"]);
+			expect(results[0]?.snippet).toBe("h1 … h2");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("omits highlights when Exa returns none", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await exaSearch("test", { apiKey: "key" });
+			expect(results[0]).not.toHaveProperty("highlights");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("sends siteFilter as includeDomains", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await exaSearch("test", { apiKey: "key", siteFilter: "reddit.com" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody["includeDomains"]).toEqual(["reddit.com"]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// tavilySearch — content field, siteFilter; tavilySearchForAnswer
+// ---------------------------------------------------------------------------
+
+describe("tavilySearch — content field and siteFilter", () => {
+	it("does not request raw content by default", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", { apiKey: "key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody["include_raw_content"]).toBe(false);
+	});
+
+	it("populates WebSearchResult.content when includeRawContent is set and Tavily returns raw_content", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [{ url: "https://a.example", title: "A", content: "snippet", raw_content: "full page text" }] }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await tavilySearch("test", { apiKey: "key", includeRawContent: true });
+			expect(results[0]?.content).toBe("full page text");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("sends siteFilter as include_domains", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", { apiKey: "key", siteFilter: "reddit.com" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody["include_domains"]).toEqual(["reddit.com"]);
+	});
+});
+
+describe("tavilySearchForAnswer", () => {
+	it("requests include_answer and returns { answer, sources }", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return {
+				ok: true, status: 200, statusText: "OK",
+				json: async () => ({
+					answer: "The answer is 42.",
+					results: [{ url: "https://a.example", title: "A", content: "snippet" }],
+				}),
+			};
+		}) as typeof fetch;
+
+		try {
+			const result = await tavilySearchForAnswer("test", { apiKey: "key" });
+			expect(capturedBody["include_answer"]).toBe(true);
+			expect(result).toEqual({
+				answer: "The answer is 42.",
+				sources: [{ url: "https://a.example", title: "A", snippet: "snippet" }],
+			});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("returns an empty answer string (not a throw) when Tavily reports none", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [] }),
+		}) as unknown as typeof fetch;
+		try {
+			const result = await tavilySearchForAnswer("test", { apiKey: "key" });
+			expect(result).toEqual({ answer: "", sources: [] });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("throws when no API key is provided and env var is absent", async () => {
+		delete process.env["TAVILY_API_KEY"];
+		await expect(tavilySearchForAnswer("test")).rejects.toThrow(/Tavily API key required/);
+	});
+});
+
+describe("TavilySearchEngine.searchForAnswer", () => {
+	it("implements IAnswerSearchEngine and delegates to tavilySearchForAnswer", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ answer: "42", results: [] }),
+		}) as unknown as typeof fetch;
+		try {
+			const engine = new TavilySearchEngine("key");
+			const result = await engine.searchForAnswer(REQ);
+			expect(result).toEqual({ answer: "42", sources: [] });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// InMemorySiteAvailabilityTracker
+// ---------------------------------------------------------------------------
+
+describe("InMemorySiteAvailabilityTracker", () => {
+	it("returns engine names unmodified for a site with no recorded history", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		expect(tracker.order("reddit.com", ["brave", "tavily", "serper"])).toEqual(["brave", "tavily", "serper"]);
+	});
+
+	it("puts an engine with a recorded match first, ahead of untested engines", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		tracker.recordAttempt("reddit.com", "serper", true);
+		expect(tracker.order("reddit.com", ["brave", "tavily", "serper"])).toEqual(["serper", "brave", "tavily"]);
+	});
+
+	it("puts a currently-blocked engine last, behind untested engines", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		tracker.recordAttempt("reddit.com", "tavily", false);
+		expect(tracker.order("reddit.com", ["brave", "tavily", "serper"])).toEqual(["brave", "serper", "tavily"]);
+	});
+
+	it("expires a blocked verdict after blockedTtlMs, making the engine untested again", () => {
+		let now = 0;
+		const tracker = new InMemorySiteAvailabilityTracker({ blockedTtlMs: 1000, now: () => now });
+		tracker.recordAttempt("reddit.com", "tavily", false);
+		expect(tracker.order("reddit.com", ["tavily", "brave"])).toEqual(["brave", "tavily"]);
+		now = 1001;
+		expect(tracker.order("reddit.com", ["tavily", "brave"])).toEqual(["tavily", "brave"]);
+	});
+
+	it("a later success clears a previous blocked verdict for that engine", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		tracker.recordAttempt("reddit.com", "tavily", false);
+		tracker.recordAttempt("reddit.com", "tavily", true);
+		expect(tracker.order("reddit.com", ["brave", "tavily"])).toEqual(["tavily", "brave"]);
+	});
+
+	it("tracks sites independently -- a verdict for one site never affects another", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		tracker.recordAttempt("reddit.com", "tavily", false);
+		expect(tracker.order("wikipedia.org", ["tavily", "brave"])).toEqual(["tavily", "brave"]);
+	});
+
+	it("evicts the oldest-touched site once maxSites is exceeded", () => {
+		const tracker = new InMemorySiteAvailabilityTracker({ maxSites: 2 });
+		tracker.recordAttempt("site-a.com", "brave", true);
+		tracker.recordAttempt("site-b.com", "brave", true);
+		tracker.recordAttempt("site-c.com", "brave", true); // evicts site-a.com (oldest)
+		expect(tracker.order("site-a.com", ["brave", "tavily"])).toEqual(["brave", "tavily"]); // forgotten -- back to unmodified order
+		expect(tracker.order("site-c.com", ["tavily", "brave"])).toEqual(["brave", "tavily"]); // remembered
+	});
+
+	it("site lookups are case-insensitive", () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		tracker.recordAttempt("Reddit.COM", "serper", true);
+		expect(tracker.order("reddit.com", ["brave", "serper"])).toEqual(["serper", "brave"]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// SiteRoutedSearchEngine
+// ---------------------------------------------------------------------------
+
+describe("SiteRoutedSearchEngine", () => {
+	function named(name: string, engine: ISearchEngine): NamedSearchEngine {
+		return { name, engine };
+	}
+
+	it("delegates straight to the plain engine, untouched, when the query has no site filter", async () => {
+		const plain = okEngine([RESULT_A]);
+		const routed = new SiteRoutedSearchEngine([named("a", okEngine([RESULT_B]))], plain);
+		const results = await routed.search(REQ);
+		expect(results).toEqual([RESULT_A]);
+		expect(plain.search).toHaveBeenCalledTimes(1);
+	});
+
+	it("filters an engine's results down to ones actually matching the requested site", async () => {
+		const mixedResults = [RESULT_A, { url: "https://reddit.com/r/x", title: "R", snippet: "s" }];
+		const engineA = okEngine(mixedResults);
+		const routed = new SiteRoutedSearchEngine([named("a", engineA)], okEngine([]));
+		const results = await routed.search({ query: "q", siteFilter: "reddit.com" });
+		expect(results).toEqual([{ url: "https://reddit.com/r/x", title: "R", snippet: "s" }]);
+	});
+
+	it("matches a subdomain of the requested site", async () => {
+		const engineA = okEngine([{ url: "https://old.reddit.com/r/x", title: "R", snippet: "s" }]);
+		const routed = new SiteRoutedSearchEngine([named("a", engineA)], okEngine([]));
+		const results = await routed.search({ query: "q", siteFilter: "reddit.com" });
+		expect(results).toHaveLength(1);
+	});
+
+	it("tries the next named engine when the first returns zero on-domain matches", async () => {
+		const engineA = okEngine([RESULT_A]); // off-domain -- filtered to empty
+		const engineB = okEngine([{ url: "https://reddit.com/r/x", title: "R", snippet: "s" }]);
+		const routed = new SiteRoutedSearchEngine([named("a", engineA), named("b", engineB)], okEngine([]));
+		const results = await routed.search({ query: "q", siteFilter: "reddit.com" });
+		expect(results).toHaveLength(1);
+		expect(engineA.search).toHaveBeenCalledTimes(1);
+		expect(engineB.search).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns empty (not a throw) when every named engine has zero on-domain matches", async () => {
+		const routed = new SiteRoutedSearchEngine(
+			[named("a", okEngine([RESULT_A])), named("b", okEngine([RESULT_B]))],
+			okEngine([]),
+		);
+		await expect(routed.search({ query: "q", siteFilter: "reddit.com" })).resolves.toEqual([]);
+	});
+
+	it("throws the last error when every named engine fails and none ever matched", async () => {
+		const routed = new SiteRoutedSearchEngine(
+			[named("a", failEngine("a down")), named("b", failEngine("b down"))],
+			okEngine([]),
+		);
+		await expect(routed.search({ query: "q", siteFilter: "reddit.com" })).rejects.toThrow("b down");
+	});
+
+	it("detects a literal site: operator in the raw query text, without an explicit siteFilter", async () => {
+		const engineA = okEngine([{ url: "https://reddit.com/r/x", title: "R", snippet: "s" }]);
+		const routed = new SiteRoutedSearchEngine([named("a", engineA)], okEngine([]));
+		const results = await routed.search({ query: "best pizza site:reddit.com" });
+		expect(results).toHaveLength(1);
+	});
+
+	it("records every attempt in the tracker and reorders subsequent calls for the same site", async () => {
+		const tracker = new InMemorySiteAvailabilityTracker();
+		const engineA = okEngine([RESULT_A]); // off-domain -- always filtered to empty for reddit.com
+		const engineB = okEngine([{ url: "https://reddit.com/r/x", title: "R", snippet: "s" }]);
+		const routed = new SiteRoutedSearchEngine([named("a", engineA), named("b", engineB)], okEngine([]), { tracker });
+
+		await routed.search({ query: "q1", siteFilter: "reddit.com" });
+		expect(engineA.search).toHaveBeenCalledTimes(1);
+		expect(engineB.search).toHaveBeenCalledTimes(1);
+
+		// Second call: tracker now orders b (known-working) before a -- b alone should suffice.
+		vi.mocked(engineA.search).mockClear();
+		vi.mocked(engineB.search).mockClear();
+		await routed.search({ query: "q2", siteFilter: "reddit.com" });
+		expect(engineB.search).toHaveBeenCalledTimes(1);
+		expect(engineA.search).not.toHaveBeenCalled();
+	});
+
+	it("throws when constructed with an empty engines array", () => {
+		expect(() => new SiteRoutedSearchEngine([], okEngine([]))).toThrow("at least one engine");
+	});
+
+	it("implements ISearchEngine — assignable to the port type", () => {
+		const engine: ISearchEngine = new SiteRoutedSearchEngine([named("a", okEngine([]))], okEngine([]));
+		expect(typeof engine.search).toBe("function");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// defaultSearchEngine — you.com wiring
+// ---------------------------------------------------------------------------
+
+describe("defaultSearchEngine — you.com wiring", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	it("includes you.com in the rotation when YOU_API_KEY is set alongside another provider", async () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) delete process.env[key];
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env["YOU_API_KEY"] = "you-key";
+
+		const originalFetch = globalThis.fetch;
+		const calledHosts: string[] = [];
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			calledHosts.push(new URL(url).host);
+			return {
+				ok: true, status: 200, statusText: "OK",
+				json: async () => ({ results: [{ url: "https://a.example", title: "A" }], web: [] }),
+			};
+		}) as typeof fetch;
+
+		try {
+			const engine = defaultSearchEngine();
+			await engine.search({ query: "q1" });
+			await engine.search({ query: "q2" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(new Set(calledHosts).size).toBe(2); // tavily.com and ydc-index.io each hit once
+	});
+
+	it("resolves 'you' by name via resolveSearchEngine", () => {
+		const engine = resolveSearchEngine("you", "test-you-key");
+		expect(engine).toBeInstanceOf(YouComSearchEngine);
 	});
 });

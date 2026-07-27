@@ -48,6 +48,13 @@ describe("WebSearchService", () => {
 		await service.search({ query: "x", searchEngine: "tavily" });
 		expect(requestedNames).toEqual(["tavily"]);
 	});
+
+	test("passes siteFilter through to the resolved engine", async () => {
+		const engine = new FakeEngine();
+		const service = new WebSearchService(() => engine);
+		await service.search({ query: "best pizza", siteFilter: "reddit.com" });
+		expect(engine.lastQuery?.siteFilter).toBe("reddit.com");
+	});
 });
 
 describe("createEngineResolver", () => {
@@ -58,6 +65,7 @@ describe("createEngineResolver", () => {
 		expect(() => resolver("exa")).toThrow(/EXA_API_KEY not set/);
 		expect(() => resolver("serper")).toThrow(/SERPER_API_KEY not set/);
 		expect(() => resolver("serpapi")).toThrow(/SERPAPI_API_KEY not set/);
+		expect(() => resolver("you")).toThrow(/YOU_API_KEY not set/);
 	});
 
 	test("forcing an engine with a configured key in the given env succeeds without throwing", () => {

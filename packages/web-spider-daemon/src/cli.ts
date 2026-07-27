@@ -29,7 +29,7 @@ import { isSessionAction } from "./domain/session-audit.ts";
 import type { CachedPageListFilter } from "./domain/page.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
-const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"] as const;
+const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"] as const;
 
 export interface SystemdUnitOptions {
 	bunBin: string;
@@ -136,7 +136,7 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
-		"                          [--engine brave|tavily|exa|serper|serpapi] [--json]",
+		"                          [--engine brave|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--json]",
 		"       web-spider usage [--engine NAME] [--limit N] [--json]",
 		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
 		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
@@ -254,7 +254,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 }
 
 async function runSearch(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, ["--num-results", "--time-range", "--topic", "--engine"], []);
+	const parsed = parseArgs(rest, ["--num-results", "--time-range", "--topic", "--engine", "--site-filter"], []);
 	const query = parsed?.positional[0];
 	if (!parsed || !query) return usage(deps.stderr);
 	const numResults = parseIntFlag(parsed.values, "num-results");
@@ -267,6 +267,7 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 			timeRange: parsed.values["time-range"] as never,
 			topic: parsed.values.topic as never,
 			searchEngine: parsed.values.engine as never,
+			siteFilter: parsed.values["site-filter"],
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSearchResult(result));
 		return 0;
