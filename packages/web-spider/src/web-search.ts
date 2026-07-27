@@ -585,17 +585,24 @@ export class DdgSearchEngine implements ISearchEngine {
 // FallbackSearchEngine — strategy composite
 // ---------------------------------------------------------------------------
 
-/** True for a rate-limit/quota response worth cooling down rather than retrying immediately: standard 429, Tavily's non-standard 432, and common quota-shaped message text. */
+/** True for a short-lived throttling response worth a brief cooldown: standard 429 and "too many requests"/"rate limit" phrasing. Distinct from {@link isLikelyQuotaExceededError} -- a request-rate throttle clears in seconds to minutes, an exhausted account quota does not. */
 export function isLikelyRateLimitError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
-	if (/\b(429|432)\b/.test(error.message)) return true;
-	return /rate.?limit|quota|usage limit|too many requests/i.test(error.message);
+	if (/\b429\b/.test(error.message)) return true;
+	return /rate.?limit|too many requests/i.test(error.message);
+}
+
+/** True for an account-level quota/plan exhaustion worth a much longer disable than a rate limit: Tavily's non-standard 432, 402 Payment Required, and phrasing like "quota exceeded", "usage limit", "out of searches/credits", "plan limit". Retrying before the billing/quota window resets just wastes a call and re-triggers the same failure. */
+export function isLikelyQuotaExceededError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	if (/\b(432|402)\b/.test(error.message)) return true;
+	return /quota|usage limit|out of (searches|credits)|plan limit|insufficient credits|run out of/i.test(error.message);
 }
 
 export type RateLimitPredicate = (error: unknown) => boolean;
 
-/** "error": the engine's search() call itself threw. "cooldown": skipped without even calling it, because a recent rate-limit failure hasn't cleared yet. */
-export type EngineFailureReason = "error" | "cooldown";
+/** "error": the engine's search() call threw a non-quota error. "quota": it threw a quota-exhaustion error (see {@link isLikelyQuotaExceededError}), the trigger for the longer quota cooldown. "cooldown": skipped without even calling it, because an earlier failure's cooldown hasn't cleared yet -- covers both the rate-limit and quota cases. */
+export type EngineFailureReason = "error" | "quota" | "cooldown";
 
 export interface FallbackSearchEngineOptions {
 	/**
@@ -608,10 +615,14 @@ export interface FallbackSearchEngineOptions {
 	 * Default: true.
 	 */
 	fallbackOnError?: boolean;
-	/** How long (ms) to skip an engine after a rate-limit-shaped failure, so an exhausted quota isn't retried on every call. Default 10 minutes. 0 disables cooldown. */
+	/** How long (ms) to skip an engine after a rate-limit-shaped failure. Default 10 minutes. 0 disables this cooldown tier. */
 	cooldownMs?: number;
+	/** How long (ms) to skip an engine after a quota-exhaustion-shaped failure (see {@link isLikelyQuotaExceededError}) -- much longer than a rate-limit cooldown, since retrying before the quota window resets just re-fails and wastes a call. Default 6 hours. 0 disables this cooldown tier (falls through to the rate-limit tier's classification instead). */
+	quotaCooldownMs?: number;
 	/** Defaults to isLikelyRateLimitError. */
 	isRateLimitError?: RateLimitPredicate;
+	/** Defaults to isLikelyQuotaExceededError. Checked before isRateLimitError, so a quota-shaped error gets the longer cooldown even if it would also match the rate-limit heuristic. */
+	isQuotaError?: RateLimitPredicate;
 	/** Clock, injectable for tests. Defaults to Date.now. */
 	now?: () => number;
 	/** Called once per engine failure, including a cooldown skip -- e.g. wire to a logger. Not called for a genuine empty result. Index only, not a name -- a caller that wants names maps it itself. */
@@ -638,7 +649,9 @@ export class FallbackSearchEngine implements ISearchEngine {
 	private readonly fallbackOnEmpty: boolean;
 	private readonly fallbackOnError: boolean;
 	private readonly cooldownMs: number;
+	private readonly quotaCooldownMs: number;
 	private readonly isRateLimitError: RateLimitPredicate;
+	private readonly isQuotaError: RateLimitPredicate;
 	private readonly now: () => number;
 	private readonly onEngineFailure: FallbackSearchEngineOptions["onEngineFailure"];
 	/** engines[i]'s cooldown expiry (epoch ms); 0 means never in cooldown. */
@@ -652,7 +665,9 @@ export class FallbackSearchEngine implements ISearchEngine {
 		this.fallbackOnEmpty = opts.fallbackOnEmpty ?? true;
 		this.fallbackOnError = opts.fallbackOnError ?? true;
 		this.cooldownMs = opts.cooldownMs ?? 10 * 60_000;
+		this.quotaCooldownMs = opts.quotaCooldownMs ?? 6 * 60 * 60_000;
 		this.isRateLimitError = opts.isRateLimitError ?? isLikelyRateLimitError;
+		this.isQuotaError = opts.isQuotaError ?? isLikelyQuotaExceededError;
 		this.now = opts.now ?? Date.now;
 		this.onEngineFailure = opts.onEngineFailure;
 		this.cooldownUntil = engines.map(() => 0);
@@ -666,7 +681,7 @@ export class FallbackSearchEngine implements ISearchEngine {
 
 		for (let i = 0; i < this.engines.length; i++) {
 			if ((this.cooldownUntil[i] as number) > this.now()) {
-				const cooldownError = new Error(`engine ${i} skipped: in cooldown after a recent rate-limit error`);
+				const cooldownError = new Error(`engine ${i} skipped: in cooldown after a recent rate-limit/quota error`);
 				lastError = cooldownError;
 				this.onEngineFailure?.(i, cooldownError, "cooldown");
 				continue;
@@ -679,10 +694,15 @@ export class FallbackSearchEngine implements ISearchEngine {
 			} catch (err) {
 				if (!this.fallbackOnError) throw err;
 				lastError = err;
-				if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
-					this.cooldownUntil[i] = this.now() + this.cooldownMs;
+				if (this.quotaCooldownMs > 0 && this.isQuotaError(err)) {
+					this.cooldownUntil[i] = this.now() + this.quotaCooldownMs;
+					this.onEngineFailure?.(i, err, "quota");
+				} else {
+					if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
+						this.cooldownUntil[i] = this.now() + this.cooldownMs;
+					}
+					this.onEngineFailure?.(i, err, "error");
 				}
-				this.onEngineFailure?.(i, err, "error");
 				// Error + fallbackOnError → try next engine
 			}
 		}
@@ -697,10 +717,14 @@ export class FallbackSearchEngine implements ISearchEngine {
 // ---------------------------------------------------------------------------
 
 export interface RoundRobinSearchEngineOptions {
-	/** How long (ms) to skip an engine's rotation slot after a rate-limit-shaped failure. Default 10 minutes. 0 disables cooldown. */
+	/** How long (ms) to skip an engine's rotation slot after a rate-limit-shaped failure. Default 10 minutes. 0 disables this cooldown tier. */
 	cooldownMs?: number;
+	/** How long (ms) to skip an engine's rotation slot after a quota-exhaustion-shaped failure (see {@link isLikelyQuotaExceededError}). Default 6 hours. 0 disables this cooldown tier. */
+	quotaCooldownMs?: number;
 	/** Defaults to isLikelyRateLimitError. */
 	isRateLimitError?: RateLimitPredicate;
+	/** Defaults to isLikelyQuotaExceededError. Checked before isRateLimitError. */
+	isQuotaError?: RateLimitPredicate;
 	/** Clock, injectable for tests. Defaults to Date.now. */
 	now?: () => number;
 	/** Called once per engine failure, including a cooldown skip. Index only, not a name (mirrors FallbackSearchEngineOptions.onEngineFailure). */
@@ -736,7 +760,9 @@ export interface RoundRobinSearchEngineOptions {
 export class RoundRobinSearchEngine implements ISearchEngine {
 	private cursor = 0;
 	private readonly cooldownMs: number;
+	private readonly quotaCooldownMs: number;
 	private readonly isRateLimitError: RateLimitPredicate;
+	private readonly isQuotaError: RateLimitPredicate;
 	private readonly now: () => number;
 	private readonly onEngineFailure: RoundRobinSearchEngineOptions["onEngineFailure"];
 	private readonly cooldownUntil: number[];
@@ -747,7 +773,9 @@ export class RoundRobinSearchEngine implements ISearchEngine {
 	) {
 		if (engines.length === 0) throw new Error("RoundRobinSearchEngine requires at least one engine");
 		this.cooldownMs = opts.cooldownMs ?? 10 * 60_000;
+		this.quotaCooldownMs = opts.quotaCooldownMs ?? 6 * 60 * 60_000;
 		this.isRateLimitError = opts.isRateLimitError ?? isLikelyRateLimitError;
+		this.isQuotaError = opts.isQuotaError ?? isLikelyQuotaExceededError;
 		this.now = opts.now ?? Date.now;
 		this.onEngineFailure = opts.onEngineFailure;
 		this.cooldownUntil = engines.map(() => 0);
@@ -761,7 +789,7 @@ export class RoundRobinSearchEngine implements ISearchEngine {
 		for (let attempt = 0; attempt < this.engines.length; attempt++) {
 			const candidate = (start + attempt) % this.engines.length;
 			if ((this.cooldownUntil[candidate] as number) > this.now()) {
-				const cooldownError = new Error(`engine ${candidate} skipped: in cooldown after a recent rate-limit error`);
+				const cooldownError = new Error(`engine ${candidate} skipped: in cooldown after a recent rate-limit/quota error`);
 				this.onEngineFailure?.(candidate, cooldownError, "cooldown");
 				continue;
 			}
@@ -774,10 +802,15 @@ export class RoundRobinSearchEngine implements ISearchEngine {
 		try {
 			return await (this.engines[index] as ISearchEngine).search(req);
 		} catch (err) {
-			if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
-				this.cooldownUntil[index] = this.now() + this.cooldownMs;
+			if (this.quotaCooldownMs > 0 && this.isQuotaError(err)) {
+				this.cooldownUntil[index] = this.now() + this.quotaCooldownMs;
+				this.onEngineFailure?.(index, err, "quota");
+			} else {
+				if (this.cooldownMs > 0 && this.isRateLimitError(err)) {
+					this.cooldownUntil[index] = this.now() + this.cooldownMs;
+				}
+				this.onEngineFailure?.(index, err, "error");
 			}
-			this.onEngineFailure?.(index, err, "error");
 			throw err;
 		}
 	}
@@ -810,6 +843,8 @@ export interface DefaultSearchEngineOptions {
 	env?: Record<string, string | undefined>;
 	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.cooldownMs. */
 	cooldownMs?: number;
+	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.quotaCooldownMs. */
+	quotaCooldownMs?: number;
 	/**
 	 * Reports every engine failure by real name ("brave"/"tavily"/"exa"/
 	 * "serper"/"serpapi"/"ddg"), including one inside the round-robin group --
@@ -849,6 +884,7 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 	} else if (rotationEngines.length > 1) {
 		engines.push(new RoundRobinSearchEngine(rotationEngines, {
 			cooldownMs: opts.cooldownMs,
+			quotaCooldownMs: opts.quotaCooldownMs,
 			onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
 		}));
 		outerNames.push("rotation-group");
@@ -858,17 +894,19 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 	engines.push(new DdgSearchEngine());
 	outerNames.push("ddg");
 
-	// The round-robin group already tracks cooldown per real engine inside
-	// itself. If the outer chain also cooled down the *group's own slot*
-	// whenever one member's rate-limit error bubbles up through it, a single
+	// The round-robin group already tracks cooldown (both tiers) per real
+	// engine inside itself. If the outer chain also cooled down the *group's
+	// own slot* whenever one member's failure bubbles up through it, a single
 	// exhausted peer would collapse the whole group's fate one layer up --
-	// exactly the bug round-robin exists to avoid. Disable the outer layer's
-	// cooldown whenever there's a group to protect; the single-keyed-engine
-	// case (no group) keeps its own outer cooldown exactly as before.
+	// exactly the bug round-robin exists to avoid. Disable both outer-layer
+	// cooldown tiers whenever there's a group to protect; the single-keyed-
+	// engine case (no group) keeps its own outer cooldowns exactly as before.
 	const outerCooldownMs = rotationEngines.length > 1 ? 0 : opts.cooldownMs;
+	const outerQuotaCooldownMs = rotationEngines.length > 1 ? 0 : opts.quotaCooldownMs;
 
 	return new FallbackSearchEngine(engines, {
 		cooldownMs: outerCooldownMs,
+		quotaCooldownMs: outerQuotaCooldownMs,
 		onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(outerNames[index] ?? `engine-${index}`, error, reason) : undefined,
 	});
 }

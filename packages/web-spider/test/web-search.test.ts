@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { DdgSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine, isLikelyRateLimitError, serpApiSearch, serperSearch } from "../src/web-search.js";
+import { DdgSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -261,7 +261,7 @@ describe("Tavily + DDG fallback pattern", () => {
 describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	it("skips an engine on the next call after a rate-limit-shaped failure, within the cooldown window", async () => {
 		let now = 0;
-		const tavily = failEngine("Tavily API error: 432");
+		const tavily = failEngine("429 rate limit");
 		const ddg = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, now: () => now });
 
@@ -276,7 +276,7 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 
 	it("retries the engine again once the cooldown window elapses", async () => {
 		let now = 0;
-		const tavily = failEngine("Tavily API error: 432");
+		const tavily = failEngine("429 rate limit");
 		const ddg = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, now: () => now });
 
@@ -300,7 +300,7 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 
 	it("cooldownMs: 0 disables cooldown entirely", async () => {
 		let now = 0;
-		const tavily = failEngine("Tavily API error: 432");
+		const tavily = failEngine("429 rate limit");
 		const ddg = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 0, now: () => now });
 
@@ -327,10 +327,65 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	});
 });
 
-describe("FallbackSearchEngine — onEngineFailure", () => {
-	it("reports an engine's own index, error, and reason:\"error\" when it throws", async () => {
-		const calls: Array<{ index: number; reason: string }> = [];
+describe("FallbackSearchEngine — quota cooldown (separate, longer tier from rate-limit cooldown)", () => {
+	it("applies the longer quotaCooldownMs, not cooldownMs, for a quota-shaped failure", async () => {
+		let now = 0;
 		const tavily = failEngine("Tavily API error: 432");
+		const ddg = okEngine([RESULT_B]);
+		// cooldownMs (rate-limit tier) would have expired by now += 60_001; quotaCooldownMs must not have.
+		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, quotaCooldownMs: 6 * 60 * 60_000, now: () => now });
+
+		await engine.search(REQ);
+		now += 61_000;
+		await engine.search(REQ);
+		expect(tavily.search).toHaveBeenCalledTimes(1); // still skipped -- the rate-limit window doesn't apply here
+	});
+
+	it("retries once the quota cooldown window elapses", async () => {
+		let now = 0;
+		const tavily = failEngine("Tavily API error: 432");
+		const ddg = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, ddg], { quotaCooldownMs: 60_000, now: () => now });
+
+		await engine.search(REQ);
+		now += 60_001;
+		await engine.search(REQ);
+		expect(tavily.search).toHaveBeenCalledTimes(2);
+	});
+
+	it("quotaCooldownMs: 0 disables the quota tier -- falls through to rate-limit classification instead", async () => {
+		let now = 0;
+		const tavily = failEngine("Tavily API error: 432");
+		const ddg = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, ddg], { quotaCooldownMs: 0, now: () => now });
+
+		await engine.search(REQ);
+		now += 1_000;
+		await engine.search(REQ);
+		expect(tavily.search).toHaveBeenCalledTimes(2); // no cooldown applied at all -- 432 no longer matches isLikelyRateLimitError either
+	});
+
+	it("a custom isQuotaError predicate overrides the default heuristic", async () => {
+		let now = 0;
+		const tavily = failEngine("weird provider-specific plan-exhausted code");
+		const ddg = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, ddg], {
+			quotaCooldownMs: 60_000,
+			now: () => now,
+			isQuotaError: (err) => err instanceof Error && err.message.includes("plan-exhausted"),
+		});
+
+		await engine.search(REQ);
+		now += 1_000;
+		await engine.search(REQ);
+		expect(tavily.search).toHaveBeenCalledTimes(1); // skipped on the 2nd call
+	});
+});
+
+describe("FallbackSearchEngine — onEngineFailure", () => {
+	it("reports an engine's own index, error, and reason:\"error\" for a non-quota failure", async () => {
+		const calls: Array<{ index: number; reason: string }> = [];
+		const tavily = failEngine("429 rate limit");
 		const ddg = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, ddg], {
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
@@ -340,13 +395,25 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 		expect(calls).toEqual([{ index: 0, reason: "error" }]);
 	});
 
+	it("reports reason:\"quota\" for a quota-exhaustion-shaped failure", async () => {
+		const calls: Array<{ index: number; reason: string }> = [];
+		const tavily = failEngine("Tavily API error: 432");
+		const ddg = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, ddg], {
+			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
+		});
+
+		await engine.search(REQ);
+		expect(calls).toEqual([{ index: 0, reason: "quota" }]);
+	});
+
 	it("reports reason:\"cooldown\" for an engine skipped without ever being called", async () => {
 		let now = 0;
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("Tavily API error: 432");
 		const ddg = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, ddg], {
-			cooldownMs: 60_000,
+			quotaCooldownMs: 60_000,
 			now: () => now,
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
 		});
@@ -354,7 +421,7 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 		await engine.search(REQ);
 		now += 1_000;
 		await engine.search(REQ);
-		expect(calls).toEqual([{ index: 0, reason: "error" }, { index: 0, reason: "cooldown" }]);
+		expect(calls).toEqual([{ index: 0, reason: "quota" }, { index: 0, reason: "cooldown" }]);
 		expect(tavily.search).toHaveBeenCalledTimes(1);
 	});
 
@@ -529,13 +596,17 @@ describe("isLikelyRateLimitError", () => {
 		expect(isLikelyRateLimitError(new Error("Brave Search API error: 429 Too Many Requests"))).toBe(true);
 	});
 
-	it("treats Tavily's non-standard 432 as a rate limit", () => {
-		expect(isLikelyRateLimitError(new Error("Tavily API error: 432"))).toBe(true);
+	it("treats rate-limit-shaped message text as a rate limit", () => {
+		expect(isLikelyRateLimitError(new Error("rate limit exceeded, try again later"))).toBe(true);
+		expect(isLikelyRateLimitError(new Error("too many requests, slow down"))).toBe(true);
 	});
 
-	it("treats quota/rate-limit-shaped message text as a rate limit", () => {
-		expect(isLikelyRateLimitError(new Error("quota exceeded for this API key"))).toBe(true);
-		expect(isLikelyRateLimitError(new Error("rate limit exceeded, try again later"))).toBe(true);
+	it("does not treat Tavily's non-standard 432 as a rate limit -- that's quota exhaustion, not throttling", () => {
+		expect(isLikelyRateLimitError(new Error("Tavily API error: 432"))).toBe(false);
+	});
+
+	it("does not treat quota-shaped message text as a rate limit", () => {
+		expect(isLikelyRateLimitError(new Error("quota exceeded for this API key"))).toBe(false);
 	});
 
 	it("does not treat a genuine domain-level error as a rate limit", () => {
@@ -544,6 +615,35 @@ describe("isLikelyRateLimitError", () => {
 
 	it("does not treat a non-Error value as a rate limit", () => {
 		expect(isLikelyRateLimitError("432")).toBe(false);
+	});
+});
+
+describe("isLikelyQuotaExceededError", () => {
+	it("treats Tavily's non-standard 432 as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError(new Error("Tavily API error: 432"))).toBe(true);
+	});
+
+	it("treats 402 Payment Required as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError(new Error("SerpApi error: 402 Payment Required"))).toBe(true);
+	});
+
+	it("treats quota/plan/credits-shaped message text as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError(new Error("quota exceeded for this API key"))).toBe(true);
+		expect(isLikelyQuotaExceededError(new Error("Your account has run out of searches."))).toBe(true);
+		expect(isLikelyQuotaExceededError(new Error("insufficient credits to complete this request"))).toBe(true);
+		expect(isLikelyQuotaExceededError(new Error("monthly plan limit reached"))).toBe(true);
+	});
+
+	it("does not treat a plain 429 rate limit as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError(new Error("Brave Search API error: 429 Too Many Requests"))).toBe(false);
+	});
+
+	it("does not treat a genuine domain-level error as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError(new Error("highlights format requires a query"))).toBe(false);
+	});
+
+	it("does not treat a non-Error value as quota exhaustion", () => {
+		expect(isLikelyQuotaExceededError("432")).toBe(false);
 	});
 });
 
@@ -577,7 +677,7 @@ describe("defaultSearchEngine — onEngineFailure engine names", () => {
 			globalThis.fetch = originalFetch;
 		}
 
-		expect(calls[0]).toEqual({ name: "tavily", reason: "error" });
+		expect(calls[0]).toEqual({ name: "tavily", reason: "quota" });
 	});
 });
 
@@ -790,7 +890,7 @@ describe("RoundRobinSearchEngine — per-engine cooldown", () => {
 		const a = failEngine("Tavily API error: 432");
 		const b = okEngine([RESULT_B]);
 		const engine = new RoundRobinSearchEngine([a, b], {
-			cooldownMs: 60_000,
+			quotaCooldownMs: 60_000,
 			now: () => now,
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
 		});
@@ -799,7 +899,7 @@ describe("RoundRobinSearchEngine — per-engine cooldown", () => {
 		await engine.search(REQ); // index 1 succeeds
 		await engine.search(REQ); // index 0's turn, but cooling down -- skip to index 1
 
-		expect(calls).toEqual([{ index: 0, reason: "error" }, { index: 0, reason: "cooldown" }]);
+		expect(calls).toEqual([{ index: 0, reason: "quota" }, { index: 0, reason: "cooldown" }]);
 	});
 });
 

@@ -24,7 +24,7 @@ export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
 export type { BraveSearchOptions, DdgSearchOptions, DefaultSearchEngineOptions, EngineFailureReason, ExaSearchOptions, FallbackSearchEngineOptions, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, TavilySearchOptions, WebSearchResult } from "./web-search.js";
-export { braveSearch, ddgSearch, exaSearch, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
+export { braveSearch, ddgSearch, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
 import type { ICache } from "./ports.js";
 import type { Chunk, SpideredPage } from "./types.js";
 /**
