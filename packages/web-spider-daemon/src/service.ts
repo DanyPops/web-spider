@@ -289,7 +289,7 @@ export interface WebSpiderService {
 	close(): void;
 }
 
-export function createWebSpiderService(path: string, deps: { logger?: Logger } = {}): WebSpiderService {
+export function createWebSpiderService(path: string, deps: { logger?: Logger; env?: Record<string, string | undefined> } = {}): WebSpiderService {
 	const db = openWebSpiderDb(path);
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
@@ -302,10 +302,12 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger } =
 	const logger = deps.logger ?? createLogger("web-spider-daemon");
 	// Provider API keys are read from this (daemon) process's own environment only —
 	// never accepted as operation input, never logged; onEngineFailure logs only
-	// the engine name and error message, never a key.
+	// the engine name and error message, never a key. deps.env is the Enigma-augmented
+	// environment resolveSearchEnv() built at startup (see daemon.ts); defaults to the
+	// raw process environment for callers (tests) that construct this directly.
 	const searchUsage = new SQLiteSearchUsageJournal(db);
 	const webSearch = new WebSearchService(createEngineResolver(
-		process.env,
+		deps.env ?? process.env,
 		(engineName, error, reason) => {
 			logger.warn("web_search_engine_degraded", { engine: engineName, reason, error: error instanceof Error ? error.message : String(error) });
 		},

@@ -11,15 +11,19 @@
 import { runDaemonProcess } from "@danypops/daemon-kit/daemon";
 import { createLogger } from "@danypops/daemon-kit/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
+import { resolveSearchEnv } from "./search-env.ts";
 import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
 
 const logger = createLogger("web-spider-daemon");
 
-export function serveMain(): void {
+export async function serveMain(): Promise<void> {
 	const paths = resolveWebSpiderPaths();
 	const token = ensureAuthToken(paths);
-	const service = createWebSpiderService(paths.database);
+	// Resolved once at startup, not per search call -- see search-env.ts. Enigma
+	// unreachable/unconfigured falls straight through to process.env unchanged.
+	const env = await resolveSearchEnv();
+	const service = createWebSpiderService(paths.database, { env });
 	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
 
 	runDaemonProcess({

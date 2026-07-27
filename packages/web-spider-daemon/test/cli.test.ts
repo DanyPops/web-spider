@@ -20,7 +20,7 @@ function fakeDeps(overrides: {
 		stderr: (line) => calls.push(`stderr:${line}`),
 		systemctl: (...args) => calls.push(`systemctl:${args.join(" ")}`),
 		installService: () => calls.push("install"),
-		serve: () => calls.push("serve"),
+		serve: () => { calls.push("serve"); },
 		readEvalScript: () => "1+1",
 		...overrides,
 	};

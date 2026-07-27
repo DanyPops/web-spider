@@ -96,7 +96,7 @@ export interface CliDependencies {
 	stderr(line: string): void;
 	systemctl(...args: string[]): void;
 	installService(): void;
-	serve(): void;
+	serve(): void | Promise<void>;
 	/**
 	 * Reads an eval script body from a file (if scriptFile is given) or stdin
 	 * otherwise. eval scripts are never accepted as a plain CLI flag value —
@@ -513,7 +513,7 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 
 export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEPENDENCIES): Promise<number> {
 	const [command, ...rest] = args;
-	if (command === "serve") { deps.serve(); return 0; }
+	if (command === "serve") { await deps.serve(); return 0; }
 	if (command === "fetch") return runFetch(rest, deps);
 	if (command === "search") return runSearch(rest, deps);
 	if (command === "usage") return runUsage(rest, deps);
