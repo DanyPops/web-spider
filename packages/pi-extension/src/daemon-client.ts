@@ -16,6 +16,13 @@
  * connectOrStartWebSpiderClient() only needs @danypops/web-spider-daemon
  * installed as *files on disk* (to locate and spawn its cli.ts) — it never
  * imports that package's code.
+ *
+ * resolveWebSpiderPaths()/ensureAuthToken()/readDaemonHandle() below stay
+ * duplicated from daemon-kit's own `paths` module rather than importing it,
+ * for the same reason: daemon-kit ships `./paths` as raw TypeScript (only
+ * `./pi-client` is precompiled specifically for jiti-loader safety), so
+ * importing it here would reintroduce the exact loader risk this file's
+ * connectWithPolicy()/createRetryingClient() adoption was meant to retire.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
