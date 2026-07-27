@@ -30,7 +30,7 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomBytes } from "node:crypto"
 import { spawn as spawnProcess } from "node:child_process"
-import { connectWithPolicy } from "@danypops/daemon-kit/pi-client"
+import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/daemon-kit/pi-client"
 
 const LOOPBACK_HOST = "127.0.0.1"
 const WEB_SPIDER_STATE_DIRECTORY = "web-spider"
@@ -178,8 +178,20 @@ export async function connectOrStartWebSpiderClient(
         const message = error instanceof Error ? error.message : String(error)
         throw new Error(`Web Spider daemon package not found (${message}); run \`packed install npm:@danypops/web-spider-daemon\` then \`web-spider service install\`.`)
       }
-      const child = spawnProcess(cliPath, ["serve"], { detached: true, stdio: "ignore", env: options.env ?? process.env })
-      child.unref()
+      // spawnDetachedDaemon centralizes platform-correct spawn options (Windows
+      // console-hiding, DAEMON_KIT_LAUNCH_PROVENANCE="auto-spawn" for daemon-kit's
+      // idle-shutdown default) that this file's own hand-rolled spawn call
+      // didn't have -- the actual node:child_process.spawn() call still
+      // happens here, daemon-kit only shapes its options.
+      spawnDetachedDaemon({
+        binPath: cliPath,
+        args: ["serve"],
+        env: options.env ?? process.env,
+        spawn: (command, args, spawnOptions) => {
+          const child = spawnProcess(command, args, spawnOptions)
+          child.unref()
+        },
+      })
     },
     fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
     startTimeoutMs: DAEMON_START_TIMEOUT_MS,

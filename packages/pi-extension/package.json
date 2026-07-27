@@ -14,7 +14,7 @@
 		]
 	},
 	"dependencies": {
-		"@danypops/daemon-kit": "^0.4.0",
+		"@danypops/daemon-kit": "^0.7.0",
 		"@danypops/web-spider": "^0.13.0",
 		"@danypops/web-spider-daemon": "^0.13.0"
 	},
