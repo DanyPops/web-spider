@@ -141,6 +141,8 @@ describe("createEngineResolver", () => {
 		const engine = resolver();
 
 		const originalFetch = globalThis.fetch;
+		// 432 is Tavily's quota-exhaustion status, not a short-lived rate limit --
+		// classified as reason "quota" (isLikelyQuotaExceededError), not "error".
 		globalThis.fetch = (async (_input: string | URL | Request) => new Response("rate limited", { status: 432, statusText: "Usage Limit Exceeded" })) as typeof fetch;
 		try {
 			await expect(engine.search({ query: "x" })).rejects.toThrow();
@@ -148,6 +150,22 @@ describe("createEngineResolver", () => {
 			globalThis.fetch = originalFetch;
 		}
 
-		expect(calls[0]).toEqual({ name: "tavily", reason: "error" });
+		expect(calls[0]).toEqual({ name: "tavily", reason: "quota" });
+	});
+
+	test("forwards onUsage so a successful call's own usage is reported with its real engine name", async () => {
+		const calls: Array<{ name: string; usage: unknown }> = [];
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, undefined, (name, usage) => { calls.push({ name, usage }); });
+		const engine = resolver();
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) => new Response(JSON.stringify({ results: [], usage: { credits: 1 } }), { status: 200 })) as typeof fetch;
+		try {
+			await engine.search({ query: "x" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(calls).toEqual([{ name: "tavily", usage: { credits: 1 } }]);
 	});
 });

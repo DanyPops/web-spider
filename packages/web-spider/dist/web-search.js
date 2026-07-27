@@ -6,6 +6,8 @@
  *   BRAVE_SEARCH_API_KEY
  *   TAVILY_API_KEY
  */
+/** Header names worth capturing when present -- never a blanket capture of every response header. */
+const RATE_LIMIT_HEADER_PATTERN = /rate.?limit|remaining|quota/i;
 /**
  * Search the web via the Exa Search API (neural/semantic retrieval).
  * https://exa.ai/docs/reference/search
@@ -43,6 +45,8 @@ export async function exaSearch(query, opts = {}) {
     if (!res.ok)
         throw new Error(`Exa API error: ${res.status} ${res.statusText}`);
     const data = (await res.json());
+    if (data.costDollars?.total !== undefined)
+        opts.onUsage?.({ costUsd: data.costDollars.total });
     return (data.results ?? []).map((r) => ({
         url: r.url,
         title: r.title,
@@ -84,6 +88,13 @@ export async function braveSearch(query, opts = {}) {
     }
     if (!res.ok)
         throw new Error(`Brave Search API error: ${res.status} ${res.statusText}`);
+    const rateLimitHeaders = {};
+    for (const [name, value] of res.headers.entries()) {
+        if (RATE_LIMIT_HEADER_PATTERN.test(name))
+            rateLimitHeaders[name] = value;
+    }
+    if (Object.keys(rateLimitHeaders).length > 0)
+        opts.onUsage?.({ rateLimitHeaders });
     const data = (await res.json());
     return (data.web?.results ?? []).map((r) => ({
         url: r.url,
@@ -114,6 +125,9 @@ export async function tavilySearch(query, opts = {}) {
                 max_results: opts.numResults ?? 5,
                 search_depth: opts.depth ?? "basic",
                 include_raw_content: false,
+                // Free (no extra cost, per Tavily's own docs) -- just adds a `usage`
+                // field to the response reporting this one call's own credit cost.
+                include_usage: true,
                 ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
                 ...(opts.topic ? { topic: opts.topic } : {}),
             }),
@@ -125,6 +139,8 @@ export async function tavilySearch(query, opts = {}) {
     if (!res.ok)
         throw new Error(`Tavily API error: ${res.status} ${res.statusText}`);
     const data = (await res.json());
+    if (data.usage?.credits !== undefined)
+        opts.onUsage?.({ credits: data.usage.credits });
     return (data.results ?? []).map((r) => ({
         url: r.url,
         title: r.title,
@@ -373,9 +389,10 @@ const BRAVE_FRESHNESS = {
 };
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine {
-    constructor(apiKey, country) {
+    constructor(apiKey, country, onUsage) {
         this.apiKey = apiKey;
         this.country = country;
+        this.onUsage = onUsage;
     }
     search(req) {
         const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
@@ -384,13 +401,15 @@ export class BraveSearchEngine {
             numResults: req.numResults,
             country: this.country,
             freshness,
+            onUsage: this.onUsage,
         });
     }
 }
 /** Tavily adapter implementing ISearchEngine. */
 export class TavilySearchEngine {
-    constructor(apiKey) {
+    constructor(apiKey, onUsage) {
         this.apiKey = apiKey;
+        this.onUsage = onUsage;
     }
     search(req) {
         return tavilySearch(req.query, {
@@ -398,16 +417,18 @@ export class TavilySearchEngine {
             numResults: req.numResults,
             timeRange: req.timeRange,
             topic: req.topic,
+            onUsage: this.onUsage,
         });
     }
 }
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine {
-    constructor(apiKey) {
+    constructor(apiKey, onUsage) {
         this.apiKey = apiKey;
+        this.onUsage = onUsage;
     }
     search(req) {
-        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, onUsage: this.onUsage });
     }
 }
 /** Serper.dev adapter implementing ISearchEngine. */
@@ -605,17 +626,17 @@ export function defaultSearchEngine(opts = {}) {
     const rotationNames = [];
     const brave = env["BRAVE_SEARCH_API_KEY"];
     if (brave) {
-        rotationEngines.push(new BraveSearchEngine(brave));
+        rotationEngines.push(new BraveSearchEngine(brave, undefined, opts.onUsage ? (usage) => opts.onUsage?.("brave", usage) : undefined));
         rotationNames.push("brave");
     }
     const tavily = env["TAVILY_API_KEY"];
     if (tavily) {
-        rotationEngines.push(new TavilySearchEngine(tavily));
+        rotationEngines.push(new TavilySearchEngine(tavily, opts.onUsage ? (usage) => opts.onUsage?.("tavily", usage) : undefined));
         rotationNames.push("tavily");
     }
     const exa = env["EXA_API_KEY"];
     if (exa) {
-        rotationEngines.push(new ExaSearchEngine(exa));
+        rotationEngines.push(new ExaSearchEngine(exa, opts.onUsage ? (usage) => opts.onUsage?.("exa", usage) : undefined));
         rotationNames.push("exa");
     }
     const serper = env["SERPER_API_KEY"];

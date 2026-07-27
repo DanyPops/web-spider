@@ -10,7 +10,8 @@
 // WebSearchResult is defined in ports.ts (the abstraction layer).
 // web-search.ts is an adapter — it imports from the port, not the other way.
 export type { WebSearchResult } from "./ports.js";
-import type { ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
+import type { EngineUsage, ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
+export type { EngineUsage } from "./ports.js";
 
 export interface BraveSearchOptions {
 	/** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY. */
@@ -25,7 +26,19 @@ export interface BraveSearchOptions {
 	 * Pass directly when bypassing the adapter, or set timeRange on SearchQuery.
 	 */
 	freshness?: "pd" | "pw" | "pm" | "py";
+	/**
+	 * Called once with any rate-limit/quota-shaped response headers Brave sent,
+	 * when it sent any. Unlike Tavily/Exa, Brave's actual header behavior was
+	 * not confirmed against real documentation as of this writing (their docs
+	 * site is JS-rendered, and no official or third-party SDK parses any such
+	 * header) -- this exists to observe real behavior against a real key
+	 * rather than assume a shape, and may report nothing at all.
+	 */
+	onUsage?: (usage: EngineUsage) => void;
 }
+
+/** Header names worth capturing when present -- never a blanket capture of every response header. */
+const RATE_LIMIT_HEADER_PATTERN = /rate.?limit|remaining|quota/i;
 
 export interface TavilySearchOptions {
 	/** API key. Defaults to process.env.TAVILY_API_KEY. */
@@ -38,6 +51,8 @@ export interface TavilySearchOptions {
 	timeRange?: "day" | "week" | "month" | "year";
 	/** Topic mode: "news" prioritises fresh news articles. */
 	topic?: "news" | "general";
+	/** Called once with this call's own credit cost, when Tavily reports one. */
+	onUsage?: (usage: EngineUsage) => void;
 }
 
 export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "ddg";
@@ -54,6 +69,8 @@ export interface ExaSearchOptions {
 	 * "keyword" — traditional keyword search.
 	 */
 	type?: "auto" | "neural" | "keyword";
+	/** Called once with this call's own dollar cost, when Exa reports one (only non-zero costs are included in its response). */
+	onUsage?: (usage: EngineUsage) => void;
 }
 
 /**
@@ -99,7 +116,10 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 			publishedDate?: string;
 			highlights?: string[];
 		}>;
+		costDollars?: { total: number };
 	};
+
+	if (data.costDollars?.total !== undefined) opts.onUsage?.({ costUsd: data.costDollars.total });
 
 	return (data.results ?? []).map((r) => ({
 		url: r.url,
@@ -142,6 +162,12 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 
 	if (!res.ok) throw new Error(`Brave Search API error: ${res.status} ${res.statusText}`);
 
+	const rateLimitHeaders: Record<string, string> = {};
+	for (const [name, value] of res.headers.entries()) {
+		if (RATE_LIMIT_HEADER_PATTERN.test(name)) rateLimitHeaders[name] = value;
+	}
+	if (Object.keys(rateLimitHeaders).length > 0) opts.onUsage?.({ rateLimitHeaders });
+
 	const data = (await res.json()) as {
 		web?: {
 			results?: Array<{
@@ -183,6 +209,9 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 				max_results: opts.numResults ?? 5,
 				search_depth: opts.depth ?? "basic",
 				include_raw_content: false,
+				// Free (no extra cost, per Tavily's own docs) -- just adds a `usage`
+				// field to the response reporting this one call's own credit cost.
+				include_usage: true,
 				...(opts.timeRange ? { time_range: opts.timeRange } : {}),
 				...(opts.topic ? { topic: opts.topic } : {}),
 			}),
@@ -200,7 +229,10 @@ export async function tavilySearch(query: string, opts: TavilySearchOptions = {}
 			content?: string;
 			published_date?: string;
 		}>;
+		usage?: { credits: number };
 	};
+
+	if (data.usage?.credits !== undefined) opts.onUsage?.({ credits: data.usage.credits });
 
 	return (data.results ?? []).map((r) => ({
 		url: r.url,
@@ -520,7 +552,7 @@ const BRAVE_FRESHNESS: Record<string, "pd" | "pw" | "pm" | "py"> = {
 
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly country?: string) {}
+	constructor(private readonly apiKey: string, private readonly country?: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
@@ -529,13 +561,14 @@ export class BraveSearchEngine implements ISearchEngine {
 			numResults: req.numResults,
 			country: this.country,
 			freshness,
+			onUsage: this.onUsage,
 		});
 	}
 }
 
 /** Tavily adapter implementing ISearchEngine. */
 export class TavilySearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string) {}
+	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		return tavilySearch(req.query, {
@@ -543,16 +576,17 @@ export class TavilySearchEngine implements ISearchEngine {
 			numResults: req.numResults,
 			timeRange: req.timeRange,
 			topic: req.topic,
+			onUsage: this.onUsage,
 		});
 	}
 }
 
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string) {}
+	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
+		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, onUsage: this.onUsage });
 	}
 }
 
@@ -853,6 +887,8 @@ export interface DefaultSearchEngineOptions {
 	 * is already exhausted.
 	 */
 	onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
+	/** Reports every successful call's own usage/cost data by real engine name, when the engine reported any. Never called for a call that failed or reported nothing. */
+	onUsage?: (engineName: string, usage: EngineUsage) => void;
 }
 
 export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
@@ -861,13 +897,13 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 	const rotationNames: string[] = [];
 
 	const brave = env["BRAVE_SEARCH_API_KEY"];
-	if (brave) { rotationEngines.push(new BraveSearchEngine(brave)); rotationNames.push("brave"); }
+	if (brave) { rotationEngines.push(new BraveSearchEngine(brave, undefined, opts.onUsage ? (usage) => opts.onUsage?.("brave", usage) : undefined)); rotationNames.push("brave"); }
 
 	const tavily = env["TAVILY_API_KEY"];
-	if (tavily) { rotationEngines.push(new TavilySearchEngine(tavily)); rotationNames.push("tavily"); }
+	if (tavily) { rotationEngines.push(new TavilySearchEngine(tavily, opts.onUsage ? (usage) => opts.onUsage?.("tavily", usage) : undefined)); rotationNames.push("tavily"); }
 
 	const exa = env["EXA_API_KEY"];
-	if (exa) { rotationEngines.push(new ExaSearchEngine(exa)); rotationNames.push("exa"); }
+	if (exa) { rotationEngines.push(new ExaSearchEngine(exa, opts.onUsage ? (usage) => opts.onUsage?.("exa", usage) : undefined)); rotationNames.push("exa"); }
 
 	const serper = env["SERPER_API_KEY"];
 	if (serper) { rotationEngines.push(new SerperSearchEngine(serper)); rotationNames.push("serper"); }

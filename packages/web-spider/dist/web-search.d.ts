@@ -7,7 +7,8 @@
  *   TAVILY_API_KEY
  */
 export type { WebSearchResult } from "./ports.js";
-import type { ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
+import type { EngineUsage, ISearchEngine, SearchQuery, WebSearchResult } from "./ports.js";
+export type { EngineUsage } from "./ports.js";
 export interface BraveSearchOptions {
     /** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY. */
     apiKey?: string;
@@ -21,6 +22,15 @@ export interface BraveSearchOptions {
      * Pass directly when bypassing the adapter, or set timeRange on SearchQuery.
      */
     freshness?: "pd" | "pw" | "pm" | "py";
+    /**
+     * Called once with any rate-limit/quota-shaped response headers Brave sent,
+     * when it sent any. Unlike Tavily/Exa, Brave's actual header behavior was
+     * not confirmed against real documentation as of this writing (their docs
+     * site is JS-rendered, and no official or third-party SDK parses any such
+     * header) -- this exists to observe real behavior against a real key
+     * rather than assume a shape, and may report nothing at all.
+     */
+    onUsage?: (usage: EngineUsage) => void;
 }
 export interface TavilySearchOptions {
     /** API key. Defaults to process.env.TAVILY_API_KEY. */
@@ -33,6 +43,8 @@ export interface TavilySearchOptions {
     timeRange?: "day" | "week" | "month" | "year";
     /** Topic mode: "news" prioritises fresh news articles. */
     topic?: "news" | "general";
+    /** Called once with this call's own credit cost, when Tavily reports one. */
+    onUsage?: (usage: EngineUsage) => void;
 }
 export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "ddg";
 export interface ExaSearchOptions {
@@ -47,6 +59,8 @@ export interface ExaSearchOptions {
      * "keyword" — traditional keyword search.
      */
     type?: "auto" | "neural" | "keyword";
+    /** Called once with this call's own dollar cost, when Exa reports one (only non-zero costs are included in its response). */
+    onUsage?: (usage: EngineUsage) => void;
 }
 /**
  * Search the web via the Exa Search API (neural/semantic retrieval).
@@ -153,19 +167,22 @@ export declare function resolveSearchEngine(name: string, key?: string | undefin
 export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;
     private readonly country?;
-    constructor(apiKey: string, country?: string | undefined);
+    private readonly onUsage?;
+    constructor(apiKey: string, country?: string | undefined, onUsage?: ((usage: EngineUsage) => void) | undefined);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Tavily adapter implementing ISearchEngine. */
 export declare class TavilySearchEngine implements ISearchEngine {
     private readonly apiKey;
-    constructor(apiKey: string);
+    private readonly onUsage?;
+    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Exa adapter implementing ISearchEngine. */
 export declare class ExaSearchEngine implements ISearchEngine {
     private readonly apiKey;
-    constructor(apiKey: string);
+    private readonly onUsage?;
+    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Serper.dev adapter implementing ISearchEngine. */
@@ -332,6 +349,8 @@ export interface DefaultSearchEngineOptions {
      * is already exhausted.
      */
     onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
+    /** Reports every successful call's own usage/cost data by real engine name, when the engine reported any. Never called for a call that failed or reported nothing. */
+    onUsage?: (engineName: string, usage: EngineUsage) => void;
 }
 export declare function defaultSearchEngine(opts?: DefaultSearchEngineOptions): ISearchEngine;
 //# sourceMappingURL=web-search.d.ts.map

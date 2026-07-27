@@ -212,6 +212,27 @@ describe("runCli search", () => {
 	});
 });
 
+describe("runCli usage", () => {
+	test("forwards engine and limit flags to the search.usage operation", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ entries: [] }) });
+		await runCli(["usage", "--engine", "brave", "--limit", "10"], deps);
+		expect(operations).toEqual([{ op: "search.usage", input: expect.objectContaining({ engine: "brave", limit: 10 }) }]);
+	});
+
+	test("human output reports no usage recorded yet when empty", async () => {
+		const { deps, calls } = fakeDeps({ call: () => ({ entries: [] }) });
+		await runCli(["usage"], deps);
+		expect(calls[0]).toContain("No search usage recorded");
+	});
+
+	test("human output lists engine and credits/cost for each entry", async () => {
+		const { deps, calls } = fakeDeps({ call: () => ({ entries: [{ engine: "tavily", observedAt: 0, credits: 2 }] }) });
+		await runCli(["usage"], deps);
+		expect(calls[0]).toContain("tavily");
+		expect(calls[0]).toContain("credits=2");
+	});
+});
+
 describe("runCli cache list/search", () => {
 	test("cache list forwards grep/offset/limit", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ total: 0, filtered: 0, offset: 0, limit: 20, pages: [] }) });

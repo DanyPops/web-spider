@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { DdgSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch } from "../src/web-search.js";
+import { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch, tavilySearch } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -590,6 +590,206 @@ describe("SearchQuery — timeRange and topic", () => {
 // ---------------------------------------------------------------------------
 // isLikelyRateLimitError
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// onUsage -- per-call usage/cost reporting (Tavily credits, Exa costDollars,
+// Brave rate-limit-shaped headers when present)
+// ---------------------------------------------------------------------------
+
+describe("tavilySearch onUsage", () => {
+	it("requests include_usage and reports credits from the response", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> | null = null;
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string ?? "{}");
+			return {
+				ok: true, status: 200, statusText: "OK",
+				headers: { get: () => "application/json" },
+				json: async () => ({ results: [], usage: { credits: 3 } }),
+			};
+		}) as typeof fetch;
+
+		try {
+			const usages: unknown[] = [];
+			await tavilySearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(capturedBody).toMatchObject({ include_usage: true });
+			expect(usages).toEqual([{ credits: 3 }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("does not call onUsage when the response carries no usage field", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [] }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			await tavilySearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(usages).toEqual([]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe("exaSearch onUsage", () => {
+	it("reports costDollars.total from the response", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [], costDollars: { total: 0.006, search: { neural: 0.006 } } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			await exaSearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(usages).toEqual([{ costUsd: 0.006 }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("does not call onUsage when costDollars is absent (Exa only includes non-zero costs)", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [] }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			await exaSearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(usages).toEqual([]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe("braveSearch onUsage", () => {
+	it("reports only headers whose name looks rate-limit/quota-shaped, never a blanket header capture", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: new Headers({
+				"content-type": "application/json",
+				"x-ratelimit-remaining": "42",
+				"x-ratelimit-limit": "2000",
+			}),
+			json: async () => ({ web: { results: [] } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: Array<{ rateLimitHeaders?: Record<string, string> }> = [];
+			await braveSearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(usages).toHaveLength(1);
+			expect(usages[0]?.rateLimitHeaders).toEqual({ "x-ratelimit-remaining": "42", "x-ratelimit-limit": "2000" });
+			expect(usages[0]?.rateLimitHeaders).not.toHaveProperty("content-type");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("does not call onUsage when no response header looks rate-limit-shaped (the real, currently-unconfirmed case)", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: new Headers({ "content-type": "application/json" }),
+			json: async () => ({ web: { results: [] } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			await braveSearch("q", { apiKey: "key", onUsage: (u) => usages.push(u) });
+			expect(usages).toEqual([]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe("*SearchEngine classes forward onUsage", () => {
+	it("TavilySearchEngine forwards onUsage into tavilySearch", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [], usage: { credits: 1 } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			const engine = new TavilySearchEngine("key", (u) => usages.push(u));
+			await engine.search(REQ);
+			expect(usages).toEqual([{ credits: 1 }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("ExaSearchEngine forwards onUsage into exaSearch", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [], costDollars: { total: 0.01 } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: unknown[] = [];
+			const engine = new ExaSearchEngine("key", (u) => usages.push(u));
+			await engine.search(REQ);
+			expect(usages).toEqual([{ costUsd: 0.01 }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("BraveSearchEngine forwards onUsage into braveSearch", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: new Headers({ "x-ratelimit-remaining": "5" }),
+			json: async () => ({ web: { results: [] } }),
+		}) as unknown as typeof fetch;
+		try {
+			const usages: Array<{ rateLimitHeaders?: Record<string, string> }> = [];
+			const engine = new BraveSearchEngine("key", undefined, (u) => usages.push(u));
+			await engine.search(REQ);
+			expect(usages[0]?.rateLimitHeaders).toEqual({ "x-ratelimit-remaining": "5" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe("defaultSearchEngine onUsage attribution", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	it("reports usage tagged with the real engine name (tavily), not a generic label", async () => {
+		process.env["TAVILY_API_KEY"] = "fake-key";
+		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) delete process.env[key];
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			headers: { get: () => "application/json" },
+			json: async () => ({ results: [{ url: "https://a.example", title: "A" }], usage: { credits: 2 } }),
+		}) as unknown as typeof fetch;
+
+		const calls: Array<{ name: string; usage: unknown }> = [];
+		try {
+			const engine = defaultSearchEngine({ onUsage: (name, usage) => calls.push({ name, usage }) });
+			await engine.search({ query: "q" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(calls).toEqual([{ name: "tavily", usage: { credits: 2 } }]);
+	});
+});
 
 describe("isLikelyRateLimitError", () => {
 	it("treats a standard 429 message as a rate limit", () => {

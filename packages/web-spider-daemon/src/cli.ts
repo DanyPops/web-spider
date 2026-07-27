@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
 	formatCacheListResult, formatCacheSearchResult, formatCategoryAssignResult, formatCategoryListResult,
 	formatCategoryRemoveResult, formatCategoryRenameResult, formatFetchResult, formatPapyrusIngestResult,
-	formatSearchResult, formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
+	formatSearchResult, formatSearchUsageResult, formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
 } from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
@@ -136,6 +136,8 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 		"                          [--engine brave|tavily|exa|ddg] [--json]",
+		"       web-spider usage [--engine NAME] [--limit N] [--json]",
+		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
 		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
 		"                          [--published-after ISO] [--published-before ISO]",
 		"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
@@ -266,6 +268,22 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 			searchEngine: parsed.values.engine as never,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSearchResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runUsage(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, ["--engine", "--limit"], []);
+	if (!parsed) return usage(deps.stderr);
+	const limit = parseIntFlag(parsed.values, "limit");
+	if (Number.isNaN(limit)) return usage(deps.stderr);
+
+	try {
+		const result = await deps.client.call("search.usage", { engine: parsed.values.engine, limit });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSearchUsageResult(result));
 		return 0;
 	} catch (error) {
 		deps.stderr(error instanceof Error ? error.message : String(error));
@@ -498,6 +516,7 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	if (command === "serve") { deps.serve(); return 0; }
 	if (command === "fetch") return runFetch(rest, deps);
 	if (command === "search") return runSearch(rest, deps);
+	if (command === "usage") return runUsage(rest, deps);
 	if (command === "cache") {
 		const [subcommand, ...cacheRest] = rest;
 		if (subcommand === "list") return runCacheList(cacheRest, deps);

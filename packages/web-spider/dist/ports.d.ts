@@ -101,4 +101,20 @@ export interface WebSearchResult {
 export interface ISearchEngine {
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
+/**
+ * Per-call usage/cost data an engine reported for the search that just ran,
+ * when it reported anything at all -- every field is independently optional
+ * because no provider reports all of these, and some (Brave, as of this
+ * writing) may report none. Never a running account balance: every provider
+ * checked (Tavily, Exa) only ever reports what one call cost, not what's
+ * left. A consumer that wants a running total accumulates these itself.
+ */
+export interface EngineUsage {
+    /** Credits consumed by this one call (Tavily, opt-in via includeUsage). */
+    credits?: number;
+    /** Dollar cost of this one call (Exa, reported automatically when non-zero). */
+    costUsd?: number;
+    /** Raw response headers whose name looked rate-limit/quota-shaped, lower-cased keys, verbatim string values. Never blanket-captured -- only headers matching that shape are ever collected. */
+    rateLimitHeaders?: Record<string, string>;
+}
 //# sourceMappingURL=ports.d.ts.map

@@ -5,7 +5,7 @@
  * @danypops/web-spider's existing defaultSearchEngine()/resolveSearchEngine()
  * adapters rather than re-implementing provider calls.
  */
-import { defaultSearchEngine, resolveSearchEngine, type EngineFailureReason, type ISearchEngine, type SearchEngine, type WebSearchResult } from "@danypops/web-spider";
+import { defaultSearchEngine, resolveSearchEngine, type EngineFailureReason, type EngineUsage, type ISearchEngine, type SearchEngine, type WebSearchResult } from "@danypops/web-spider";
 import { SEARCH_DEFAULT_NUM_RESULTS, SEARCH_MAX_NUM_RESULTS_CEILING } from "./constants.ts";
 
 export interface WebSearchInput {
@@ -34,6 +34,7 @@ const ENGINE_ENV_VARS: Partial<Record<SearchEngine, string>> = {
 };
 
 export type EngineFailureHandler = (engineName: string, error: unknown, reason: EngineFailureReason) => void;
+export type EngineUsageHandler = (engineName: string, usage: EngineUsage) => void;
 
 /**
  * Builds an EngineResolver reading API keys from the given environment (the
@@ -41,12 +42,17 @@ export type EngineFailureHandler = (engineName: string, error: unknown, reason: 
  * is built once and reused, not rebuilt per call — its cooldown state needs
  * to persist across searches to actually skip a rate-limited engine on
  * later calls, not just within the one call that first hit it.
+ *
+ * onUsage (like onEngineFailure) only ever fires for the auto-detect chain --
+ * a caller forcing one engine by name bypasses all composite machinery
+ * (fallback, cooldown, usage reporting alike), same existing asymmetry as
+ * onEngineFailure already has.
  */
-export function createEngineResolver(env: Record<string, string | undefined> = process.env, onEngineFailure?: EngineFailureHandler): EngineResolver {
+export function createEngineResolver(env: Record<string, string | undefined> = process.env, onEngineFailure?: EngineFailureHandler, onUsage?: EngineUsageHandler): EngineResolver {
 	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
 		if (!name) {
-			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure });
+			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure, onUsage });
 			return cachedDefault;
 		}
 		const envVar = ENGINE_ENV_VARS[name];

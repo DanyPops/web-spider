@@ -67,6 +67,7 @@ The current operation registry (see `src/service.ts`):
 | `cache.list` | Paginated listing of cached pages (bounded: limit ≤ 100), filterable by `grep` (substring), `domain` (exact), `tag` (auto-extracted), `category` (curated, see below), and `fetchedAfter`/`fetchedBefore`/`publishedAfter`/`publishedBefore` time ranges; sortable by `fetchedAt`/`publishedAt`/`url`/`domain` |
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
 | `search` | Live web search via Brave/Tavily/Exa/DDG, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine` |
+| `search.usage` | Per-call usage/cost data each engine itself reported (`credits` for Tavily, `costUsd` for Exa, `rateLimitHeaders` for Brave when present) -- append-only, bounded to the most recent 10,000 rows, filterable by `engine`. Never a running account balance: no provider's search API exposes one, only what one call cost. |
 | `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
 | `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
 | `papyrus.ingest` | Explicit opt-in: turns already-cached pages (`kind: "pages"`, by URL) or a caller-supplied search-result set (`kind: "search"`) into Papyrus `doc` artifacts (`subtype: "web"` / `"web-search-result"`), optionally linked to an existing artifact via `relatesTo`. Bounded to 20 items per call. Ingested Docs are immutable service output — never updated in place; re-ingesting the same URL creates a new Doc. Reaches Papyrus only through its own authenticated client, never its SQLite file directly. |
@@ -96,6 +97,7 @@ web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N
                         [--top-n N] [--json]
 web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]
                         [--engine brave|tavily|exa|ddg] [--json]
+web-spider usage [--engine NAME] [--limit N] [--json]
 web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--fetched-after MS] [--fetched-before MS]
                         [--published-after ISO] [--published-before ISO]
                         [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]

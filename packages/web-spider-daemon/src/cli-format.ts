@@ -8,6 +8,7 @@
 import type { CachedPageListResult, CachedPageSearchResult, CategoryAssignmentResult, CategoryListResult, CategoryRenameResult } from "./domain/page.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
+import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { WebSearchOutput } from "./search-service.ts";
 import type { SessionActOutput } from "./session-service.ts";
 
@@ -107,6 +108,19 @@ export function formatSearchResult(result: WebSearchOutput): string {
 		`${result.results.length} result(s) for "${result.query}"`,
 		...result.results.map((hit) => `  ${hit.title}\n    ${hit.url}\n    ${hit.snippet}`),
 	].join("\n");
+}
+
+function formatUsageEntryLine(entry: SearchEngineUsageEntry): string {
+	const parts = [`observedAt=${new Date(entry.observedAt).toISOString()}`];
+	if (entry.credits !== undefined) parts.push(`credits=${entry.credits}`);
+	if (entry.costUsd !== undefined) parts.push(`costUsd=${entry.costUsd}`);
+	if (entry.rateLimitHeaders) parts.push(`headers=${JSON.stringify(entry.rateLimitHeaders)}`);
+	return `  ${entry.engine}  ${parts.join("  ")}`;
+}
+
+export function formatSearchUsageResult(result: { entries: SearchEngineUsageEntry[] }): string {
+	if (result.entries.length === 0) return "No search usage recorded yet -- never a running account balance, only what each call itself reported.";
+	return [`${result.entries.length} usage entry(ies), newest first`, ...result.entries.map(formatUsageEntryLine)].join("\n");
 }
 
 export function formatCacheListResult(result: CachedPageListResult): string {

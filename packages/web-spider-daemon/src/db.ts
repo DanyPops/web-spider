@@ -104,6 +104,25 @@ CREATE TABLE page_categories (
 CREATE INDEX page_categories_category_idx ON page_categories(category_id);
 `;
 
+// Records what one search-engine call itself reported about its own usage/cost
+// (Tavily credits, Exa costDollars, Brave rate-limit-shaped headers when
+// present) -- never a running account balance, no provider exposes one; a
+// consumer accumulates these rows itself for that. Append-only, same shape as
+// session_audit_log: application code only INSERTs, pruneOldest() only removes
+// whole old rows once the bound is exceeded.
+const MIGRATION_4_SEARCH_ENGINE_USAGE = `
+CREATE TABLE search_engine_usage (
+	id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+	engine             TEXT NOT NULL,
+	observed_at        INTEGER NOT NULL CHECK(observed_at >= 0),
+	credits            REAL,
+	cost_usd           REAL,
+	rate_limit_headers TEXT CHECK(rate_limit_headers IS NULL OR json_valid(rate_limit_headers))
+);
+CREATE INDEX search_engine_usage_engine_idx ON search_engine_usage(engine);
+CREATE INDEX search_engine_usage_observed_at_idx ON search_engine_usage(observed_at);
+`;
+
 export function openWebSpiderDb(path: string): Database {
 	return openSqliteWithPragmas(path, {
 		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
@@ -112,6 +131,7 @@ export function openWebSpiderDb(path: string): Database {
 			{ version: 1, up: (db) => db.exec(INITIAL_SCHEMA) },
 			{ version: 2, up: (db) => db.exec(MIGRATION_2_SESSION_AUDIT_LOG) },
 			{ version: 3, up: (db) => db.exec(MIGRATION_3_CATEGORIES) },
+			{ version: 4, up: (db) => db.exec(MIGRATION_4_SEARCH_ENGINE_USAGE) },
 		],
 	});
 }

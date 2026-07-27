@@ -26,6 +26,10 @@ import { PapyrusIngestService, type PapyrusIngestInput, type PapyrusIngestOutput
 import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
 import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
 import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
+import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
+import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
+import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
+import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "./constants.ts";
 import { SessionNotFoundError, SessionService, StaleSnapshotError, type SessionActInput, type SessionActOutput, type SessionCloseInput } from "./session-service.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
@@ -36,7 +40,7 @@ import type {
 import type { CacheStore } from "./ports/cache-store.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
-	"cache.list", "cache.search", "search", "fetch", "crawl", "papyrus.ingest",
+	"cache.list", "cache.search", "search", "search.usage", "fetch", "crawl", "papyrus.ingest",
 	"session.create", "session.list", "session.close", "session.act",
 	"category.assign", "category.remove", "category.rename", "category.list",
 ] as const;
@@ -46,6 +50,7 @@ export interface OperationInputs {
 	"cache.list": CachedPageListFilter;
 	"cache.search": { query: string; limit?: number };
 	"search": WebSearchInput;
+	"search.usage": { engine?: string; limit?: number };
 	"fetch": FetchOperationInput;
 	"crawl": CrawlOperationInput;
 	"papyrus.ingest": PapyrusIngestInput;
@@ -62,6 +67,7 @@ export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
 	"cache.search": CachedPageSearchResult;
 	"search": WebSearchOutput;
+	"search.usage": { entries: SearchEngineUsageEntry[] };
 	"fetch": FetchOperationOutput;
 	"crawl": CrawlOperationOutput;
 	"papyrus.ingest": PapyrusIngestOutput;
@@ -210,7 +216,7 @@ function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
 	throw new Error('kind must be "pages" or "search"');
 }
 
-function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService, sessionService: SessionService): Record<OperationName, OperationHandler> {
+function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService, sessionService: SessionService, searchUsage: SearchUsageJournal): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
@@ -235,6 +241,12 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 			timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
 			topic: optionalString(input, "topic") as WebSearchInput["topic"],
 			searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
+		}),
+		"search.usage": (input) => ({
+			entries: searchUsage.recent({
+				engine: optionalString(input, "engine"),
+				limit: optionalNumber(input, "limit") ?? SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
+			}),
 		}),
 		"fetch": (input) => fetchService.fetch(fetchInput(input)),
 		"crawl": (input) => crawlService.crawl({
@@ -291,9 +303,17 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger } =
 	// Provider API keys are read from this (daemon) process's own environment only —
 	// never accepted as operation input, never logged; onEngineFailure logs only
 	// the engine name and error message, never a key.
-	const webSearch = new WebSearchService(createEngineResolver(process.env, (engineName, error, reason) => {
-		logger.warn("web_search_engine_degraded", { engine: engineName, reason, error: error instanceof Error ? error.message : String(error) });
-	}));
+	const searchUsage = new SQLiteSearchUsageJournal(db);
+	const webSearch = new WebSearchService(createEngineResolver(
+		process.env,
+		(engineName, error, reason) => {
+			logger.warn("web_search_engine_degraded", { engine: engineName, reason, error: error instanceof Error ? error.message : String(error) });
+		},
+		(engineName, usage) => {
+			searchUsage.record({ engine: engineName, observedAt: Date.now(), ...usage });
+			logger.debug("web_search_engine_usage", { engine: engineName, ...usage });
+		},
+	));
 
 	// Daemon-process-wide throttle/robots singletons — replaces the pi-extension's
 	// per-session instances with per-daemon ones, a more correct scope since the
@@ -320,7 +340,7 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger } =
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
-	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService);
+	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),

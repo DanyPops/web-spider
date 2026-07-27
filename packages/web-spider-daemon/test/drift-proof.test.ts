@@ -23,6 +23,7 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"cache.list": ["cache", "list"],
 	"cache.search": ["cache", "search", "drift-proof-query"],
 	"search": ["search", "drift-proof-query"],
+	"search.usage": ["usage"],
 	"fetch": ["fetch", "https://drift-proof.test/article"],
 	"crawl": ["fetch", "https://drift-proof.test/article", "--depth", "1"],
 	"papyrus.ingest": ["papyrus", "ingest", "https://drift-proof.test/article"],
@@ -44,7 +45,7 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 				ops.push(op);
 				// Minimal shape satisfying every formatter without throwing.
 				return {
-					pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [],
+					pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [], entries: [],
 					name: "drift-proof-session", createdAt: 0, lastActivityAt: 0, snapshotVersion: 0, closed: true, sessions: [], action: "screenshot",
 					url: "https://drift-proof.test/article", category: "drift-proof-category", categoryId: 1, removed: true, merged: false, categories: [],
 				} as never;
