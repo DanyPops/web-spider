@@ -46,7 +46,7 @@ export interface TavilySearchOptions {
     /** Called once with this call's own credit cost, when Tavily reports one. */
     onUsage?: (usage: EngineUsage) => void;
 }
-export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "ddg";
+export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi";
 export interface ExaSearchOptions {
     /** API key. Defaults to process.env.EXA_API_KEY. */
     apiKey?: string;
@@ -113,28 +113,10 @@ export interface SerpApiSearchOptions {
  * checked explicitly, not just res.ok.
  */
 export declare function serpApiSearch(query: string, opts?: SerpApiSearchOptions): Promise<WebSearchResult[]>;
-export interface DdgSearchOptions {
-    /**
-     * Maximum results to return. DDG doesn't support a server-side count param;
-     * this slices the client-side result list. Default: 10.
-     */
-    numResults?: number;
-}
-/**
- * Search via the DuckDuckGo Instant Answer API.
- * https://duckduckgo.com/api
- *
- * No API key required. Returns structured instant answers (Abstract,
- * Results, RelatedTopics) mapped to WebSearchResult[].
- *
- * Limitation: not a full web index — best for well-known entities and
- * unambiguous queries. Returns empty when DDG has no instant answer.
- */
-export declare function ddgSearch(query: string, opts?: DdgSearchOptions): Promise<WebSearchResult[]>;
 /**
  * Search using whichever engine is explicitly requested or has an API key
- * available. Falls through to the DDG Instant Answer API as a zero-cost
- * last resort — no key required.
+ * available. Throws when no provider key is configured — see
+ * {@link defaultSearchEngine} for the "no engine configured" error shape.
  *
  * Prefer {@link defaultSearchEngine} + {@link FallbackSearchEngine} when
  * you need composable retry / fallback behaviour.
@@ -147,7 +129,7 @@ export declare function webSearch(query: string, opts?: {
 }): Promise<WebSearchResult[]>;
 /**
  * A factory that creates an ISearchEngine from an optional API key.
- * key is undefined for keyless engines (e.g. DDG).
+ * key is undefined for keyless engines.
  */
 type EngineFactory = (key: string | undefined) => ISearchEngine;
 /**
@@ -197,10 +179,6 @@ export declare class SerpApiSearchEngine implements ISearchEngine {
     constructor(apiKey: string);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
-/** DuckDuckGo Instant Answer adapter — no API key required. */
-export declare class DdgSearchEngine implements ISearchEngine {
-    search(req: SearchQuery): Promise<WebSearchResult[]>;
-}
 /** True for a short-lived throttling response worth a brief cooldown: standard 429 and "too many requests"/"rate limit" phrasing. Distinct from {@link isLikelyQuotaExceededError} -- a request-rate throttle clears in seconds to minutes, an exhausted account quota does not. */
 export declare function isLikelyRateLimitError(error: unknown): boolean;
 /** True for an account-level quota/plan exhaustion worth a much longer disable than a rate limit: Tavily's non-standard 432, 402 Payment Required, and phrasing like "quota exceeded", "usage limit", "out of searches/credits", "plan limit". Retrying before the billing/quota window resets just wastes a call and re-triggers the same failure. */
@@ -242,10 +220,10 @@ export interface FallbackSearchEngineOptions {
  * nest FallbackSearchEngines, wrap them in caches, inject stubs in tests.
  *
  * @example
- * // Tavily with DDG as zero-cost fallback
+ * // Tavily with Exa as a second-choice fallback
  * const engine = new FallbackSearchEngine([
  *   new TavilySearchEngine(process.env.TAVILY_API_KEY),
- *   new DdgSearchEngine(),
+ *   new ExaSearchEngine(process.env.EXA_API_KEY),
  * ]);
  */
 export declare class FallbackSearchEngine implements ISearchEngine {
@@ -289,18 +267,19 @@ export interface RoundRobinSearchEngineOptions {
  * whole group's fate -- the entire reason to round-robin quota-limited
  * peers is to keep their quotas independent. A cooling-down slot is
  * skipped in favor of the next available one; if every engine is cooling
- * down, the call throws (letting an outer FallbackSearchEngine fall
- * through to its next entry, e.g. DDG).
+ * down, the call throws.
  *
- * Still does no fallback on a genuine call failure -- the picked engine's
- * error propagates as-is rather than trying a sibling within the same
- * call. That stays the outer FallbackSearchEngine's job.
+ * Does no fallback on a genuine call failure by itself -- the picked
+ * engine's error propagates as-is rather than trying a sibling within the
+ * same call. A caller that wants same-call fallback can still nest this
+ * inside a FallbackSearchEngine with further entries (defaultSearchEngine's
+ * own wiring doesn't, since it has no further keyless entry to offer).
  *
  * @example
- * // Spread load across three paid engines, DDG as the zero-cost last resort
+ * // Spread load across three paid engines, Exa as a lower-priority fallback
  * const engine = new FallbackSearchEngine([
  *   new RoundRobinSearchEngine([tavily, serper, serpapi]),
- *   new DdgSearchEngine(),
+ *   new ExaSearchEngine(exaKey),
  * ]);
  */
 export declare class RoundRobinSearchEngine implements ISearchEngine {
@@ -321,15 +300,23 @@ export declare class RoundRobinSearchEngine implements ISearchEngine {
  * (brave/tavily/exa/serper/serpapi) that actually has an API key
  * configured is round-robined as an equal-tier peer -- spreading quota
  * consumption across whichever are available instead of always hitting
- * one first -- with DuckDuckGo always appended as the zero-cost last
- * resort. An engine with no key and no usable free tier is auto-skipped,
- * same as today: it's simply never added to the chain, never throws.
+ * one first. An engine with no key configured is auto-skipped, never
+ * throws by itself; calling this with zero keys configured throws a
+ * single descriptive error instead of silently returning a no-op engine.
  *
- * Falls back to a single ungrouped engine (no RoundRobinSearchEngine
- * wrapper) when only one keyed engine is configured -- rotating among one
- * option is a no-op, and skipping the wrapper keeps single-key behavior
- * (still the common case, e.g. Tavily-only) and its onEngineFailure naming
- * identical to before round-robin existed.
+ * Returns the RoundRobinSearchEngine directly when 2+ keys are configured --
+ * no outer FallbackSearchEngine wrapper. There's no keyless engine left to
+ * fall through to, so a wrapper around a single entry (the round-robin group
+ * itself) would add nothing but a duplicate, generically-named
+ * onEngineFailure report for a failure the round-robin already reports by
+ * real engine name; its own cooldown would also have to be force-disabled to
+ * avoid one member's failure cooling down the whole group a second time.
+ *
+ * With exactly one keyed engine, wraps it in a single-entry
+ * FallbackSearchEngine purely for the cooldown/quota-cooldown circuit
+ * breaker -- without it, a provider already known to be quota-exhausted
+ * would be hit again on every call instead of short-circuiting to a clear
+ * "in cooldown" error.
  *
  * The returned engine implements ISearchEngine — swap it for any stub
  * in tests without touching call sites.
@@ -341,13 +328,7 @@ export interface DefaultSearchEngineOptions {
     cooldownMs?: number;
     /** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.quotaCooldownMs. */
     quotaCooldownMs?: number;
-    /**
-     * Reports every engine failure by real name ("brave"/"tavily"/"exa"/
-     * "serper"/"serpapi"/"ddg"), including one inside the round-robin group --
-     * never the generic "rotation-group" placeholder, which only ever reaches
-     * the outer fallback chain's own accounting once every peer in the group
-     * is already exhausted.
-     */
+    /** Reports every engine failure by its real name ("brave"/"tavily"/"exa"/"serper"/"serpapi") -- never a generic placeholder, whether the failure came from the sole configured engine or one member of the round-robin group. */
     onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
     /** Reports every successful call's own usage/cost data by real engine name, when the engine reported any. Never called for a call that failed or reported nothing. */
     onUsage?: (engineName: string, usage: EngineUsage) => void;

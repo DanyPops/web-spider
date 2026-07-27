@@ -194,8 +194,8 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 describe("runCli search", () => {
 	test("forwards query and flags to the search operation", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ query: "q", results: [] }) });
-		await runCli(["search", "rate limiting", "--num-results", "5", "--engine", "ddg", "--time-range", "month"], deps);
-		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "rate limiting", numResults: 5, searchEngine: "ddg", timeRange: "month" }) }]);
+		await runCli(["search", "rate limiting", "--num-results", "5", "--engine", "serper", "--time-range", "month"], deps);
+		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "rate limiting", numResults: 5, searchEngine: "serper", timeRange: "month" }) }]);
 	});
 
 	test("missing query prints usage and returns exit code 2", async () => {

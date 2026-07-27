@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch, tavilySearch } from "../src/web-search.js";
+import { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, serpApiSearch, serperSearch, tavilySearch } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,27 +174,6 @@ describe("FallbackSearchEngine — composability", () => {
 });
 
 // ---------------------------------------------------------------------------
-// DdgSearchEngine — port conformance (no network)
-// ---------------------------------------------------------------------------
-
-describe("DdgSearchEngine — port conformance", () => {
-	it("implements ISearchEngine", () => {
-		const engine: ISearchEngine = new DdgSearchEngine();
-		expect(typeof engine.search).toBe("function");
-	});
-
-	it("can be placed inside a FallbackSearchEngine chain", async () => {
-		// We don't call the real DDG here — just assert structural compatibility.
-		const ddg = new DdgSearchEngine();
-		const fb = new FallbackSearchEngine([okEngine([RESULT_A]), ddg]);
-
-		// First engine returns results — DDG never called (no network needed)
-		const results = await fb.search(REQ);
-		expect(results).toEqual([RESULT_A]);
-	});
-});
-
-// ---------------------------------------------------------------------------
 // TavilySearchEngine — missing key throws (guards)
 // ---------------------------------------------------------------------------
 
@@ -211,48 +190,48 @@ describe("TavilySearchEngine — key guard", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Recommended composition: Tavily → DDG
+// Recommended composition: Tavily → a second-choice engine
 // ---------------------------------------------------------------------------
 
-describe("Tavily + DDG fallback pattern", () => {
+describe("Tavily + fallback-engine pattern", () => {
 	it("returns Tavily results when Tavily succeeds", async () => {
 		const tavily = okEngine([RESULT_A]);
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg]);
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary]);
 
 		const results = await engine.search(REQ);
 		expect(results).toEqual([RESULT_A]);
-		expect(ddg.search).not.toHaveBeenCalled();
+		expect(secondary.search).not.toHaveBeenCalled();
 	});
 
-	it("falls back to DDG when Tavily returns empty", async () => {
+	it("falls back to the next engine when Tavily returns empty", async () => {
 		const tavily = okEngine([]);
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg]);
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary]);
 
 		const results = await engine.search(REQ);
 		expect(results).toEqual([RESULT_B]);
 	});
 
-	it("falls back to DDG when Tavily throws (e.g. rate limit)", async () => {
+	it("falls back to the next engine when Tavily throws (e.g. rate limit)", async () => {
 		const tavily = failEngine("429 rate limit");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg]);
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary]);
 
 		const results = await engine.search(REQ);
 		expect(results).toEqual([RESULT_B]);
 	});
 
-	it("returns empty when both Tavily and DDG find nothing", async () => {
+	it("returns empty when both engines find nothing", async () => {
 		const engine = new FallbackSearchEngine([okEngine([]), okEngine([])]);
 		const results = await engine.search(REQ);
 		expect(results).toEqual([]);
 	});
 
-	it("returns empty (not Tavily's stale error) when Tavily throws and DDG then succeeds with zero hits", async () => {
+	it("returns empty (not Tavily's stale error) when Tavily throws and the next engine then succeeds with zero hits", async () => {
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([]);
-		const engine = new FallbackSearchEngine([tavily, ddg]);
+		const secondary = okEngine([]);
+		const engine = new FallbackSearchEngine([tavily, secondary]);
 
 		await expect(engine.search(REQ)).resolves.toEqual([]);
 	});
@@ -262,8 +241,8 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	it("skips an engine on the next call after a rate-limit-shaped failure, within the cooldown window", async () => {
 		let now = 0;
 		const tavily = failEngine("429 rate limit");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { cooldownMs: 60_000, now: () => now });
 
 		await engine.search(REQ);
 		expect(tavily.search).toHaveBeenCalledTimes(1);
@@ -271,14 +250,14 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 		now += 1_000; // still within the cooldown window
 		await engine.search(REQ);
 		expect(tavily.search).toHaveBeenCalledTimes(1); // not called again -- skipped
-		expect(ddg.search).toHaveBeenCalledTimes(2);
+		expect(secondary.search).toHaveBeenCalledTimes(2);
 	});
 
 	it("retries the engine again once the cooldown window elapses", async () => {
 		let now = 0;
 		const tavily = failEngine("429 rate limit");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { cooldownMs: 60_000, now: () => now });
 
 		await engine.search(REQ);
 		now += 60_001;
@@ -289,8 +268,8 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	it("does not cool down on a non-rate-limit error -- retries every call", async () => {
 		let now = 0;
 		const tavily = failEngine("highlights format requires a query");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { cooldownMs: 60_000, now: () => now });
 
 		await engine.search(REQ);
 		now += 1_000;
@@ -301,8 +280,8 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	it("cooldownMs: 0 disables cooldown entirely", async () => {
 		let now = 0;
 		const tavily = failEngine("429 rate limit");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 0, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { cooldownMs: 0, now: () => now });
 
 		await engine.search(REQ);
 		now += 1_000;
@@ -313,8 +292,8 @@ describe("FallbackSearchEngine — rate-limit cooldown", () => {
 	it("a custom isRateLimitError predicate overrides the default heuristic", async () => {
 		let now = 0;
 		const tavily = failEngine("weird provider-specific overload code");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], {
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], {
 			cooldownMs: 60_000,
 			now: () => now,
 			isRateLimitError: (err) => err instanceof Error && err.message.includes("overload"),
@@ -331,9 +310,9 @@ describe("FallbackSearchEngine — quota cooldown (separate, longer tier from ra
 	it("applies the longer quotaCooldownMs, not cooldownMs, for a quota-shaped failure", async () => {
 		let now = 0;
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([RESULT_B]);
+		const secondary = okEngine([RESULT_B]);
 		// cooldownMs (rate-limit tier) would have expired by now += 60_001; quotaCooldownMs must not have.
-		const engine = new FallbackSearchEngine([tavily, ddg], { cooldownMs: 60_000, quotaCooldownMs: 6 * 60 * 60_000, now: () => now });
+		const engine = new FallbackSearchEngine([tavily, secondary], { cooldownMs: 60_000, quotaCooldownMs: 6 * 60 * 60_000, now: () => now });
 
 		await engine.search(REQ);
 		now += 61_000;
@@ -344,8 +323,8 @@ describe("FallbackSearchEngine — quota cooldown (separate, longer tier from ra
 	it("retries once the quota cooldown window elapses", async () => {
 		let now = 0;
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { quotaCooldownMs: 60_000, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { quotaCooldownMs: 60_000, now: () => now });
 
 		await engine.search(REQ);
 		now += 60_001;
@@ -356,8 +335,8 @@ describe("FallbackSearchEngine — quota cooldown (separate, longer tier from ra
 	it("quotaCooldownMs: 0 disables the quota tier -- falls through to rate-limit classification instead", async () => {
 		let now = 0;
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], { quotaCooldownMs: 0, now: () => now });
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], { quotaCooldownMs: 0, now: () => now });
 
 		await engine.search(REQ);
 		now += 1_000;
@@ -368,8 +347,8 @@ describe("FallbackSearchEngine — quota cooldown (separate, longer tier from ra
 	it("a custom isQuotaError predicate overrides the default heuristic", async () => {
 		let now = 0;
 		const tavily = failEngine("weird provider-specific plan-exhausted code");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], {
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], {
 			quotaCooldownMs: 60_000,
 			now: () => now,
 			isQuotaError: (err) => err instanceof Error && err.message.includes("plan-exhausted"),
@@ -386,8 +365,8 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 	it("reports an engine's own index, error, and reason:\"error\" for a non-quota failure", async () => {
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("429 rate limit");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], {
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], {
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
 		});
 
@@ -398,8 +377,8 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 	it("reports reason:\"quota\" for a quota-exhaustion-shaped failure", async () => {
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], {
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], {
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
 		});
 
@@ -411,8 +390,8 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 		let now = 0;
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("Tavily API error: 432");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([tavily, ddg], {
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([tavily, secondary], {
 			quotaCooldownMs: 60_000,
 			now: () => now,
 			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
@@ -521,8 +500,8 @@ describe("RoundRobinSearchEngine — composability inside FallbackSearchEngine",
 	it("a failure from the rotated-to engine still falls through to the outer FallbackSearchEngine's next entry", async () => {
 		const a = failEngine("engine a down");
 		const b = failEngine("engine b down");
-		const ddg = okEngine([RESULT_B]);
-		const engine = new FallbackSearchEngine([new RoundRobinSearchEngine([a, b]), ddg]);
+		const secondary = okEngine([RESULT_B]);
+		const engine = new FallbackSearchEngine([new RoundRobinSearchEngine([a, b]), secondary]);
 
 		await expect(engine.search(REQ)).resolves.toEqual([RESULT_B]);
 	});
@@ -867,8 +846,8 @@ describe("defaultSearchEngine — onEngineFailure engine names", () => {
 		const calls: Array<{ name: string; reason: string }> = [];
 		const engine = defaultSearchEngine({ onEngineFailure: (name, _error, reason) => { calls.push({ name, reason }); } });
 
-		// Every provider is unreachable here (fetch always 432s) -- DDG fails too,
-		// so the chain as a whole still rejects; only the first (Tavily) entry matters for this assertion.
+		// Every provider is unreachable here (fetch always 432s), so the chain
+		// as a whole still rejects; only the first (Tavily) entry matters for this assertion.
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async () => new Response("rate limited", { status: 432, statusText: "Usage Limit Exceeded" })) as typeof fetch;
 		try {
@@ -1125,12 +1104,9 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		expect(() => defaultSearchEngine()).not.toThrow();
 	});
 
-	it("with zero keyed providers configured, still resolves to DDG only", async () => {
+	it("with zero keyed providers configured, throws a clear no-engine-configured error", () => {
 		clearAllProviderKeys();
-		const engine = defaultSearchEngine();
-		// Real DDG call would hit the network; just prove construction succeeded
-		// and didn't throw building an empty RoundRobinSearchEngine.
-		expect(typeof engine.search).toBe("function");
+		expect(() => defaultSearchEngine()).toThrow(/no search engine api key configured/i);
 	});
 
 	it("round-robins across every configured keyed provider (spreads calls instead of always hitting the same one)", async () => {
@@ -1194,7 +1170,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		expect(callCount).toBe(2); // every call reaches the one configured engine, nothing skipped
 	});
 
-	it("the outer chain's own cooldown is disabled when a rotation group exists -- one member's rate-limit failure never cools down healthy peers", async () => {
+	it("defaultSearchEngine returns the round-robin group directly -- one member's failure never cools down a healthy peer", async () => {
 		clearAllProviderKeys();
 		process.env["TAVILY_API_KEY"] = "tavily-key";
 		process.env["SERPER_API_KEY"] = "serper-key";
@@ -1216,12 +1192,15 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 		try {
 			const engine = defaultSearchEngine();
-			// Whichever provider is picked first, the chain must still resolve
-			// with real results -- not throw, and not skip Serper due to an
-			// outer-level cooldown mistakenly applied to the whole group.
-			const first = await engine.search({ query: "q1" });
+			expect(engine).toBeInstanceOf(RoundRobinSearchEngine); // no outer FallbackSearchEngine wrapper
+			// Tavily is checked before Serper, so the round-robin's first turn
+			// always lands on it -- that call legitimately throws (no keyless
+			// fallback exists to mask a real failure anymore). The point of this
+			// test is the *second* call: the round-robin's own per-engine cooldown
+			// routes it to the healthy Serper peer instead of also failing.
+			await expect(engine.search({ query: "q1" })).rejects.toThrow();
 			const second = await engine.search({ query: "q2" });
-			expect(first.length + second.length).toBeGreaterThan(0);
+			expect(second.length).toBeGreaterThan(0);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

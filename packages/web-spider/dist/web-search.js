@@ -228,79 +228,9 @@ export async function serpApiSearch(query, opts = {}) {
     }));
 }
 /**
- * Search via the DuckDuckGo Instant Answer API.
- * https://duckduckgo.com/api
- *
- * No API key required. Returns structured instant answers (Abstract,
- * Results, RelatedTopics) mapped to WebSearchResult[].
- *
- * Limitation: not a full web index — best for well-known entities and
- * unambiguous queries. Returns empty when DDG has no instant answer.
- */
-export async function ddgSearch(query, opts = {}) {
-    const params = new URLSearchParams({
-        q: query,
-        format: "json",
-        no_redirect: "1",
-        no_html: "1",
-        skip_disambig: "1",
-    });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    let res;
-    try {
-        res = await fetch(`https://api.duckduckgo.com/?${params}`, {
-            signal: controller.signal,
-            headers: {
-                Accept: "application/json",
-                // DDG silently returns an empty 200 body for browser-like or
-                // missing User-Agents. A curl/bot-style UA gets a real 202.
-                "User-Agent": "web-spider/0.8",
-            },
-        });
-    }
-    finally {
-        clearTimeout(timer);
-    }
-    if (!res.ok)
-        throw new Error(`DDG API error: ${res.status} ${res.statusText}`);
-    const data = (await res.json());
-    const results = [];
-    const limit = opts.numResults ?? 10;
-    // 1. Instant answer abstract (Wikipedia-style knowledge panel)
-    if (data.Abstract && data.AbstractURL) {
-        results.push({
-            url: data.AbstractURL,
-            title: data.Heading ?? data.AbstractSource ?? "DuckDuckGo",
-            snippet: data.Abstract,
-        });
-    }
-    // 2. Official results (e.g. official site links)
-    for (const r of data.Results ?? []) {
-        if (results.length >= limit)
-            break;
-        if (r.FirstURL)
-            results.push({ url: r.FirstURL, title: r.Text, snippet: r.Text });
-    }
-    // 3. Related topics — flatten one level of nesting
-    for (const topic of data.RelatedTopics ?? []) {
-        if (results.length >= limit)
-            break;
-        if (topic.FirstURL && topic.Text) {
-            results.push({ url: topic.FirstURL, title: topic.Text, snippet: topic.Text });
-        }
-        for (const sub of topic.Topics ?? []) {
-            if (results.length >= limit)
-                break;
-            results.push({ url: sub.FirstURL, title: sub.Text, snippet: sub.Text });
-        }
-    }
-    return results;
-}
-/**
  * Search using whichever engine is explicitly requested or has an API key
- * available. Falls through to the DDG Instant Answer API as a zero-cost
- * last resort — no key required.
+ * available. Throws when no provider key is configured — see
+ * {@link defaultSearchEngine} for the "no engine configured" error shape.
  *
  * Prefer {@link defaultSearchEngine} + {@link FallbackSearchEngine} when
  * you need composable retry / fallback behaviour.
@@ -376,7 +306,6 @@ registerSearchEngine("serpapi", (key) => {
         throw new Error("SERPAPI_API_KEY not set");
     return new SerpApiSearchEngine(key);
 });
-registerSearchEngine("ddg", () => new DdgSearchEngine());
 // ---------------------------------------------------------------------------
 // ISearchEngine adapters — concrete implementations of the port
 // ---------------------------------------------------------------------------
@@ -449,12 +378,6 @@ export class SerpApiSearchEngine {
         return serpApiSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults });
     }
 }
-/** DuckDuckGo Instant Answer adapter — no API key required. */
-export class DdgSearchEngine {
-    search(req) {
-        return ddgSearch(req.query, { numResults: req.numResults });
-    }
-}
 // ---------------------------------------------------------------------------
 // FallbackSearchEngine — strategy composite
 // ---------------------------------------------------------------------------
@@ -484,10 +407,10 @@ export function isLikelyQuotaExceededError(error) {
  * nest FallbackSearchEngines, wrap them in caches, inject stubs in tests.
  *
  * @example
- * // Tavily with DDG as zero-cost fallback
+ * // Tavily with Exa as a second-choice fallback
  * const engine = new FallbackSearchEngine([
  *   new TavilySearchEngine(process.env.TAVILY_API_KEY),
- *   new DdgSearchEngine(),
+ *   new ExaSearchEngine(process.env.EXA_API_KEY),
  * ]);
  */
 export class FallbackSearchEngine {
@@ -558,18 +481,19 @@ export class FallbackSearchEngine {
  * whole group's fate -- the entire reason to round-robin quota-limited
  * peers is to keep their quotas independent. A cooling-down slot is
  * skipped in favor of the next available one; if every engine is cooling
- * down, the call throws (letting an outer FallbackSearchEngine fall
- * through to its next entry, e.g. DDG).
+ * down, the call throws.
  *
- * Still does no fallback on a genuine call failure -- the picked engine's
- * error propagates as-is rather than trying a sibling within the same
- * call. That stays the outer FallbackSearchEngine's job.
+ * Does no fallback on a genuine call failure by itself -- the picked
+ * engine's error propagates as-is rather than trying a sibling within the
+ * same call. A caller that wants same-call fallback can still nest this
+ * inside a FallbackSearchEngine with further entries (defaultSearchEngine's
+ * own wiring doesn't, since it has no further keyless entry to offer).
  *
  * @example
- * // Spread load across three paid engines, DDG as the zero-cost last resort
+ * // Spread load across three paid engines, Exa as a lower-priority fallback
  * const engine = new FallbackSearchEngine([
  *   new RoundRobinSearchEngine([tavily, serper, serpapi]),
- *   new DdgSearchEngine(),
+ *   new ExaSearchEngine(exaKey),
  * ]);
  */
 export class RoundRobinSearchEngine {
@@ -649,36 +573,22 @@ export function defaultSearchEngine(opts = {}) {
         rotationEngines.push(new SerpApiSearchEngine(serpapi));
         rotationNames.push("serpapi");
     }
-    const engines = [];
-    const outerNames = [];
-    if (rotationEngines.length === 1) {
-        engines.push(rotationEngines[0]);
-        outerNames.push(rotationNames[0]);
+    if (rotationEngines.length === 0) {
+        throw new Error("No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
+            "TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, or SERPAPI_API_KEY.");
     }
-    else if (rotationEngines.length > 1) {
-        engines.push(new RoundRobinSearchEngine(rotationEngines, {
+    if (rotationEngines.length > 1) {
+        return new RoundRobinSearchEngine(rotationEngines, {
             cooldownMs: opts.cooldownMs,
             quotaCooldownMs: opts.quotaCooldownMs,
             onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
-        }));
-        outerNames.push("rotation-group");
+        });
     }
-    // DDG always last — no key needed, never throws the "no key" error
-    engines.push(new DdgSearchEngine());
-    outerNames.push("ddg");
-    // The round-robin group already tracks cooldown (both tiers) per real
-    // engine inside itself. If the outer chain also cooled down the *group's
-    // own slot* whenever one member's failure bubbles up through it, a single
-    // exhausted peer would collapse the whole group's fate one layer up --
-    // exactly the bug round-robin exists to avoid. Disable both outer-layer
-    // cooldown tiers whenever there's a group to protect; the single-keyed-
-    // engine case (no group) keeps its own outer cooldowns exactly as before.
-    const outerCooldownMs = rotationEngines.length > 1 ? 0 : opts.cooldownMs;
-    const outerQuotaCooldownMs = rotationEngines.length > 1 ? 0 : opts.quotaCooldownMs;
-    return new FallbackSearchEngine(engines, {
-        cooldownMs: outerCooldownMs,
-        quotaCooldownMs: outerQuotaCooldownMs,
-        onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(outerNames[index] ?? `engine-${index}`, error, reason) : undefined,
+    const soleName = rotationNames[0];
+    return new FallbackSearchEngine(rotationEngines, {
+        cooldownMs: opts.cooldownMs,
+        quotaCooldownMs: opts.quotaCooldownMs,
+        onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.(soleName, error, reason) : undefined,
     });
 }
 //# sourceMappingURL=web-search.js.map

@@ -15,7 +15,7 @@ export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./med
 export { parseGitHubUrl, queryGitHub } from "./github.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export { toLean } from "./views.js";
-export { braveSearch, ddgSearch, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
+export { braveSearch, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, webSearch } from "./web-search.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
  *
@@ -39,7 +39,7 @@ export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, DdgSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, defaultSearchEngine } from "./web-search.js";
 export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.

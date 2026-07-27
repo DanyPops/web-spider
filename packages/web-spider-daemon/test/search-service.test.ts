@@ -60,11 +60,6 @@ describe("createEngineResolver", () => {
 		expect(() => resolver("serpapi")).toThrow(/SERPAPI_API_KEY not set/);
 	});
 
-	test("forcing ddg never requires a key", () => {
-		const resolver = createEngineResolver({});
-		expect(() => resolver("ddg")).not.toThrow();
-	});
-
 	test("forcing an engine with a configured key in the given env succeeds without throwing", () => {
 		const resolver = createEngineResolver({ BRAVE_SEARCH_API_KEY: "test-key" });
 		expect(() => resolver("brave")).not.toThrow();
@@ -85,19 +80,24 @@ describe("createEngineResolver", () => {
 		}
 	});
 
-	test("no forced engine falls back to the auto-detecting default (never throws by itself)", () => {
-		const resolver = createEngineResolver({});
+	test("no forced engine falls back to the auto-detecting default (never throws when a key is configured)", () => {
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" });
 		expect(() => resolver()).not.toThrow();
 	});
 
-	test("the auto-detecting default is built once and reused across calls, not rebuilt per call", () => {
+	test("no forced engine and zero provider keys configured throws a clear error", () => {
 		const resolver = createEngineResolver({});
+		expect(() => resolver()).toThrow(/no search engine api key configured/i);
+	});
+
+	test("the auto-detecting default is built once and reused across calls, not rebuilt per call", () => {
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" });
 		expect(resolver()).toBe(resolver());
 	});
 
 	test("forcing a specific engine still resolves a fresh instance each time (not cached)", () => {
-		const resolver = createEngineResolver({});
-		expect(resolver("ddg")).not.toBe(resolver("ddg"));
+		const resolver = createEngineResolver({ BRAVE_SEARCH_API_KEY: "test-key" });
+		expect(resolver("brave")).not.toBe(resolver("brave"));
 	});
 
 	test("the auto-detecting default also never falls back to the real process.env when an explicit env object is supplied", async () => {

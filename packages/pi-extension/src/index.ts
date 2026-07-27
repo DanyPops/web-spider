@@ -527,7 +527,7 @@ export default async function (pi: ExtensionAPI) {
       Type.String({
         description:
           "Web search query. Pass instead of url when you don't know the exact URL. " +
-          "Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/DDG. " +
+          "Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/Serper/SerpApi. " +
           "Use the returned URLs to fetch the actual page content.",
       })
     ),

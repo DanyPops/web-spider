@@ -37,10 +37,11 @@ export interface SystemdUnitOptions {
 	/**
 	 * Search provider API keys to forward into the unit's Environment= lines.
 	 * A systemd --user service does not inherit the installing shell's
-	 * environment, so without this, `search` silently falls back to DDG-only
-	 * even when a key is set in the shell that ran `service install` —
-	 * confirmed happening in practice during a real dogfood smoke test.
-	 * Only non-empty keys render a line; values are never logged anywhere.
+	 * environment, so without this, `search` throws "no search engine
+	 * configured" even when a key is set in the shell that ran
+	 * `service install` — confirmed happening in practice during a real
+	 * dogfood smoke test. Only non-empty keys render a line; values are
+	 * never logged anywhere.
 	 */
 	searchApiKeys?: Partial<Record<(typeof SEARCH_API_KEY_VARS)[number], string | undefined>>;
 }
@@ -135,7 +136,7 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
-		"                          [--engine brave|tavily|exa|ddg] [--json]",
+		"                          [--engine brave|tavily|exa|serper|serpapi] [--json]",
 		"       web-spider usage [--engine NAME] [--limit N] [--json]",
 		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
 		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",

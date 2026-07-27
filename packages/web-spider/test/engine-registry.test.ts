@@ -5,7 +5,7 @@
  * only registering a new entry.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
 import {
 	registerSearchEngine,
@@ -14,7 +14,7 @@ import {
 	BraveSearchEngine,
 	TavilySearchEngine,
 	ExaSearchEngine,
-	DdgSearchEngine,
+	SerperSearchEngine,
 } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
@@ -36,8 +36,8 @@ class StubEngine implements ISearchEngine {
 
 describe("registerSearchEngine / resolveSearchEngine", () => {
 	it("resolves a built-in engine by name without editing existing code", () => {
-		const engine = resolveSearchEngine("ddg");
-		expect(engine).toBeInstanceOf(DdgSearchEngine);
+		const engine = resolveSearchEngine("serper", "test-serper-key");
+		expect(engine).toBeInstanceOf(SerperSearchEngine);
 	});
 
 	it("resolves brave when BRAVE_SEARCH_API_KEY is set", () => {
@@ -100,15 +100,21 @@ describe("registerSearchEngine / resolveSearchEngine", () => {
 // ---------------------------------------------------------------------------
 
 describe("defaultSearchEngine", () => {
-	it("returns an ISearchEngine", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	it("returns an ISearchEngine when at least one provider key is configured", () => {
+		process.env["TAVILY_API_KEY"] = "fake-key";
 		const engine = defaultSearchEngine();
 		expect(typeof engine.search).toBe("function");
 	});
 
-	it("includes DdgSearchEngine as last-resort fallback (always present)", () => {
-		// defaultSearchEngine always returns a FallbackSearchEngine that ends with DDG.
-		// We verify by checking the returned engine is functional even with no API keys.
-		const engine = defaultSearchEngine();
-		expect(engine).toBeDefined();
+	it("throws a clear error when no provider key is configured", () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) {
+			delete process.env[key];
+		}
+		expect(() => defaultSearchEngine()).toThrow(/no search engine api key configured/i);
 	});
 });

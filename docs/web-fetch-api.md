@@ -263,16 +263,19 @@ With `format: "lean"`, each entry in `pages` is a full lean page object.
 
 ## Search engines
 
-Engines are tried in priority order; the first with a key set wins. DDG is always the zero-cost last resort.
+Every keyed engine with an API key set is round-robined as an equal-tier peer, spreading quota consumption instead of always hitting one first. Calling search with zero provider keys configured throws a clear error rather than returning an empty result.
 
 | Engine | Env var | Notes |
 |---|---|---|
 | Brave | `BRAVE_SEARCH_API_KEY` | Full web index. $5 free/month. |
 | Tavily | `TAVILY_API_KEY` | AI-optimised. $1 000 free credits. |
 | Exa | `EXA_API_KEY` | Neural/semantic search. |
-| DDG | *(none)* | Instant Answers only. No key required. Best for well-known entities. |
+| Serper | `SERPER_API_KEY` | Google-backed SERP API. |
+| SerpApi | `SERPAPI_API_KEY` | Scraped, real Google SERPs. |
 
-Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"`.
+Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"serper"` | `"serpapi"`.
+
+DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it was removed. It's not a web search index — it only returns data for single named entities with a Wikipedia-style knowledge panel, and returns an empty (but HTTP-successful) response for nearly every other query. As the final entry in the fallback chain, an empty-but-successful DDG call masked real upstream failures (e.g. a quota-exhausted key) as an ordinary empty result instead of surfacing the error.
 
 ---
 

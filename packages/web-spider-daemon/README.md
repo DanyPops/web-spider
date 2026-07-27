@@ -66,7 +66,7 @@ The current operation registry (see `src/service.ts`):
 |---|---|
 | `cache.list` | Paginated listing of cached pages (bounded: limit ≤ 100), filterable by `grep` (substring), `domain` (exact), `tag` (auto-extracted), `category` (curated, see below), and `fetchedAfter`/`fetchedBefore`/`publishedAfter`/`publishedBefore` time ranges; sortable by `fetchedAt`/`publishedAt`/`url`/`domain` |
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
-| `search` | Live web search via Brave/Tavily/Exa/DDG, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine` |
+| `search` | Live web search via Brave/Tavily/Exa/Serper/SerpApi, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine` |
 | `search.usage` | Per-call usage/cost data each engine itself reported (`credits` for Tavily, `costUsd` for Exa, `rateLimitHeaders` for Brave when present) -- append-only, bounded to the most recent 10,000 rows, filterable by `engine`. Never a running account balance: no provider's search API exposes one, only what one call cost. |
 | `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
 | `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
@@ -80,7 +80,7 @@ The current operation registry (see `src/service.ts`):
 | `category.rename` | Renames a category everywhere it's used in one step (categories have a real id, not free text per page). Renaming into an already-existing name merges the two rather than erroring. |
 | `category.list` | Lists every known category with its page count. |
 
-Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. DDG requires no key and is always the zero-cost last resort. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
+Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. `search` throws a clear error when zero provider keys are configured, rather than returning an empty result. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
 A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all five provider key vars from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) re-renders the unit and picks up updated keys. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
 
@@ -96,7 +96,7 @@ web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N
                         [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]
                         [--top-n N] [--json]
 web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]
-                        [--engine brave|tavily|exa|ddg] [--json]
+                        [--engine brave|tavily|exa|serper|serpapi] [--json]
 web-spider usage [--engine NAME] [--limit N] [--json]
 web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--fetched-after MS] [--fetched-before MS]
                         [--published-after ISO] [--published-before ISO]

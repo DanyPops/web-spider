@@ -11,7 +11,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-	DdgSearchEngine,
 	DomainThrottle,
 	FallbackSearchEngine,
 	PageGraph,
@@ -20,7 +19,6 @@ import {
 	SpiderCache,
 	braveSearch,
 	canonicalizeUrl,
-	ddgSearch,
 	buildTree,
 	crawl,
 	createPlaywrightClient,
@@ -75,7 +73,6 @@ describe("functions", () => {
 		["webSearch", webSearch],
 		["braveSearch", braveSearch],
 		["tavilySearch", tavilySearch],
-		["ddgSearch", ddgSearch],
 		["canonicalizeUrl", canonicalizeUrl],
 	])("%s is a function", (_name, fn) => {
 		expect(typeof fn).toBe("function");
@@ -101,11 +98,6 @@ describe("FallbackSearchEngine", () => {
 		const stub = { search: async () => [] };
 		const fb = new FallbackSearchEngine([stub]);
 		expect(typeof fb.search).toBe("function");
-	});
-
-	it("DdgSearchEngine is constructable", () => {
-		const ddg = new DdgSearchEngine();
-		expect(typeof ddg.search).toBe("function");
 	});
 });
 
