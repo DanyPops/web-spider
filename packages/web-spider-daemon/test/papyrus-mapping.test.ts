@@ -37,6 +37,16 @@ describe("pageToPapyrusDoc", () => {
 		expect(doc.labels).toEqual(["source:web-spider", "domain:a.example", "tag:ai", "tag:agents"]);
 	});
 
+	test("labels also carry curated relevance categories when supplied, distinct from tags", () => {
+		const doc = pageToPapyrusDoc(page({ tags: ["rust"] }), ["Code", "PTP Protocol"]);
+		expect(doc.labels).toEqual(["source:web-spider", "domain:a.example", "tag:rust", "relevance:Code", "relevance:PTP Protocol"]);
+	});
+
+	test("omits relevance labels entirely when no categories are supplied (backward compatible default)", () => {
+		const doc = pageToPapyrusDoc(page());
+		expect(doc.labels.some((l) => l.startsWith("relevance:"))).toBe(false);
+	});
+
 	test("body combines description, truncated markdown, and a heading outline", () => {
 		const doc = pageToPapyrusDoc(page({
 			description: "A short description.",

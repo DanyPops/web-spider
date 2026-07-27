@@ -30,6 +30,10 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"session.list": ["session", "list"],
 	"session.close": ["session", "close", "drift-proof-session"],
 	"session.act": ["session", "act", "drift-proof-session", "--action", "screenshot", "--snapshot-version", "0"],
+	"category.assign": ["category", "assign", "https://drift-proof.test/article", "drift-proof-category"],
+	"category.remove": ["category", "remove", "https://drift-proof.test/article", "drift-proof-category"],
+	"category.rename": ["category", "rename", "drift-proof-category", "drift-proof-category-renamed"],
+	"category.list": ["category", "list"],
 };
 
 function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
@@ -42,6 +46,7 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 				return {
 					pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [],
 					name: "drift-proof-session", createdAt: 0, lastActivityAt: 0, snapshotVersion: 0, closed: true, sessions: [], action: "screenshot",
+					url: "https://drift-proof.test/article", category: "drift-proof-category", categoryId: 1, removed: true, merged: false, categories: [],
 				} as never;
 			},
 		},

@@ -57,6 +57,18 @@ describe("PapyrusIngestService — pages", () => {
 		expect(papyrus.created.map((d) => d.title)).toEqual(["One", "Two"]);
 	});
 
+	test("carries a page's assigned categories as relevance: labels, following the domain:/tag: convention", async () => {
+		const store = storeWith([page("https://a.example/1", "One")]);
+		store.assignCategory("https://a.example/1", "Code");
+		store.assignCategory("https://a.example/1", "PTP Protocol");
+		const papyrus = new FakePapyrus();
+		const service = new PapyrusIngestService(store, papyrus);
+
+		await service.ingest({ kind: "pages", urls: ["https://a.example/1"] });
+
+		expect(papyrus.created[0]?.labels).toEqual(expect.arrayContaining(["relevance:Code", "relevance:PTP Protocol"]));
+	});
+
 	test("skips URLs that are not cached, with an actionable reason, instead of failing the whole batch", async () => {
 		const store = storeWith([page("https://a.example/1", "One")]);
 		const papyrus = new FakePapyrus();

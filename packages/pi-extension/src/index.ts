@@ -36,6 +36,7 @@ import {
   renderWebSessionCall,
   renderWebSessionResult,
 } from "./session-presentation.js"
+import { DETAILS_MAX_ITEMS, DETAILS_VERSION } from "./constants.js"
 
 // ---------------------------------------------------------------------------
 // Tool
@@ -153,6 +154,7 @@ export default async function (pi: ExtensionAPI) {
       grep: params.grep,
       domain: params.domain,
       tag: params.tag,
+      category: params.category,
       fetchedAfter: params.fetchedAfter,
       fetchedBefore: params.fetchedBefore,
       publishedAfter: params.publishedAfter,
@@ -468,6 +470,9 @@ export default async function (pi: ExtensionAPI) {
     tag: Type.Optional(
       Type.String({ description: "Cache listing only: filter to pages whose auto-extracted tags include this one. A page with multiple tags matches every one of its own tags' queries." })
     ),
+    category: Type.Optional(
+      Type.String({ description: "Cache listing only: filter to pages assigned this curated relevance category (see web_category). A page in multiple categories matches every one of its own categories' queries." })
+    ),
     fetchedAfter: Type.Optional(
       Type.Number({ description: "Cache listing only: epoch ms lower bound on when the page was cached (not when it was published)." })
     ),
@@ -579,6 +584,7 @@ export default async function (pi: ExtensionAPI) {
       "  grep=X           — filter list by url/title/domain/description substring.",
       "  domain=X         — exact match on the page's domain.",
       "  tag=X            — pages whose auto-extracted tags include X (a page can match more than one tag's query).",
+      "  category=X       — pages assigned this curated relevance category (see web_category). A page can match more than one category's query.",
       "  fetchedAfter/fetchedBefore     — epoch ms range on when a page was cached.",
       "  publishedAfter/publishedBefore — ISO-8601 range on the page's own published date.",
       "  sortBy=fetchedAt|publishedAt|url|domain, sortOrder=asc|desc — defaults to fetchedAt/desc.",
@@ -912,6 +918,111 @@ export default async function (pi: ExtensionAPI) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new Error(`web_session failed: ${message}`)
+      }
+    },
+  })
+
+  // ---------------------------------------------------------------------------
+  // web_category — curated, agent/user-assignable relevance categories for
+  // cached pages. Distinct from `domain` (URL hostname) and `tags` (publisher-
+  // provided, auto-extracted from a page's own HTML): a category is a judgment
+  // about what a page is *for*, made by whoever's curating, growing organically
+  // as new topics come up rather than a closed enum. A page can and often will
+  // belong to more than one category at once -- overlap is the expected case.
+  // Kept as its own tool rather than folded into web_fetch, matching this
+  // project's own precedent (web_session exists separately for the same
+  // reason): a genuinely new capability gets its own contract instead of
+  // growing web_fetch's.
+  // ---------------------------------------------------------------------------
+  const categoryParamsSchema = Type.Object({
+    operation: Type.Union(
+      [Type.Literal("assign"), Type.Literal("remove"), Type.Literal("rename"), Type.Literal("list")],
+      { description: "assign/remove a category on a cached page, rename (or merge, if the new name already exists) a category everywhere it's used, or list every known category." },
+    ),
+    url: Type.Optional(Type.String({ description: "assign/remove: the cached page's URL. Must already be cached -- fetch it first." })),
+    category: Type.Optional(Type.String({ description: "assign/remove: the category name. rename: the existing category's current name." })),
+    newName: Type.Optional(Type.String({ description: "rename only: the category's new name. If a category with this name already exists, the two merge (every page in either ends up in the surviving one) rather than erroring." })),
+  })
+
+  type CategoryParams = Static<typeof categoryParamsSchema>
+
+  interface CategoryPresentationDetails {
+    version: typeof DETAILS_VERSION
+    kind: "web-category"
+    operation: CategoryParams["operation"]
+    summary: string
+    items: string[]
+    total: number
+    truncated: boolean
+  }
+
+  function createCategoryDetails(operation: CategoryParams["operation"], summary: string, rows: string[] = []): CategoryPresentationDetails {
+    const total = rows.length
+    const items = rows.slice(0, DETAILS_MAX_ITEMS)
+    return { version: DETAILS_VERSION, kind: "web-category", operation, summary, items, total, truncated: total > items.length }
+  }
+
+  pi.registerTool({
+    name: "web_category",
+    label: "Web Category",
+    description: [
+      "Curated, agent/user-assignable relevance categories for cached pages -- e.g. \"Code\", \"PTP Protocol\".",
+      "Distinct from a page's domain (its URL hostname) and tags (auto-extracted from the page's own HTML by its",
+      "publisher) -- a category is your own judgment about what a page is *for*. Free-form: invent a new category",
+      "name the first time you need it, there is no fixed list. A page can and often will belong to more than one",
+      "category at once (a Rust PTP implementation is both \"Code\" and \"PTP Protocol\") -- that overlap is expected,",
+      "not something to avoid. Use web_fetch(category=X) with no url to list every page currently in a category.",
+      "",
+      "  operation=assign  url=<url> category=<name>  — add the category to the page (creating it if new; assigning",
+      "                    a category the page already has is a harmless no-op).",
+      "  operation=remove  url=<url> category=<name>   — remove the category from the page (harmless no-op if it",
+      "                    wasn't assigned).",
+      "  operation=rename  category=<name> newName=<name> — rename a category everywhere it's used in one step. If",
+      "                    newName already exists as a different category, the two merge instead of erroring.",
+      "  operation=list                                — list every known category with how many pages use it --",
+      "                    check this before inventing a near-duplicate name.",
+    ].join("\n"),
+    promptSnippet: "Curated relevance categories for cached pages: assign/remove/rename/list, with overlap (a page can belong to more than one)",
+    parameters: categoryParamsSchema,
+    async execute(_id, params: CategoryParams, _signal, _onUpdate, _ctx) {
+      try {
+        if (params.operation === "list") {
+          const result = await call<{ categories: Array<{ id: number; name: string; pageCount: number }> }>("category.list", {})
+          const rows = result.categories.map((c) => `${c.name}  (${c.pageCount} page(s))`)
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createCategoryDetails("list", `${result.categories.length} categor${result.categories.length === 1 ? "y" : "ies"}`, rows),
+          }
+        }
+        if (params.operation === "assign") {
+          if (!params.url) throw new Error("url is required for operation=assign")
+          if (!params.category) throw new Error("category is required for operation=assign")
+          const result = await call<{ url: string; category: string; categoryId: number }>("category.assign", { url: params.url, category: params.category })
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createCategoryDetails("assign", `"${result.category}" → ${result.url}`),
+          }
+        }
+        if (params.operation === "remove") {
+          if (!params.url) throw new Error("url is required for operation=remove")
+          if (!params.category) throw new Error("category is required for operation=remove")
+          const result = await call<{ url: string; category: string; removed: true }>("category.remove", { url: params.url, category: params.category })
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            details: createCategoryDetails("remove", `removed "${result.category}" from ${result.url}`),
+          }
+        }
+        // rename
+        if (!params.category) throw new Error("category is required for operation=rename")
+        if (!params.newName) throw new Error("newName is required for operation=rename")
+        const result = await call<{ categoryId: number; name: string; merged: boolean }>("category.rename", { category: params.category, newName: params.newName })
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          details: createCategoryDetails("rename", result.merged ? `merged into "${result.name}"` : `renamed to "${result.name}"`),
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new Error(`web_category failed: ${message}`)
       }
     },
   })

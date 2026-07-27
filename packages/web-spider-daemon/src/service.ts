@@ -29,12 +29,16 @@ import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journ
 import { SessionNotFoundError, SessionService, StaleSnapshotError, type SessionActInput, type SessionActOutput, type SessionCloseInput } from "./session-service.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";
-import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
+import type {
+	CachedPageListFilter, CachedPageListResult, CachedPageSearchResult,
+	CategoryAssignmentResult, CategoryListResult, CategoryRenameResult,
+} from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"cache.list", "cache.search", "search", "fetch", "crawl", "papyrus.ingest",
 	"session.create", "session.list", "session.close", "session.act",
+	"category.assign", "category.remove", "category.rename", "category.list",
 ] as const;
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
 
@@ -49,6 +53,10 @@ export interface OperationInputs {
 	"session.list": Record<string, never>;
 	"session.close": SessionCloseInput;
 	"session.act": SessionActInput;
+	"category.assign": { url: string; category: string };
+	"category.remove": { url: string; category: string };
+	"category.rename": { category: string; newName: string };
+	"category.list": Record<string, never>;
 }
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
@@ -61,6 +69,10 @@ export interface OperationOutputs {
 	"session.list": { sessions: SessionInfo[] };
 	"session.close": { name: string; closed: true };
 	"session.act": SessionActOutput;
+	"category.assign": CategoryAssignmentResult;
+	"category.remove": { url: string; category: string; removed: true };
+	"category.rename": CategoryRenameResult;
+	"category.list": CategoryListResult;
 }
 
 type OperationInput = Record<string, unknown>;
@@ -204,6 +216,7 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 			grep: optionalString(input, "grep"),
 			domain: optionalString(input, "domain"),
 			tag: optionalString(input, "tag"),
+			category: optionalString(input, "category"),
 			fetchedAfter: optionalNumber(input, "fetchedAfter"),
 			fetchedBefore: optionalNumber(input, "fetchedBefore"),
 			publishedAfter: optionalString(input, "publishedAfter"),
@@ -236,6 +249,15 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 		"session.list": () => ({ sessions: sessionService.list() }),
 		"session.close": (input) => sessionService.close({ name: requireString(input, "name") }),
 		"session.act": (input) => sessionService.act(sessionActInput(input)),
+		"category.assign": (input) => store.assignCategory(requireString(input, "url"), requireString(input, "category")),
+		"category.remove": (input) => {
+			const url = requireString(input, "url");
+			const category = requireString(input, "category");
+			store.removeCategory(url, category);
+			return { url, category, removed: true as const };
+		},
+		"category.rename": (input) => store.renameCategory(requireString(input, "category"), requireString(input, "newName")),
+		"category.list": () => store.listCategories(),
 	};
 }
 

@@ -64,7 +64,7 @@ The current operation registry (see `src/service.ts`):
 
 | Operation | Description |
 |---|---|
-| `cache.list` | Paginated, `grep`-filterable listing of cached pages (bounded: limit ≤ 100) |
+| `cache.list` | Paginated listing of cached pages (bounded: limit ≤ 100), filterable by `grep` (substring), `domain` (exact), `tag` (auto-extracted), `category` (curated, see below), and `fetchedAfter`/`fetchedBefore`/`publishedAfter`/`publishedBefore` time ranges; sortable by `fetchedAt`/`publishedAt`/`url`/`domain` |
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
 | `search` | Live web search via Brave/Tavily/Exa/DDG, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine` |
 | `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
@@ -74,6 +74,10 @@ The current operation registry (see `src/service.ts`):
 | `session.list` | Lists active sessions with their `snapshotVersion` and activity timestamps. |
 | `session.close` | Tears a named session's browser process down. |
 | `session.act` | Dispatches one `navigate`/`click`/`eval`/`screenshot` action against a session's persistent page. Requires the caller's `snapshotVersion` to match the session's current one — fails closed (HTTP 409) if the page has navigated or changed since the caller last observed it, rather than silently acting on stale state. Only a successful `navigate` bumps `snapshotVersion`. Every call — successful, rejected, or failed — is recorded in an append-only, content-free audit journal (SQLite `session_audit_log`, bounded to the most recent 10,000 rows): action, outcome, and a redacted target (a sanitized URL for `navigate`, the selector for `click`, and a fixed `"<script>"`/`"<screenshot>"` placeholder for `eval`/`screenshot` — script source and image bytes are never written to the journal, only returned to the caller). |
+| `category.assign` | Curated, agent/user-assignable relevance category for a cached page (distinct from `domain`/`tags` — a judgment about what a page is *for*, not mechanical metadata). Creates the category on first use; assigning twice is a no-op. A page can belong to any number of categories at once. |
+| `category.remove` | Removes a category from a page. Idempotent — no error if already absent. |
+| `category.rename` | Renames a category everywhere it's used in one step (categories have a real id, not free text per page). Renaming into an already-existing name merges the two rather than erroring. |
+| `category.list` | Lists every known category with its page count. |
 
 Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. DDG requires no key and is always the zero-cost last resort. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
@@ -96,6 +100,10 @@ web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--fetched-afte
                         [--published-after ISO] [--published-before ISO]
                         [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]
 web-spider cache search <query> [--limit N] [--json]
+web-spider category assign <url> <category> [--json]
+web-spider category remove <url> <category> [--json]
+web-spider category rename <category> <newName> [--json]
+web-spider category list [--json]
 web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]
 web-spider session create <name> [--force-chrome-channel] [--json]
 web-spider session list [--json]

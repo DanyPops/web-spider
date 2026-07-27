@@ -113,3 +113,46 @@ describe("ingest: explicit opt-in Papyrus wiring", () => {
   // Search-specific mapping/bounding is covered by web-spider-daemon's
   // papyrus-mapping.test.ts and papyrus-ingest-service.test.ts.
 })
+
+describe("web_category: curated relevance categories, end to end", () => {
+  it("assign/list/remove round-trip through the real daemon, with real overlap across two categories", async () => {
+    server.set("/category-me", "<html><body><article><h1>Category me</h1><p>Something worth curating.</p></article></body></html>")
+    await h.invokeTool("web_fetch", { url: `${server.baseUrl}/category-me` })
+
+    const assignCode = await h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/category-me`, category: "Code" }) as any
+    expect(JSON.parse(assignCode.content[0].text)).toMatchObject({ category: "Code" })
+
+    const assignPtp = await h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/category-me`, category: "PTP Protocol" }) as any
+    expect(JSON.parse(assignPtp.content[0].text)).toMatchObject({ category: "PTP Protocol" })
+
+    const list = await h.invokeTool("web_category", { operation: "list" }) as any
+    const categories = JSON.parse(list.content[0].text).categories
+    expect(categories.map((c: { name: string }) => c.name).sort()).toEqual(["Code", "PTP Protocol"])
+
+    // Overlap: the same page shows up under both categories independently.
+    const code = await h.invokeTool("web_fetch", { category: "Code" }) as any
+    expect(JSON.parse(code.content[0].text).pages.map((p: { url: string }) => p.url)).toEqual([`${server.baseUrl}/category-me`])
+    const ptp = await h.invokeTool("web_fetch", { category: "PTP Protocol" }) as any
+    expect(JSON.parse(ptp.content[0].text).pages.map((p: { url: string }) => p.url)).toEqual([`${server.baseUrl}/category-me`])
+
+    const removed = await h.invokeTool("web_category", { operation: "remove", url: `${server.baseUrl}/category-me`, category: "Code" }) as any
+    expect(JSON.parse(removed.content[0].text)).toMatchObject({ removed: true })
+    const afterRemove = await h.invokeTool("web_fetch", { category: "Code" }) as any
+    expect(JSON.parse(afterRemove.content[0].text).pages).toEqual([])
+  })
+
+  it("rename merges into an existing category rather than erroring", async () => {
+    server.set("/rename-me", "<html><body><article><h1>Rename me</h1><p>Testing rename/merge.</p></article></body></html>")
+    await h.invokeTool("web_fetch", { url: `${server.baseUrl}/rename-me` })
+    await h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/rename-me`, category: "Old Name Unique" })
+    await h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/rename-me`, category: "Existing Name Unique" })
+
+    const renamed = await h.invokeTool("web_category", { operation: "rename", category: "Old Name Unique", newName: "Existing Name Unique" }) as any
+    expect(JSON.parse(renamed.content[0].text)).toMatchObject({ name: "Existing Name Unique", merged: true })
+  })
+
+  it("throws a clear error assigning a category to a URL that isn't cached", async () => {
+    await expect(h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/never-fetched`, category: "Code" }))
+      .rejects.toThrow(/web_category failed/)
+  })
+})

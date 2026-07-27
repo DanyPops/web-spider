@@ -361,3 +361,109 @@ describe("SQLiteCacheStore — search()", () => {
 		expect(store.search("anything")).toEqual({ query: "anything", pagesSearched: 0, hits: [] });
 	});
 });
+
+describe("SQLiteCacheStore — categories", () => {
+	test("assignCategory() creates the category on first use and is idempotent on repeat assignment", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		const first = store.assignCategory("https://a.example/1", "Code");
+		expect(first).toEqual({ url: "https://a.example/1", category: "Code", categoryId: first.categoryId });
+		const second = store.assignCategory("https://a.example/1", "Code"); // no-op, not an error
+		expect(second.categoryId).toBe(first.categoryId);
+		expect(store.listCategories().categories).toEqual([{ id: first.categoryId, name: "Code", pageCount: 1 }]);
+	});
+
+	test("assignCategory() is case-insensitive against an existing category name", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		store.set("https://a.example/2", page({ url: "https://a.example/2" }));
+		const first = store.assignCategory("https://a.example/1", "Code");
+		const second = store.assignCategory("https://a.example/2", "CODE");
+		expect(second.categoryId).toBe(first.categoryId); // same category, not a duplicate
+		expect(store.listCategories().categories).toHaveLength(1);
+	});
+
+	test("assignCategory() throws for a URL that isn't cached", () => {
+		const { store } = storeWithTmpDir();
+		expect(() => store.assignCategory("https://a.example/missing", "Code")).toThrow(/page not cached/);
+	});
+
+	test("a page can belong to more than one category at once, and overlap shows up in cache.list -- assigning to one never removes it from another", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/rust-ptp", page({ url: "https://a.example/rust-ptp" }));
+		store.assignCategory("https://a.example/rust-ptp", "Code");
+		store.assignCategory("https://a.example/rust-ptp", "PTP Protocol");
+
+		const code = store.list({ category: "Code" });
+		expect(code.pages.map((p) => p.url)).toEqual(["https://a.example/rust-ptp"]);
+		const ptp = store.list({ category: "ptp protocol" }); // also proves case-insensitivity
+		expect(ptp.pages.map((p) => p.url)).toEqual(["https://a.example/rust-ptp"]); // present in both -- overlap, not exclusive
+	});
+
+	test("removeCategory() unlinks the page but leaves the category itself intact for other pages", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		store.set("https://a.example/2", page({ url: "https://a.example/2" }));
+		store.assignCategory("https://a.example/1", "Code");
+		store.assignCategory("https://a.example/2", "Code");
+
+		store.removeCategory("https://a.example/1", "Code");
+		expect(store.list({ category: "Code" }).pages.map((p) => p.url)).toEqual(["https://a.example/2"]);
+		expect(store.listCategories().categories[0]?.pageCount).toBe(1);
+	});
+
+	test("removeCategory() is idempotent -- removing an association that's already absent is not an error", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		expect(() => store.removeCategory("https://a.example/1", "Nonexistent")).not.toThrow();
+	});
+
+	test("renameCategory() renames in place -- every page association follows automatically, without touching page rows", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		const { categoryId } = store.assignCategory("https://a.example/1", "PTP");
+
+		const result = store.renameCategory("PTP", "PTP Protocol");
+		expect(result).toEqual({ categoryId, name: "PTP Protocol", merged: false });
+		expect(store.list({ category: "PTP Protocol" }).pages.map((p) => p.url)).toEqual(["https://a.example/1"]);
+		expect(store.list({ category: "PTP" }).pages).toEqual([]); // old name no longer resolves
+	});
+
+	test("renameCategory() into an already-existing name merges rather than erroring -- a page in both ends up counted once", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		store.set("https://a.example/2", page({ url: "https://a.example/2" }));
+		const ptp = store.assignCategory("https://a.example/1", "PTP");
+		const protocol = store.assignCategory("https://a.example/1", "PTP Protocol"); // page 1 is in both already
+		store.assignCategory("https://a.example/2", "PTP");
+
+		const result = store.renameCategory("PTP", "PTP Protocol");
+		expect(result).toEqual({ categoryId: protocol.categoryId, name: "PTP Protocol", merged: true });
+
+		const merged = store.list({ category: "PTP Protocol" });
+		expect(new Set(merged.pages.map((p) => p.url))).toEqual(new Set(["https://a.example/1", "https://a.example/2"]));
+		expect(store.listCategories().categories).toHaveLength(1); // the old "PTP" row is gone, not left dangling
+		expect(store.listCategories().categories[0]?.id).toBe(ptp.categoryId === protocol.categoryId ? ptp.categoryId : protocol.categoryId);
+	});
+
+	test("renameCategory() throws for a category name that doesn't exist", () => {
+		const { store } = storeWithTmpDir();
+		expect(() => store.renameCategory("Nonexistent", "Whatever")).toThrow(/category not found/);
+	});
+
+	test("a page's categories survive re-fetching the same URL (categories are keyed off the stable page id, not recreated per fetch)", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1", title: "v1" }));
+		store.assignCategory("https://a.example/1", "Code");
+		store.set("https://a.example/1", page({ url: "https://a.example/1", title: "v2" })); // re-fetch, same URL
+		expect(store.list({ category: "Code" }).pages.map((p) => p.url)).toEqual(["https://a.example/1"]);
+	});
+
+	test("a page's categories are dropped when the page itself is deleted (cascade, matching chunks/images)", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		store.assignCategory("https://a.example/1", "Code");
+		store.delete("https://a.example/1");
+		expect(store.listCategories().categories[0]?.pageCount).toBe(0);
+	});
+});

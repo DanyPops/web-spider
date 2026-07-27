@@ -30,7 +30,7 @@ function hostnameOf(url: string): string {
 	}
 }
 
-export function pageToPapyrusDoc(page: SpideredPage): PapyrusDocInput {
+export function pageToPapyrusDoc(page: SpideredPage, categories: string[] = []): PapyrusDocInput {
 	const sections: string[] = [];
 	if (page.description) sections.push(page.description);
 	if (page.markdown) sections.push(truncate(page.markdown, BODY_MARKDOWN_MAX_CHARACTERS));
@@ -42,7 +42,7 @@ export function pageToPapyrusDoc(page: SpideredPage): PapyrusDocInput {
 		title: page.title || page.url,
 		subtype: "web-spider:web",
 		body: sections.join("\n\n"),
-		labels: ["source:web-spider", `domain:${page.domain}`, ...page.tags.map((tag) => `tag:${tag}`)],
+		labels: ["source:web-spider", `domain:${page.domain}`, ...page.tags.map((tag) => `tag:${tag}`), ...categories.map((category) => `relevance:${category}`)],
 		extra: omitEmptyExtra({
 			url: page.url,
 			canonicalUrl: page.canonicalUrl,

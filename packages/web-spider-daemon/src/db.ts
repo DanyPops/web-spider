@@ -85,6 +85,25 @@ CREATE INDEX session_audit_log_session_idx ON session_audit_log(session_name);
 CREATE INDEX session_audit_log_ts_idx ON session_audit_log(ts);
 `;
 
+// Categories are agent/user-curated judgments about what a page is *for* --
+// distinct from `tags` (publisher-provided, auto-extracted from HTML) and
+// `domain` (mechanical). A real id (not free text per page) so renaming or
+// merging a category is one UPDATE, not a rewrite of every page that used
+// the old name. Many-to-many: a page belongs to as many categories as apply.
+const MIGRATION_3_CATEGORIES = `
+CREATE TABLE categories (
+	id   INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
+CREATE TABLE page_categories (
+	page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+	category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+	PRIMARY KEY (page_id, category_id)
+);
+CREATE INDEX page_categories_category_idx ON page_categories(category_id);
+`;
+
 export function openWebSpiderDb(path: string): Database {
 	return openSqliteWithPragmas(path, {
 		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
@@ -92,6 +111,7 @@ export function openWebSpiderDb(path: string): Database {
 		migrations: [
 			{ version: 1, up: (db) => db.exec(INITIAL_SCHEMA) },
 			{ version: 2, up: (db) => db.exec(MIGRATION_2_SESSION_AUDIT_LOG) },
+			{ version: 3, up: (db) => db.exec(MIGRATION_3_CATEGORIES) },
 		],
 	});
 }

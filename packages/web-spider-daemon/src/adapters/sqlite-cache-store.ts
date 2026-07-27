@@ -25,7 +25,10 @@ import {
 	CACHE_SEARCH_SNIPPET_RADIUS,
 } from "../constants.ts";
 import { leanOutput } from "../format.ts";
-import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult, CachedPageSortField, CachedPageSortOrder } from "../domain/page.ts";
+import type {
+	CachedPageListFilter, CachedPageListResult, CachedPageSearchResult, CachedPageSortField, CachedPageSortOrder,
+	CategoryAssignmentResult, CategoryListResult, CategoryRenameResult,
+} from "../domain/page.ts";
 import type { CacheStore } from "../ports/cache-store.ts";
 
 export interface SQLiteCacheStoreOptions {
@@ -244,6 +247,10 @@ export class SQLiteCacheStore implements CacheStore {
 			conditions.push("EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(value) = LOWER(?))");
 			parameters.push(filter.tag.trim());
 		}
+		if (filter.category?.trim()) {
+			conditions.push("EXISTS (SELECT 1 FROM page_categories pc JOIN categories c ON c.id = pc.category_id WHERE pc.page_id = pages.id AND LOWER(c.name) = LOWER(?))");
+			parameters.push(filter.category.trim());
+		}
 		if (filter.fetchedAfter !== undefined) {
 			conditions.push("fetched_at >= ?");
 			parameters.push(filter.fetchedAfter);
@@ -302,6 +309,87 @@ export class SQLiteCacheStore implements CacheStore {
 		this.removePageImageFiles(idsToRemove);
 		this.db.query("DELETE FROM pages WHERE expires_at <= ?").run(now);
 		return idsToRemove.length;
+	}
+
+	// ── Categories ─────────────────────────────────────────────────────────────────────
+
+	private requirePageId(url: string): number {
+		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as { id: number } | null;
+		if (!row) throw new Error(`page not cached: ${url}`);
+		return row.id;
+	}
+
+	private findCategoryIdByName(name: string): number | undefined {
+		const row = this.db.query("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)").get(name.trim()) as { id: number } | null;
+		return row?.id;
+	}
+
+	private getOrCreateCategoryId(name: string): number {
+		const existing = this.findCategoryIdByName(name);
+		if (existing !== undefined) return existing;
+		const row = this.db.query("INSERT INTO categories (name) VALUES (?) RETURNING id").get(name.trim()) as { id: number };
+		return row.id;
+	}
+
+	assignCategory(url: string, category: string): CategoryAssignmentResult {
+		const trimmed = category.trim();
+		if (!trimmed) throw new Error("category must not be empty");
+		const pageId = this.requirePageId(url);
+		const categoryId = this.getOrCreateCategoryId(trimmed);
+		// INSERT OR IGNORE -- assigning an already-assigned category is a no-op, not an error.
+		this.db.query("INSERT OR IGNORE INTO page_categories (page_id, category_id) VALUES (?, ?)").run(pageId, categoryId);
+		const name = (this.db.query("SELECT name FROM categories WHERE id = ?").get(categoryId) as { name: string }).name;
+		return { url, category: name, categoryId };
+	}
+
+	removeCategory(url: string, category: string): void {
+		const pageId = this.requirePageId(url);
+		const categoryId = this.findCategoryIdByName(category);
+		if (categoryId === undefined) return; // idempotent -- nothing to remove
+		this.db.query("DELETE FROM page_categories WHERE page_id = ? AND category_id = ?").run(pageId, categoryId);
+	}
+
+	renameCategory(category: string, newName: string): CategoryRenameResult {
+		const trimmedNew = newName.trim();
+		if (!trimmedNew) throw new Error("newName must not be empty");
+		const categoryId = this.findCategoryIdByName(category);
+		if (categoryId === undefined) throw new Error(`category not found: ${category}`);
+
+		const collision = this.findCategoryIdByName(trimmedNew);
+		if (collision !== undefined && collision !== categoryId) {
+			// Merge: repoint every association from the old id to the surviving id, then drop the old row.
+			// INSERT OR IGNORE avoids a primary-key collision when a page already has both categories assigned.
+			const tx = this.db.transaction(() => {
+				this.db.query("INSERT OR IGNORE INTO page_categories (page_id, category_id) SELECT page_id, ? FROM page_categories WHERE category_id = ?").run(collision, categoryId);
+				this.db.query("DELETE FROM categories WHERE id = ?").run(categoryId);
+			});
+			tx.immediate();
+			return { categoryId: collision, name: trimmedNew, merged: true };
+		}
+
+		this.db.query("UPDATE categories SET name = ? WHERE id = ?").run(trimmedNew, categoryId);
+		return { categoryId, name: trimmedNew, merged: false };
+	}
+
+	listCategories(): CategoryListResult {
+		const rows = this.db.query(`
+			SELECT c.id AS id, c.name AS name, COUNT(pc.page_id) AS page_count
+			FROM categories c
+			LEFT JOIN page_categories pc ON pc.category_id = c.id
+			GROUP BY c.id
+			ORDER BY c.name ASC
+		`).all() as Array<{ id: number; name: string; page_count: number }>;
+		return { categories: rows.map((row) => ({ id: row.id, name: row.name, pageCount: row.page_count })) };
+	}
+
+	categoriesForUrl(url: string): string[] {
+		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as { id: number } | null;
+		if (!row) return [];
+		const rows = this.db.query(`
+			SELECT c.name AS name FROM page_categories pc JOIN categories c ON c.id = pc.category_id
+			WHERE pc.page_id = ? ORDER BY c.name ASC
+		`).all(row.id) as Array<{ name: string }>;
+		return rows.map((r) => r.name);
 	}
 
 	close(): void {

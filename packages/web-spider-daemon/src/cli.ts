@@ -17,8 +17,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	formatCacheListResult, formatCacheSearchResult, formatFetchResult, formatPapyrusIngestResult, formatSearchResult,
-	formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
+	formatCacheListResult, formatCacheSearchResult, formatCategoryAssignResult, formatCategoryListResult,
+	formatCategoryRemoveResult, formatCategoryRenameResult, formatFetchResult, formatPapyrusIngestResult,
+	formatSearchResult, formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
 } from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
@@ -135,9 +136,13 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 		"                          [--engine brave|tavily|exa|ddg] [--json]",
-		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--fetched-after MS] [--fetched-before MS]",
+		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
 		"                          [--published-after ISO] [--published-before ISO]",
 		"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
+		"       web-spider category assign <url> <category> [--json]",
+		"       web-spider category remove <url> <category> [--json]",
+		"       web-spider category rename <category> <newName> [--json]",
+		"       web-spider category list [--json]",
 		"       web-spider cache search <query> [--limit N] [--json]",
 		"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
 		"                          (each url must already be cached — fetch it first)",
@@ -270,7 +275,7 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 
 async function runCacheList(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [
-		"--grep", "--domain", "--tag", "--fetched-after", "--fetched-before",
+		"--grep", "--domain", "--tag", "--category", "--fetched-after", "--fetched-before",
 		"--published-after", "--published-before", "--sort-by", "--sort-order", "--offset", "--limit",
 	], []);
 	if (!parsed) return usage(deps.stderr);
@@ -288,6 +293,7 @@ async function runCacheList(rest: string[], deps: CliDependencies): Promise<numb
 			grep: parsed.values.grep,
 			domain: parsed.values.domain,
 			tag: parsed.values.tag,
+			category: parsed.values.category,
 			fetchedAfter,
 			fetchedBefore,
 			publishedAfter: parsed.values["published-after"],
@@ -315,6 +321,61 @@ async function runCacheSearch(rest: string[], deps: CliDependencies): Promise<nu
 	try {
 		const result = await deps.client.call("cache.search", { query, limit });
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCacheSearchResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runCategoryAssign(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	const [url, category] = parsed?.positional ?? [];
+	if (!parsed || !url || !category) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("category.assign", { url, category });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCategoryAssignResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runCategoryRemove(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	const [url, category] = parsed?.positional ?? [];
+	if (!parsed || !url || !category) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("category.remove", { url, category });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCategoryRemoveResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runCategoryRename(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	const [category, newName] = parsed?.positional ?? [];
+	if (!parsed || !category || !newName) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("category.rename", { category, newName });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCategoryRenameResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runCategoryList(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	if (!parsed) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("category.list", {});
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCategoryListResult(result));
 		return 0;
 	} catch (error) {
 		deps.stderr(error instanceof Error ? error.message : String(error));
@@ -441,6 +502,14 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 		const [subcommand, ...cacheRest] = rest;
 		if (subcommand === "list") return runCacheList(cacheRest, deps);
 		if (subcommand === "search") return runCacheSearch(cacheRest, deps);
+		return usage(deps.stderr);
+	}
+	if (command === "category") {
+		const [subcommand, ...categoryRest] = rest;
+		if (subcommand === "assign") return runCategoryAssign(categoryRest, deps);
+		if (subcommand === "remove") return runCategoryRemove(categoryRest, deps);
+		if (subcommand === "rename") return runCategoryRename(categoryRest, deps);
+		if (subcommand === "list") return runCategoryList(categoryRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command === "papyrus") {

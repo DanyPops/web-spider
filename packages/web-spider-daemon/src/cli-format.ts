@@ -5,7 +5,7 @@
  * These never run for --json invocations; they format whatever operation
  * output shape service.ts's fetch/crawl/search/cache.* handlers returned.
  */
-import type { CachedPageListResult, CachedPageSearchResult } from "./domain/page.ts";
+import type { CachedPageListResult, CachedPageSearchResult, CategoryAssignmentResult, CategoryListResult, CategoryRenameResult } from "./domain/page.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
 import type { WebSearchOutput } from "./search-service.ts";
@@ -132,6 +132,25 @@ export function formatCacheSearchResult(result: CachedPageSearchResult): string 
 		`${result.hits.length} hit(s) for "${result.query}" across ${result.pagesSearched} cached page(s)`,
 		...result.hits.map((hit) => `  [${hit.score.toFixed(2)}] ${hit.title} · ${hit.heading}\n    ${hit.text}`),
 	].join("\n");
+}
+
+export function formatCategoryAssignResult(result: CategoryAssignmentResult): string {
+	return `"${result.url}" → category "${result.category}" (id=${result.categoryId}).`;
+}
+
+export function formatCategoryRemoveResult(result: { url: string; category: string; removed: true }): string {
+	return `"${result.url}" removed from category "${result.category}".`;
+}
+
+export function formatCategoryRenameResult(result: CategoryRenameResult): string {
+	return result.merged
+		? `Merged into existing category "${result.name}" (id=${result.categoryId}).`
+		: `Renamed to "${result.name}" (id=${result.categoryId}).`;
+}
+
+export function formatCategoryListResult(result: CategoryListResult): string {
+	if (result.categories.length === 0) return "No categories yet.";
+	return [`${result.categories.length} categor${result.categories.length === 1 ? "y" : "ies"}`, ...result.categories.map((c) => `  ${c.name}  (${c.pageCount} page(s), id=${c.id})`)].join("\n");
 }
 
 function formatSessionInfoLine(session: SessionInfo): string {

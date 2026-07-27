@@ -65,7 +65,7 @@ export class PapyrusIngestService {
 				skipped.push({ url, reason: "not cached — fetch it first, then ingest" });
 				continue;
 			}
-			const doc = await this.papyrus.createDoc(pageToPapyrusDoc(page));
+			const doc = await this.papyrus.createDoc(pageToPapyrusDoc(page, this.cache.categoriesForUrl(url)));
 			if (input.relatesTo) await this.papyrus.linkDoc(doc.id, "references", input.relatesTo);
 			ingested.push({ url, docId: doc.id });
 		}
