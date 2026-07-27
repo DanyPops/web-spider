@@ -75,6 +75,22 @@ describe("execute() result and failure channels", () => {
     expect(JSON.parse(result.content[0].text)).toMatchObject({ blocked: true, reason: "robots.txt" })
     expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" })
   })
+
+  // Runs last in this describe block deliberately -- it fetches real pages from
+  // server.baseUrl without a robots.txt in place, which would otherwise warm the
+  // daemon's per-origin robots cache as "unrestricted" ahead of the robots-denial
+  // test above and mask it.
+  it("cache listing filters by tag end to end (extension param -> daemon op -> SQLite)", async () => {
+    server.set("/rust-ptp", '<html><head><meta name="keywords" content="rust,ptp"></head><body><article><h1>Rust PTP</h1><p>Clock sync in Rust.</p></article></body></html>')
+    server.set("/python", '<html><head><meta name="keywords" content="python"></head><body><article><h1>Python</h1><p>Not the same topic.</p></article></body></html>')
+    await h.invokeTool("web_fetch", { url: `${server.baseUrl}/rust-ptp` })
+    await h.invokeTool("web_fetch", { url: `${server.baseUrl}/python` })
+
+    const result = await h.invokeTool("web_fetch", { tag: "ptp" }) as any
+    const text = JSON.parse(result.content[0].text)
+    expect(text.pages).toHaveLength(1)
+    expect(text.pages[0].url).toBe(`${server.baseUrl}/rust-ptp`)
+  })
 })
 
 describe("ingest: explicit opt-in Papyrus wiring", () => {

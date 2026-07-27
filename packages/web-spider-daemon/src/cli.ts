@@ -25,6 +25,7 @@ import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
 import { isSessionAction } from "./domain/session-audit.ts";
+import type { CachedPageListFilter } from "./domain/page.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
 const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"] as const;
@@ -134,7 +135,9 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 		"                          [--engine brave|tavily|exa|ddg] [--json]",
-		"       web-spider cache list [--grep TEXT] [--offset N] [--limit N] [--json]",
+		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--fetched-after MS] [--fetched-before MS]",
+		"                          [--published-after ISO] [--published-before ISO]",
+		"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
 		"       web-spider cache search <query> [--limit N] [--json]",
 		"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
 		"                          (each url must already be cached — fetch it first)",
@@ -266,15 +269,34 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 }
 
 async function runCacheList(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, ["--grep", "--offset", "--limit"], []);
+	const parsed = parseArgs(rest, [
+		"--grep", "--domain", "--tag", "--fetched-after", "--fetched-before",
+		"--published-after", "--published-before", "--sort-by", "--sort-order", "--offset", "--limit",
+	], []);
 	if (!parsed) return usage(deps.stderr);
 	const offset = parseIntFlag(parsed.values, "offset");
 	if (Number.isNaN(offset)) return usage(deps.stderr);
 	const limit = parseIntFlag(parsed.values, "limit");
 	if (Number.isNaN(limit)) return usage(deps.stderr);
+	const fetchedAfter = parseIntFlag(parsed.values, "fetched-after");
+	if (Number.isNaN(fetchedAfter)) return usage(deps.stderr);
+	const fetchedBefore = parseIntFlag(parsed.values, "fetched-before");
+	if (Number.isNaN(fetchedBefore)) return usage(deps.stderr);
 
 	try {
-		const result = await deps.client.call("cache.list", { grep: parsed.values.grep, offset, limit });
+		const result = await deps.client.call("cache.list", {
+			grep: parsed.values.grep,
+			domain: parsed.values.domain,
+			tag: parsed.values.tag,
+			fetchedAfter,
+			fetchedBefore,
+			publishedAfter: parsed.values["published-after"],
+			publishedBefore: parsed.values["published-before"],
+			sortBy: parsed.values["sort-by"] as CachedPageListFilter["sortBy"],
+			sortOrder: parsed.values["sort-order"] as CachedPageListFilter["sortOrder"],
+			offset,
+			limit,
+		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatCacheListResult(result));
 		return 0;
 	} catch (error) {

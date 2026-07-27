@@ -202,6 +202,14 @@ function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: 
 	return {
 		"cache.list": (input) => store.list({
 			grep: optionalString(input, "grep"),
+			domain: optionalString(input, "domain"),
+			tag: optionalString(input, "tag"),
+			fetchedAfter: optionalNumber(input, "fetchedAfter"),
+			fetchedBefore: optionalNumber(input, "fetchedBefore"),
+			publishedAfter: optionalString(input, "publishedAfter"),
+			publishedBefore: optionalString(input, "publishedBefore"),
+			sortBy: optionalString(input, "sortBy") as CachedPageListFilter["sortBy"],
+			sortOrder: optionalString(input, "sortOrder") as CachedPageListFilter["sortOrder"],
 			offset: optionalNumber(input, "offset"),
 			limit: optionalNumber(input, "limit"),
 		}),

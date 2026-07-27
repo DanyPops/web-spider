@@ -151,6 +151,14 @@ export default async function (pi: ExtensionAPI) {
   async function handleCacheListing(params: Params) {
     const result = await call<{ total: number; filtered: number; offset: number; limit: number; pages: Array<Record<string, unknown>> }>("cache.list", {
       grep: params.grep,
+      domain: params.domain,
+      tag: params.tag,
+      fetchedAfter: params.fetchedAfter,
+      fetchedBefore: params.fetchedBefore,
+      publishedAfter: params.publishedAfter,
+      publishedBefore: params.publishedBefore,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
       offset: params.offset,
       limit: params.limit,
     })
@@ -454,6 +462,33 @@ export default async function (pi: ExtensionAPI) {
           "Filter cached pages by substring match on url, title, domain, or description. Only applies when url is omitted (local cache listing).",
       })
     ),
+    domain: Type.Optional(
+      Type.String({ description: "Cache listing only: exact, case-insensitive match on the page's domain (e.g. \"github.com\")." })
+    ),
+    tag: Type.Optional(
+      Type.String({ description: "Cache listing only: filter to pages whose auto-extracted tags include this one. A page with multiple tags matches every one of its own tags' queries." })
+    ),
+    fetchedAfter: Type.Optional(
+      Type.Number({ description: "Cache listing only: epoch ms lower bound on when the page was cached (not when it was published)." })
+    ),
+    fetchedBefore: Type.Optional(
+      Type.Number({ description: "Cache listing only: epoch ms upper bound on when the page was cached (not when it was published)." })
+    ),
+    publishedAfter: Type.Optional(
+      Type.String({ description: "Cache listing only: ISO-8601 lower bound on the page's own published date (not when it was cached)." })
+    ),
+    publishedBefore: Type.Optional(
+      Type.String({ description: "Cache listing only: ISO-8601 upper bound on the page's own published date (not when it was cached)." })
+    ),
+    sortBy: Type.Optional(
+      Type.Union(
+        [Type.Literal("fetchedAt"), Type.Literal("publishedAt"), Type.Literal("url"), Type.Literal("domain")],
+        { description: "Cache listing only: sort field. Defaults to fetchedAt (most recently cached first)." },
+      )
+    ),
+    sortOrder: Type.Optional(
+      Type.Union([Type.Literal("asc"), Type.Literal("desc")], { description: "Cache listing only: sort direction. Defaults to desc." })
+    ),
     offset: Type.Optional(
       Type.Number({
         description: "Skip first N results when listing or searching the local cache (pagination).",
@@ -542,6 +577,11 @@ export default async function (pi: ExtensionAPI) {
       "  No url, no query  — list all cached pages in lean format.",
       "  No url, query=X  — BM25F full-text search across all cached pages.",
       "  grep=X           — filter list by url/title/domain/description substring.",
+      "  domain=X         — exact match on the page's domain.",
+      "  tag=X            — pages whose auto-extracted tags include X (a page can match more than one tag's query).",
+      "  fetchedAfter/fetchedBefore     — epoch ms range on when a page was cached.",
+      "  publishedAfter/publishedBefore — ISO-8601 range on the page's own published date.",
+      "  sortBy=fetchedAt|publishedAt|url|domain, sortOrder=asc|desc — defaults to fetchedAt/desc.",
       "  offset/limit     — paginate results (default limit 20, hard cap 100).",
       "",
       "DEPTH",

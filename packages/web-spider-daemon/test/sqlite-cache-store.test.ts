@@ -36,7 +36,7 @@ function page(overrides: Partial<SpideredPage> = {}): SpideredPage {
 function storeWithTmpDir() {
 	const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
 	const db = openWebSpiderDb(":memory:");
-	return { store: new SQLiteCacheStore(db, { imagesDir }), imagesDir };
+	return { store: new SQLiteCacheStore(db, { imagesDir }), imagesDir, db };
 }
 
 describe("pageKey", () => {
@@ -233,6 +233,105 @@ describe("SQLiteCacheStore — list()", () => {
 		expect(row.bodyLinks).toEqual([{ href: "https://a.example/body", text: "Body link" }]);
 		expect(row).not.toHaveProperty("chunks");
 		expect(row).not.toHaveProperty("markdown");
+	});
+
+	test("list() with no sort params preserves today's default order (fetchedAt desc)", () => {
+		const { store, db } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		store.set("https://a.example/2", page({ url: "https://a.example/2" }));
+		db.query("UPDATE pages SET fetched_at = 1000 WHERE url = ?").run("https://a.example/1");
+		db.query("UPDATE pages SET fetched_at = 2000 WHERE url = ?").run("https://a.example/2");
+		const result = store.list({});
+		expect(result.pages.map((p) => p.url)).toEqual(["https://a.example/2", "https://a.example/1"]);
+	});
+
+	test("list() filters by exact, case-insensitive domain", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1", domain: "a.example" }));
+		store.set("https://b.example/1", page({ url: "https://b.example/1", domain: "b.example" }));
+		const result = store.list({ domain: "B.EXAMPLE" });
+		expect(result.filtered).toBe(1);
+		expect(result.pages[0]?.url).toBe("https://b.example/1");
+	});
+
+	test("list() filters by tag, and a page in two tag queries appears in both (overlap, not exclusive)", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/rust-ptp", page({ url: "https://a.example/rust-ptp", tags: ["rust", "ptp"] }));
+		store.set("https://a.example/python", page({ url: "https://a.example/python", tags: ["python"] }));
+		store.set("https://a.example/rust-only", page({ url: "https://a.example/rust-only", tags: ["rust"] }));
+
+		const rust = store.list({ tag: "RUST" }); // also proves case-insensitivity
+		expect(rust.filtered).toBe(2);
+		expect(new Set(rust.pages.map((p) => p.url))).toEqual(new Set(["https://a.example/rust-ptp", "https://a.example/rust-only"]));
+
+		const ptp = store.list({ tag: "ptp" });
+		expect(ptp.filtered).toBe(1);
+		expect(ptp.pages[0]?.url).toBe("https://a.example/rust-ptp"); // present in both queries -- overlap
+	});
+
+	test("list() filters by fetchedAt range", () => {
+		const { store, db } = storeWithTmpDir();
+		store.set("https://a.example/old", page({ url: "https://a.example/old" }));
+		store.set("https://a.example/mid", page({ url: "https://a.example/mid" }));
+		store.set("https://a.example/new", page({ url: "https://a.example/new" }));
+		db.query("UPDATE pages SET fetched_at = 1000 WHERE url = ?").run("https://a.example/old");
+		db.query("UPDATE pages SET fetched_at = 2000 WHERE url = ?").run("https://a.example/mid");
+		db.query("UPDATE pages SET fetched_at = 3000 WHERE url = ?").run("https://a.example/new");
+
+		const result = store.list({ fetchedAfter: 1500, fetchedBefore: 2500 });
+		expect(result.filtered).toBe(1);
+		expect(result.pages[0]?.url).toBe("https://a.example/mid");
+	});
+
+	test("list() filters by publishedAt range (the article's own date, distinct from fetchedAt)", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/2020", page({ url: "https://a.example/2020", publishedAt: "2020-01-01T00:00:00.000Z" }));
+		store.set("https://a.example/2022", page({ url: "https://a.example/2022", publishedAt: "2022-06-01T00:00:00.000Z" }));
+		store.set("https://a.example/2024", page({ url: "https://a.example/2024", publishedAt: "2024-01-01T00:00:00.000Z" }));
+
+		const result = store.list({ publishedAfter: "2021-01-01", publishedBefore: "2023-01-01" });
+		expect(result.filtered).toBe(1);
+		expect(result.pages[0]?.url).toBe("https://a.example/2022");
+	});
+
+	test("list() sorts by url ascending and descending", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/b", page({ url: "https://a.example/b" }));
+		store.set("https://a.example/a", page({ url: "https://a.example/a" }));
+		store.set("https://a.example/c", page({ url: "https://a.example/c" }));
+
+		const asc = store.list({ sortBy: "url", sortOrder: "asc" });
+		expect(asc.pages.map((p) => p.url)).toEqual(["https://a.example/a", "https://a.example/b", "https://a.example/c"]);
+
+		const desc = store.list({ sortBy: "url", sortOrder: "desc" });
+		expect(desc.pages.map((p) => p.url)).toEqual(["https://a.example/c", "https://a.example/b", "https://a.example/a"]);
+	});
+
+	test("list() sorts by domain", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://z.example/1", page({ url: "https://z.example/1", domain: "z.example" }));
+		store.set("https://a.example/1", page({ url: "https://a.example/1", domain: "a.example" }));
+
+		const result = store.list({ sortBy: "domain", sortOrder: "asc" });
+		expect(result.pages.map((p) => p.url)).toEqual(["https://a.example/1", "https://z.example/1"]);
+	});
+
+	test("list() sorts by publishedAt", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/2024", page({ url: "https://a.example/2024", publishedAt: "2024-01-01" }));
+		store.set("https://a.example/2020", page({ url: "https://a.example/2020", publishedAt: "2020-01-01" }));
+
+		const result = store.list({ sortBy: "publishedAt", sortOrder: "asc" });
+		expect(result.pages.map((p) => p.url)).toEqual(["https://a.example/2020", "https://a.example/2024"]);
+	});
+
+	test("list() rejects an invalid sortBy or sortOrder with a clear error, rather than silently ignoring it", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/1", page({ url: "https://a.example/1" }));
+		// biome-ignore lint/suspicious/noExplicitAny: exercising a deliberately invalid input
+		expect(() => store.list({ sortBy: "popularity" as any })).toThrow(/invalid sortBy/);
+		// biome-ignore lint/suspicious/noExplicitAny: exercising a deliberately invalid input
+		expect(() => store.list({ sortOrder: "sideways" as any })).toThrow(/invalid sortOrder/);
 	});
 });
 

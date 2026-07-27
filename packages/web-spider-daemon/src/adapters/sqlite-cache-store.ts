@@ -25,7 +25,7 @@ import {
 	CACHE_SEARCH_SNIPPET_RADIUS,
 } from "../constants.ts";
 import { leanOutput } from "../format.ts";
-import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult } from "../domain/page.ts";
+import type { CachedPageListFilter, CachedPageListResult, CachedPageSearchResult, CachedPageSortField, CachedPageSortOrder } from "../domain/page.ts";
 import type { CacheStore } from "../ports/cache-store.ts";
 
 export interface SQLiteCacheStoreOptions {
@@ -118,6 +118,22 @@ interface ImageRow {
 }
 
 /** Normalizes a URL to a stable cache key — same canonicalization every cache in this project shares (see @danypops/web-spider's canonicalizeUrl). */
+const SORT_COLUMNS: Record<CachedPageSortField, string> = {
+	fetchedAt: "fetched_at",
+	publishedAt: "published_at",
+	url: "url",
+	domain: "domain",
+};
+
+/** Column/order come from an allowlist, never string-interpolated from raw input -- SQL has no parameter placeholder for identifiers. */
+function resolveOrderBy(sortBy: CachedPageSortField | undefined, sortOrder: CachedPageSortOrder | undefined): string {
+	if (sortBy !== undefined && !(sortBy in SORT_COLUMNS)) throw new Error(`invalid sortBy: ${sortBy}`);
+	if (sortOrder !== undefined && sortOrder !== "asc" && sortOrder !== "desc") throw new Error(`invalid sortOrder: ${sortOrder}`);
+	const column = SORT_COLUMNS[sortBy ?? "fetchedAt"];
+	const order = (sortOrder ?? "desc").toUpperCase();
+	return `${column} ${order}`;
+}
+
 export function pageKey(url: string): string {
 	return canonicalizeUrl(url);
 }
@@ -220,16 +236,41 @@ export class SQLiteCacheStore implements CacheStore {
 			conditions.push("(LOWER(url) LIKE ? OR LOWER(title) LIKE ? OR LOWER(domain) LIKE ? OR LOWER(description) LIKE ?)");
 			parameters.push(pattern, pattern, pattern, pattern);
 		}
+		if (filter.domain?.trim()) {
+			conditions.push("LOWER(domain) = LOWER(?)");
+			parameters.push(filter.domain.trim());
+		}
+		if (filter.tag?.trim()) {
+			conditions.push("EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(value) = LOWER(?))");
+			parameters.push(filter.tag.trim());
+		}
+		if (filter.fetchedAfter !== undefined) {
+			conditions.push("fetched_at >= ?");
+			parameters.push(filter.fetchedAfter);
+		}
+		if (filter.fetchedBefore !== undefined) {
+			conditions.push("fetched_at <= ?");
+			parameters.push(filter.fetchedBefore);
+		}
+		if (filter.publishedAfter !== undefined) {
+			conditions.push("published_at >= ?");
+			parameters.push(filter.publishedAfter);
+		}
+		if (filter.publishedBefore !== undefined) {
+			conditions.push("published_at <= ?");
+			parameters.push(filter.publishedBefore);
+		}
 		const where = `WHERE ${conditions.join(" AND ")}`;
 		const filtered = (this.db.query(`SELECT COUNT(*) AS n FROM pages ${where}`).get(...parameters) as { n: number }).n;
 
 		const offset = Math.max(0, Math.floor(filter.offset ?? 0));
 		const limit = Math.max(1, Math.min(CACHE_LIST_MAX_LIMIT, Math.floor(filter.limit ?? CACHE_LIST_DEFAULT_LIMIT)));
+		const orderBy = resolveOrderBy(filter.sortBy, filter.sortOrder);
 		const rows = this.db.query(`
 			SELECT url, title, description, author, published_at, tags, word_count, headings, links, js_rendered
 			FROM pages
 			${where}
-			ORDER BY fetched_at DESC
+			ORDER BY ${orderBy}
 			LIMIT ? OFFSET ?
 		`).all(...parameters, limit, offset) as PageListRow[];
 
