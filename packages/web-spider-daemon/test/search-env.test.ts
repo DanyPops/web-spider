@@ -61,4 +61,25 @@ describe("resolveSearchEnv", () => {
 		expect(env.BRAVE_SEARCH_API_KEY).toBe("static-brave");
 		expect(env.EXA_API_KEY).toBe("e-key");
 	});
+
+	it("passes ENIGMA_CLIENT_TOKEN from baseEnv through to every backend lookup -- the registered-client seam, since Enigma's shared admin-token file is not readable outside its own service account", async () => {
+		const seenTokens: Array<string | undefined> = [];
+		const fromEnigma: TryEnigmaAccessToken = async (backend, opts) => {
+			seenTokens.push(opts?.token);
+			return backend === "brave" ? "b-key" : undefined;
+		};
+		const env = await resolveSearchEnv({ ENIGMA_CLIENT_TOKEN: "web-spider-own-token" }, fromEnigma);
+		expect(env.BRAVE_SEARCH_API_KEY).toBe("b-key");
+		expect(seenTokens.every((t) => t === "web-spider-own-token")).toBe(true);
+	});
+
+	it("omitting ENIGMA_CLIENT_TOKEN passes an undefined token through, same as an unmigrated caller today", async () => {
+		const seenTokens: Array<string | undefined> = [];
+		const fromEnigma: TryEnigmaAccessToken = async (_backend, opts) => {
+			seenTokens.push(opts?.token);
+			return undefined;
+		};
+		await resolveSearchEnv({}, fromEnigma);
+		expect(seenTokens.every((t) => t === undefined)).toBe(true);
+	});
 });

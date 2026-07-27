@@ -27,17 +27,25 @@ const ENIGMA_BACKED_ENGINES: ReadonlyArray<{ backend: string; envVar: string }> 
  * during the migration. One provider's lookup failing (rejecting, timing
  * out) never blocks another's, nor startup itself -- defensively contained
  * even though the real tryEnigmaAccessToken never throws.
+ *
+ * ENIGMA_CLIENT_TOKEN, when present in baseEnv, is web-spider's own
+ * registered-client token (see `enigma client add web-spider`) -- Enigma's
+ * shared admin-token file is deliberately unreadable outside Enigma's own
+ * service account, so a consumer must present its own scoped token to get
+ * anything back at all. Omitted, this still works exactly as before
+ * against an unmigrated Enigma (or resolves to nothing, same as today).
  */
 export async function resolveSearchEnv(
 	baseEnv: Record<string, string | undefined> = process.env,
 	tryEnigma: TryEnigmaAccessToken = tryEnigmaAccessToken,
 ): Promise<Record<string, string | undefined>> {
 	const env = { ...baseEnv };
+	const token = baseEnv.ENIGMA_CLIENT_TOKEN;
 	await Promise.all(
 		ENIGMA_BACKED_ENGINES.map(async ({ backend, envVar }) => {
 			try {
-				const token = await tryEnigma(backend, { env: baseEnv });
-				if (token) env[envVar] = token;
+				const resolved = await tryEnigma(backend, { env: baseEnv, token });
+				if (resolved) env[envVar] = resolved;
 			} catch {
 				// fall through to baseEnv's own value for this provider, if any
 			}
