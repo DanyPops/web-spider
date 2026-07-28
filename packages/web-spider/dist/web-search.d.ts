@@ -25,12 +25,16 @@ export interface BraveSearchOptions {
     /** Restrict results to one domain. Brave has no structured domain-filter param -- appended as a `site:` operator in the query text instead. */
     siteFilter?: string;
     /**
-     * Called once with any rate-limit/quota-shaped response headers Brave sent,
-     * when it sent any. Unlike Tavily/Exa, Brave's actual header behavior was
-     * not confirmed against real documentation as of this writing (their docs
-     * site is JS-rendered, and no official or third-party SDK parses any such
-     * header) -- this exists to observe real behavior against a real key
-     * rather than assume a shape, and may report nothing at all.
+     * Include up to 5 extra excerpts per result (Brave's own `extra_snippets`
+     * param), surfaced in {@link WebSearchResult.highlights}. Off by default --
+     * costs nothing extra per Brave's docs, but not every caller wants the
+     * larger payload.
+     */
+    extraSnippets?: boolean;
+    /**
+     * Called once with any rate-limit/quota-shaped response headers Brave sent.
+     * Confirmed against Brave's own docs: X-RateLimit-Limit/-Policy/-Remaining/
+     * -Reset are real, documented response headers.
      */
     onUsage?: (usage: EngineUsage) => void;
 }
@@ -67,6 +71,8 @@ export interface ExaSearchOptions {
     type?: "auto" | "neural" | "keyword";
     /** Restrict results to one domain. Maps to Exa's own `includeDomains` array param (accepts domains, path prefixes, and subdomain wildcards per Exa's docs -- we only ever send one entry). */
     siteFilter?: string;
+    /** Include each result's full extracted page text in {@link WebSearchResult.content} (Exa's own `contents.text`). Off by default -- costs more and inflates payload size, matching Tavily's includeRawContent. */
+    includeText?: boolean;
     /** Called once with this call's own dollar cost, when Exa reports one (only non-zero costs are included in its response). */
     onUsage?: (usage: EngineUsage) => void;
 }
@@ -192,7 +198,8 @@ export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;
     private readonly country?;
     private readonly onUsage?;
-    constructor(apiKey: string, country?: string | undefined, onUsage?: ((usage: EngineUsage) => void) | undefined);
+    private readonly extraSnippets;
+    constructor(apiKey: string, country?: string | undefined, onUsage?: ((usage: EngineUsage) => void) | undefined, extraSnippets?: boolean);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Tavily adapter implementing ISearchEngine and IAnswerSearchEngine (reference implementation of the answer-first port, via Tavily's own include_answer). */
@@ -207,7 +214,8 @@ export declare class TavilySearchEngine implements ISearchEngine, IAnswerSearchE
 export declare class ExaSearchEngine implements ISearchEngine {
     private readonly apiKey;
     private readonly onUsage?;
-    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined);
+    private readonly includeText;
+    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined, includeText?: boolean);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Serper.dev adapter implementing ISearchEngine. */

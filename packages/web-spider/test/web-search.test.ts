@@ -1218,7 +1218,7 @@ describe("youComSearch", () => {
 		await expect(youComSearch("test")).rejects.toThrow(/YOU_API_KEY/);
 	});
 
-	it("GETs ydc-index.io/v1/search with X-API-Key header", async () => {
+	it("GETs api.ydc-index.io/v1/search with X-API-Key header", async () => {
 		const originalFetch = globalThis.fetch;
 		let capturedUrl = "";
 		let capturedHeaders: Record<string, string> = {};
@@ -1239,7 +1239,7 @@ describe("youComSearch", () => {
 			globalThis.fetch = originalFetch;
 		}
 
-		expect(capturedUrl).toContain("https://ydc-index.io/v1/search?");
+		expect(capturedUrl).toContain("https://api.ydc-index.io/v1/search?");
 		expect(capturedUrl).toContain("query=coffee");
 		expect(capturedUrl).toContain("count=5");
 		expect(capturedHeaders["X-API-Key"]).toBe("test-key");
@@ -1370,6 +1370,93 @@ describe("exaSearch — highlights field", () => {
 			globalThis.fetch = originalFetch;
 		}
 		expect(capturedBody["includeDomains"]).toEqual(["reddit.com"]);
+	});
+
+	it("includeText requests contents.text and populates WebSearchResult.content; omitted by default", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [{ url: "https://a.example", title: "A", text: "full page text" }] }) };
+		}) as typeof fetch;
+		try {
+			const results = await exaSearch("test", { apiKey: "key", includeText: true });
+			expect((capturedBody["contents"] as Record<string, unknown>)["text"]).toBe(true);
+			expect(results[0]?.content).toBe("full page text");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }), // Exa omits `text` entirely when contents.text wasn't requested
+		}) as unknown as typeof fetch;
+		try {
+			const results = await exaSearch("test", { apiKey: "key" });
+			expect(results[0]).not.toHaveProperty("content");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// braveSearch — extra_snippets field
+// ---------------------------------------------------------------------------
+
+describe("braveSearch — extra_snippets field", () => {
+	it("extraSnippets:true sets extra_snippets=true and populates WebSearchResult.highlights", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return {
+				ok: true, status: 200, statusText: "OK", headers: new Headers(),
+				json: async () => ({ web: { results: [{ url: "https://a.example", title: "A", description: "d", extra_snippets: ["e1", "e2"] }] } }),
+			};
+		}) as typeof fetch;
+		try {
+			const results = await braveSearch("test", { apiKey: "key", extraSnippets: true });
+			expect(capturedUrl).toContain("extra_snippets=true");
+			expect(results[0]?.highlights).toEqual(["e1", "e2"]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("omits extra_snippets param and highlights field when not requested", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return {
+				ok: true, status: 200, statusText: "OK", headers: new Headers(),
+				json: async () => ({ web: { results: [{ url: "https://a.example", title: "A", description: "d" }] } }),
+			};
+		}) as typeof fetch;
+		try {
+			const results = await braveSearch("test", { apiKey: "key" });
+			expect(capturedUrl).not.toContain("extra_snippets");
+			expect(results[0]).not.toHaveProperty("highlights");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("BraveSearchEngine requests extra_snippets by default (no vendor cost per Brave's own docs)", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return { ok: true, status: 200, statusText: "OK", headers: new Headers(), json: async () => ({ web: { results: [] } }) };
+		}) as typeof fetch;
+		try {
+			const engine = new BraveSearchEngine("key");
+			await engine.search(REQ);
+			expect(capturedUrl).toContain("extra_snippets=true");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });
 
@@ -1673,7 +1760,7 @@ describe("defaultSearchEngine — you.com wiring", () => {
 			globalThis.fetch = originalFetch;
 		}
 
-		expect(new Set(calledHosts).size).toBe(2); // tavily.com and ydc-index.io each hit once
+		expect(new Set(calledHosts).size).toBe(2); // tavily.com and api.ydc-index.io each hit once
 	});
 
 	it("resolves 'you' by name via resolveSearchEngine", () => {

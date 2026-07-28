@@ -275,6 +275,8 @@ Every keyed engine with an API key set is round-robined as an equal-tier peer, s
 | SerpApi | `SERPAPI_API_KEY` | Scraped, real Google SERPs. |
 | You.com | `YOU_API_KEY` | Independent index, multiple pre-ranked snippets per result. |
 
+Brave and Exa can each return more per result than the default `snippet` field alone: Brave's `extra_snippets` (on by default, no extra vendor cost per Brave's own docs) and Exa's opt-in full-page `text` extraction both surface through `highlights`/`content` on the same `WebSearchResult` shape as Tavily and You.com.
+
 Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"serper"` | `"serpapi"` | `"you"`.
 
 DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it was removed. It's not a web search index — it only returns data for single named entities with a Wikipedia-style knowledge panel, and returns an empty (but HTTP-successful) response for nearly every other query. As the final entry in the fallback chain, an empty-but-successful DDG call masked real upstream failures (e.g. a quota-exhausted key) as an ordinary empty result instead of surfacing the error.

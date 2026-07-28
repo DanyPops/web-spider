@@ -40,12 +40,16 @@ export interface BraveSearchOptions {
 	/** Restrict results to one domain. Brave has no structured domain-filter param -- appended as a `site:` operator in the query text instead. */
 	siteFilter?: string;
 	/**
-	 * Called once with any rate-limit/quota-shaped response headers Brave sent,
-	 * when it sent any. Unlike Tavily/Exa, Brave's actual header behavior was
-	 * not confirmed against real documentation as of this writing (their docs
-	 * site is JS-rendered, and no official or third-party SDK parses any such
-	 * header) -- this exists to observe real behavior against a real key
-	 * rather than assume a shape, and may report nothing at all.
+	 * Include up to 5 extra excerpts per result (Brave's own `extra_snippets`
+	 * param), surfaced in {@link WebSearchResult.highlights}. Off by default --
+	 * costs nothing extra per Brave's docs, but not every caller wants the
+	 * larger payload.
+	 */
+	extraSnippets?: boolean;
+	/**
+	 * Called once with any rate-limit/quota-shaped response headers Brave sent.
+	 * Confirmed against Brave's own docs: X-RateLimit-Limit/-Policy/-Remaining/
+	 * -Reset are real, documented response headers.
 	 */
 	onUsage?: (usage: EngineUsage) => void;
 }
@@ -88,6 +92,8 @@ export interface ExaSearchOptions {
 	type?: "auto" | "neural" | "keyword";
 	/** Restrict results to one domain. Maps to Exa's own `includeDomains` array param (accepts domains, path prefixes, and subdomain wildcards per Exa's docs -- we only ever send one entry). */
 	siteFilter?: string;
+	/** Include each result's full extracted page text in {@link WebSearchResult.content} (Exa's own `contents.text`). Off by default -- costs more and inflates payload size, matching Tavily's includeRawContent. */
+	includeText?: boolean;
 	/** Called once with this call's own dollar cost, when Exa reports one (only non-zero costs are included in its response). */
 	onUsage?: (usage: EngineUsage) => void;
 }
@@ -119,6 +125,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 				type: opts.type ?? "auto",
 				contents: {
 					highlights: { numSentences: 2, highlightsPerUrl: 3 },
+					...(opts.includeText ? { text: true } : {}),
 				},
 				...(opts.siteFilter ? { includeDomains: [opts.siteFilter] } : {}),
 			}),
@@ -135,6 +142,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 			title: string;
 			publishedDate?: string;
 			highlights?: string[];
+			text?: string;
 		}>;
 		costDollars?: { total: number };
 	};
@@ -147,6 +155,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
 		snippet: r.highlights?.join(" … ") ?? "",
 		...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
 		...(r.highlights && r.highlights.length > 0 ? { highlights: r.highlights } : {}),
+		...(r.text ? { content: r.text } : {}),
 	}));
 }
 
@@ -164,6 +173,7 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 	});
 	if (opts.country) params.set("country", opts.country);
 	if (opts.freshness) params.set("freshness", opts.freshness);
+	if (opts.extraSnippets) params.set("extra_snippets", "true");
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 10_000);
@@ -196,6 +206,7 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 				title: string;
 				description?: string;
 				age?: string;
+				extra_snippets?: string[];
 			}>;
 		};
 	};
@@ -205,6 +216,7 @@ export async function braveSearch(query: string, opts: BraveSearchOptions = {}):
 		title: r.title,
 		snippet: r.description ?? "",
 		...(r.age ? { publishedAt: r.age } : {}),
+		...(r.extra_snippets && r.extra_snippets.length > 0 ? { highlights: r.extra_snippets } : {}),
 	}));
 }
 
@@ -464,7 +476,10 @@ export async function youComSearch(query: string, opts: YouComSearchOptions = {}
 	const timer = setTimeout(() => controller.abort(), 10_000);
 	let res: Response;
 	try {
-		res = await fetch(`https://ydc-index.io/v1/search?${params}`, {
+		// api.ydc-index.io, not the bare ydc-index.io apex domain -- confirmed against
+		// You.com's own docs/blog, its AWS Marketplace listing, and Databricks's
+		// integration guide, all of which agree on the api. subdomain.
+		res = await fetch(`https://api.ydc-index.io/v1/search?${params}`, {
 			signal: controller.signal,
 			headers: { "X-API-Key": apiKey, Accept: "application/json" },
 		});
@@ -613,7 +628,7 @@ const BRAVE_FRESHNESS: Record<string, "pd" | "pw" | "pm" | "py"> = {
 
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly country?: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
+	constructor(private readonly apiKey: string, private readonly country?: string, private readonly onUsage?: (usage: EngineUsage) => void, private readonly extraSnippets = true) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
@@ -624,6 +639,7 @@ export class BraveSearchEngine implements ISearchEngine {
 			freshness,
 			siteFilter: req.siteFilter,
 			onUsage: this.onUsage,
+			extraSnippets: this.extraSnippets,
 		});
 	}
 }
@@ -657,10 +673,10 @@ export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
 
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
+	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void, private readonly includeText = false) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage });
+		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage, includeText: this.includeText });
 	}
 }
 

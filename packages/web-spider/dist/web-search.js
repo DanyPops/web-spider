@@ -45,6 +45,7 @@ export async function exaSearch(query, opts = {}) {
                 type: opts.type ?? "auto",
                 contents: {
                     highlights: { numSentences: 2, highlightsPerUrl: 3 },
+                    ...(opts.includeText ? { text: true } : {}),
                 },
                 ...(opts.siteFilter ? { includeDomains: [opts.siteFilter] } : {}),
             }),
@@ -64,6 +65,7 @@ export async function exaSearch(query, opts = {}) {
         snippet: r.highlights?.join(" … ") ?? "",
         ...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
         ...(r.highlights && r.highlights.length > 0 ? { highlights: r.highlights } : {}),
+        ...(r.text ? { content: r.text } : {}),
     }));
 }
 /**
@@ -82,6 +84,8 @@ export async function braveSearch(query, opts = {}) {
         params.set("country", opts.country);
     if (opts.freshness)
         params.set("freshness", opts.freshness);
+    if (opts.extraSnippets)
+        params.set("extra_snippets", "true");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     let res;
@@ -113,6 +117,7 @@ export async function braveSearch(query, opts = {}) {
         title: r.title,
         snippet: r.description ?? "",
         ...(r.age ? { publishedAt: r.age } : {}),
+        ...(r.extra_snippets && r.extra_snippets.length > 0 ? { highlights: r.extra_snippets } : {}),
     }));
 }
 /**
@@ -313,7 +318,10 @@ export async function youComSearch(query, opts = {}) {
     const timer = setTimeout(() => controller.abort(), 10_000);
     let res;
     try {
-        res = await fetch(`https://ydc-index.io/v1/search?${params}`, {
+        // api.ydc-index.io, not the bare ydc-index.io apex domain -- confirmed against
+        // You.com's own docs/blog, its AWS Marketplace listing, and Databricks's
+        // integration guide, all of which agree on the api. subdomain.
+        res = await fetch(`https://api.ydc-index.io/v1/search?${params}`, {
             signal: controller.signal,
             headers: { "X-API-Key": apiKey, Accept: "application/json" },
         });
@@ -430,10 +438,11 @@ const BRAVE_FRESHNESS = {
 };
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine {
-    constructor(apiKey, country, onUsage) {
+    constructor(apiKey, country, onUsage, extraSnippets = true) {
         this.apiKey = apiKey;
         this.country = country;
         this.onUsage = onUsage;
+        this.extraSnippets = extraSnippets;
     }
     search(req) {
         const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
@@ -444,6 +453,7 @@ export class BraveSearchEngine {
             freshness,
             siteFilter: req.siteFilter,
             onUsage: this.onUsage,
+            extraSnippets: this.extraSnippets,
         });
     }
 }
@@ -476,12 +486,13 @@ export class TavilySearchEngine {
 }
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine {
-    constructor(apiKey, onUsage) {
+    constructor(apiKey, onUsage, includeText = false) {
         this.apiKey = apiKey;
         this.onUsage = onUsage;
+        this.includeText = includeText;
     }
     search(req) {
-        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage });
+        return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage, includeText: this.includeText });
     }
 }
 /** Serper.dev adapter implementing ISearchEngine. */
