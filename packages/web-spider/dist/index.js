@@ -15,7 +15,7 @@ export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./med
 export { parseGitHubUrl, queryGitHub } from "./github.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export { toLean } from "./views.js";
-export { braveSearch, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
+export { braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
  *

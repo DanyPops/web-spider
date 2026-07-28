@@ -381,8 +381,12 @@ export function resolveSearchEngine(name, key) {
         throw new Error(`Unknown search engine: "${name}". Register it with registerSearchEngine().`);
     return factory(key);
 }
-/** @internal Map engine name to its env var key name (for webSearch auto-detect). */
-function envKeyForEngine(name) {
+/** Every engine name currently registered -- a consumer that needs to iterate all known backends (e.g. a local credential store) never hardcodes a second copy of this list. */
+export function listRegisteredSearchEngines() {
+    return [...ENGINE_REGISTRY.keys()];
+}
+/** Map an engine name to its env var key name (for webSearch auto-detect, and for anything else that needs the same canonical mapping). Returns "" for an unknown name. */
+export function envKeyForEngine(name) {
     const envKeys = {
         brave: "BRAVE_SEARCH_API_KEY",
         tavily: "TAVILY_API_KEY",

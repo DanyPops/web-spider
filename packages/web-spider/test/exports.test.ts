@@ -22,7 +22,9 @@ import {
 	buildTree,
 	crawl,
 	createPlaywrightClient,
+	envKeyForEngine,
 	fuzzySearch,
+	listRegisteredSearchEngines,
 	searchPages,
 	navigateTree,
 	queryTree,
@@ -74,6 +76,8 @@ describe("functions", () => {
 		["braveSearch", braveSearch],
 		["tavilySearch", tavilySearch],
 		["canonicalizeUrl", canonicalizeUrl],
+		["envKeyForEngine", envKeyForEngine],
+		["listRegisteredSearchEngines", listRegisteredSearchEngines],
 	])("%s is a function", (_name, fn) => {
 		expect(typeof fn).toBe("function");
 	});

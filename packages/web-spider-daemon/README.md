@@ -84,6 +84,18 @@ Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SER
 
 A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all five provider key vars from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) re-renders the unit and picks up updated keys. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
 
+### Optional: a local, per-engine key file instead of an env var
+
+`web-spider search-key set <engine>` stores an API key in its own small file under this daemon's state directory (`search-keys/<engine>.json`, 0600, plaintext), independent of the process environment entirely:
+
+```bash
+web-spider search-key set tavily       # hidden prompt, or WEB_SPIDER_SEARCH_KEY_VALUE=... for scripts
+web-spider search-key list             # engine names only, never the keys themselves
+web-spider search-key remove tavily
+```
+
+This exists because a systemd `--user` service's env is not actually scoped to what it needs — it inherits the whole desktop session's environment, secrets included. A locally stored key sidesteps that: it lives in a file only this daemon's own state directory holds, and it overrides a same-named env var rather than being overridden by it. Takes effect on the daemon's next restart (`resolveSearchEnv()` resolves once at startup, not per search call).
+
 ### Optional: credentials via Enigma, instead of a static key per provider
 
 Enigma involvement is opt-in — set `WEB_SPIDER_USE_ENIGMA=1` explicitly. Without it, the daemon never probes for Enigma at all, even if one happens to be running on the machine for some other daemon's sake: being reachable isn't the same as being wanted.
@@ -99,6 +111,16 @@ export WEB_SPIDER_USE_ENIGMA=1
 ```
 
 Without `ENIGMA_CLIENT_TOKEN`, Enigma's shared admin-token file is deliberately unreadable outside its own service account — the daemon falls straight through to its own environment's static keys, unchanged from before Enigma existed.
+
+### The full ladder
+
+Each engine resolves its key in this order, strongest wins:
+
+1. Enigma, if `WEB_SPIDER_USE_ENIGMA=1` and a credential is registered
+2. This daemon's own local key file (`search-key set`)
+3. The raw process environment (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, ...)
+
+Each rung is independently optional; using only the env var works identically to before either of the other two existed.
 
 `tree.query`/`tree.path` as standalone operations (today folded into `fetch(format: "tree")`), `robots.status`, `throttle.status`, `searchEnrich` composition, and `papyrus.ingest` land in follow-up work.
 

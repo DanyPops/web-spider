@@ -45,7 +45,10 @@ export interface PathEnvironment {
 }
 
 export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderPaths {
-	return resolveDaemonPaths(
+	// daemon-kit >=0.18 renamed DaemonPaths.systemdUnit to the platform-neutral
+	// serviceDescriptor -- mapped back to this module's own stable field name
+	// here so no existing consumer (cli.ts) needs to change its own field access.
+	const resolved = resolveDaemonPaths(
 		{
 			stateDirectoryName: WEB_SPIDER_STATE_DIRECTORY,
 			databaseFilename: DATABASE_FILENAME,
@@ -55,6 +58,7 @@ export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderP
 		},
 		options,
 	);
+	return { database: resolved.database, token: resolved.token, handle: resolved.handle, systemdUnit: resolved.serviceDescriptor };
 }
 
 export function ensureAuthToken(paths: WebSpiderPaths = resolveWebSpiderPaths()): string {

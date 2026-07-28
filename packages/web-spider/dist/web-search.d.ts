@@ -207,6 +207,10 @@ export declare function registerSearchEngine(name: string, factory: EngineFactor
  * Throws a descriptive error for unknown names or missing required keys.
  */
 export declare function resolveSearchEngine(name: string, key?: string | undefined): ISearchEngine;
+/** Every engine name currently registered -- a consumer that needs to iterate all known backends (e.g. a local credential store) never hardcodes a second copy of this list. */
+export declare function listRegisteredSearchEngines(): string[];
+/** Map an engine name to its env var key name (for webSearch auto-detect, and for anything else that needs the same canonical mapping). Returns "" for an unknown name. */
+export declare function envKeyForEngine(name: string): string;
 /** Brave Search adapter implementing ISearchEngine. */
 export declare class BraveSearchEngine implements ISearchEngine {
     private readonly apiKey;

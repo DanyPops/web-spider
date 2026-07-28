@@ -1,18 +1,97 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { EnigmaWhoAmI, TryEnigmaCredential, TryEnigmaWhoAmI, VaultCredential } from "@danypops/enigma-client";
+import { createSearchKeyStore } from "../src/search-secrets.ts";
 import { resolveSearchEnv } from "../src/search-env.ts";
 
 /**
- * Never the real Enigma client functions in a test: they do a real
- * filesystem check against $XDG_RUNTIME_DIR, and a real Enigma daemon may
- * genuinely be running on the machine executing this suite -- tests must
- * never depend on ambient host state.
+ * Never a real filesystem path this machine might actually have search
+ * keys stored under, and never the real Enigma client functions -- a real
+ * Enigma daemon may genuinely be running on the machine executing this
+ * suite, and this machine's own `~/.local/state/web-spider/search-keys/`
+ * may genuinely hold real keys. Tests must never depend on ambient host
+ * state; every test below passes its own isolated, guaranteed-empty
+ * searchKeysDir unless it's specifically exercising that tier.
  */
+const NO_LOCAL_KEYS_DIR = "/nonexistent-search-keys-dir-for-tests";
+
 function fakeDeps(who: EnigmaWhoAmI | undefined, credentials: Record<string, VaultCredential>) {
 	const tryWhoAmI: TryEnigmaWhoAmI = async () => who;
 	const tryCredential: TryEnigmaCredential = async (backend) => credentials[backend];
-	return { tryWhoAmI, tryCredential };
+	return { tryWhoAmI, tryCredential, searchKeysDir: NO_LOCAL_KEYS_DIR };
 }
+
+describe("resolveSearchEnv: local file-store tier", () => {
+	it("leaves the base env untouched when nothing is stored locally", async () => {
+		const baseEnv = { TAVILY_API_KEY: "static-key" };
+		const env = await resolveSearchEnv(baseEnv, { searchKeysDir: NO_LOCAL_KEYS_DIR });
+		expect(env).toEqual(baseEnv);
+	});
+
+	it("fills in an engine's env var from a locally stored key, with no static env var present at all", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
+		try {
+			createSearchKeyStore(dir, "brave").save("stored-brave-key");
+			const env = await resolveSearchEnv({}, { searchKeysDir: dir });
+			expect(env.BRAVE_SEARCH_API_KEY).toBe("stored-brave-key");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("a locally stored key overrides a static env var for the same engine (env is the weakest tier)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
+		try {
+			createSearchKeyStore(dir, "tavily").save("stored-tavily-key");
+			const env = await resolveSearchEnv({ TAVILY_API_KEY: "stale-env-key" }, { searchKeysDir: dir });
+			expect(env.TAVILY_API_KEY).toBe("stored-tavily-key");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves every engine independently -- one stored key never leaks into another engine's env var", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
+		try {
+			createSearchKeyStore(dir, "exa").save("stored-exa-key");
+			const env = await resolveSearchEnv({ TAVILY_API_KEY: "static-tavily" }, { searchKeysDir: dir });
+			expect(env.EXA_API_KEY).toBe("stored-exa-key");
+			expect(env.TAVILY_API_KEY).toBe("static-tavily");
+			expect(env.BRAVE_SEARCH_API_KEY).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("Enigma still wins over a locally stored key when both are opted into and both supply a value", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
+		try {
+			createSearchKeyStore(dir, "brave").save("stored-local-key");
+			const who = { name: "web-spider", backends: ["Brave"] };
+			const credentials = { Brave: { accessToken: "enigma-key", extra: { envVarName: "BRAVE_SEARCH_API_KEY" } } };
+			const env = await resolveSearchEnv(
+				{ WEB_SPIDER_USE_ENIGMA: "1" },
+				{ searchKeysDir: dir, tryWhoAmI: async () => who, tryCredential: async () => credentials.Brave },
+			);
+			expect(env.BRAVE_SEARCH_API_KEY).toBe("enigma-key");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not require WEB_SPIDER_USE_ENIGMA -- the local store is unconditional, unlike Enigma", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
+		try {
+			createSearchKeyStore(dir, "you").save("stored-you-key");
+			const env = await resolveSearchEnv({}, { searchKeysDir: dir });
+			expect(env.YOU_API_KEY).toBe("stored-you-key");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("resolveSearchEnv: opt-in switch", () => {
 	it("never calls Enigma at all when WEB_SPIDER_USE_ENIGMA is unset -- reachable is not the same as wanted", async () => {
@@ -22,7 +101,7 @@ describe("resolveSearchEnv: opt-in switch", () => {
 			return { name: "web-spider", backends: ["Brave"] };
 		};
 		const baseEnv = { TAVILY_API_KEY: "static-key" };
-		const env = await resolveSearchEnv(baseEnv, { tryWhoAmI });
+		const env = await resolveSearchEnv(baseEnv, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR });
 		expect(called).toBe(false);
 		expect(env).toEqual(baseEnv);
 	});
@@ -33,7 +112,7 @@ describe("resolveSearchEnv: opt-in switch", () => {
 			called = true;
 			return { name: "web-spider", backends: ["Brave"] };
 		};
-		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "0" }, { tryWhoAmI });
+		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "0" }, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR });
 		expect(called).toBe(false);
 		expect(env.WEB_SPIDER_USE_ENIGMA).toBe("0");
 	});
@@ -53,7 +132,7 @@ describe("resolveSearchEnv: opt-in switch", () => {
 	});
 });
 
-describe("resolveSearchEnv", () => {
+describe("resolveSearchEnv: Enigma tier", () => {
 	it("leaves the base env untouched when Enigma reports no registration at all", async () => {
 		const baseEnv = { WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static-key", UNRELATED: "x" };
 		const env = await resolveSearchEnv(baseEnv, fakeDeps(undefined, {}));
@@ -105,7 +184,7 @@ describe("resolveSearchEnv", () => {
 		const tryWhoAmI: TryEnigmaWhoAmI = async () => {
 			throw new Error("boom");
 		};
-		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" }, { tryWhoAmI });
+		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" }, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR });
 		expect(env).toEqual({ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" });
 	});
 
@@ -117,7 +196,7 @@ describe("resolveSearchEnv", () => {
 		};
 		const env = await resolveSearchEnv(
 			{ WEB_SPIDER_USE_ENIGMA: "1", BRAVE_SEARCH_API_KEY: "static-brave" },
-			{ tryWhoAmI: async () => who, tryCredential },
+			{ tryWhoAmI: async () => who, tryCredential, searchKeysDir: NO_LOCAL_KEYS_DIR },
 		);
 		expect(env.BRAVE_SEARCH_API_KEY).toBe("static-brave");
 		expect(env.EXA_API_KEY).toBe("e-key");
@@ -135,7 +214,7 @@ describe("resolveSearchEnv", () => {
 		};
 		await resolveSearchEnv(
 			{ WEB_SPIDER_USE_ENIGMA: "1", ENIGMA_CLIENT_TOKEN: "web-spider-own-token" },
-			{ tryWhoAmI, tryCredential },
+			{ tryWhoAmI, tryCredential, searchKeysDir: NO_LOCAL_KEYS_DIR },
 		);
 		expect(seenTokens.every((t) => t === "web-spider-own-token")).toBe(true);
 	});

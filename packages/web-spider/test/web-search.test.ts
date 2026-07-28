@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultAnswerEngine, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
+import { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultAnswerEngine, defaultSearchEngine, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
 import type { NamedSearchEngine } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
@@ -1923,5 +1923,35 @@ describe("defaultSearchEngine — you.com wiring", () => {
 	it("resolves 'you' by name via resolveSearchEngine", () => {
 		const engine = resolveSearchEngine("you", "test-you-key");
 		expect(engine).toBeInstanceOf(YouComSearchEngine);
+	});
+});
+
+describe("listRegisteredSearchEngines", () => {
+	it("includes every built-in engine, so a consumer never needs a second hardcoded list", () => {
+		const names = listRegisteredSearchEngines();
+		expect(names).toEqual(expect.arrayContaining(["brave", "tavily", "exa", "serper", "serpapi", "you"]));
+	});
+
+	it("reflects a newly registered engine immediately, not a stale snapshot", () => {
+		expect(listRegisteredSearchEngines()).not.toContain("listed-test-engine");
+		// No unregister exists (matches ENGINE_REGISTRY's own additive-only design) -- a
+		// distinctive name keeps this from ever colliding with a real engine in other tests.
+		registerSearchEngine("listed-test-engine", () => okEngine([RESULT_A]));
+		expect(listRegisteredSearchEngines()).toContain("listed-test-engine");
+	});
+});
+
+describe("envKeyForEngine", () => {
+	it("maps every built-in engine to its documented env var name", () => {
+		expect(envKeyForEngine("brave")).toBe("BRAVE_SEARCH_API_KEY");
+		expect(envKeyForEngine("tavily")).toBe("TAVILY_API_KEY");
+		expect(envKeyForEngine("exa")).toBe("EXA_API_KEY");
+		expect(envKeyForEngine("serper")).toBe("SERPER_API_KEY");
+		expect(envKeyForEngine("serpapi")).toBe("SERPAPI_API_KEY");
+		expect(envKeyForEngine("you")).toBe("YOU_API_KEY");
+	});
+
+	it("returns an empty string for an unknown engine name, never throws", () => {
+		expect(envKeyForEngine("not-a-real-engine")).toBe("");
 	});
 });

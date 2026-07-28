@@ -13,9 +13,10 @@
  * language for humans — never parsed from the human text).
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listRegisteredSearchEngines } from "@danypops/web-spider";
 import {
 	formatCacheListResult, formatCacheSearchResult, formatCategoryAssignResult, formatCategoryListResult,
 	formatCategoryRemoveResult, formatCategoryRenameResult, formatFetchResult, formatPapyrusIngestResult,
@@ -24,6 +25,8 @@ import {
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
+import { promptMaskedSecret } from "./masked-prompt.ts";
+import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
 import { isSessionAction } from "./domain/session-audit.ts";
 import type { CachedPageListFilter } from "./domain/page.ts";
@@ -139,6 +142,10 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--engine brave|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
 		"       web-spider usage [--engine NAME] [--limit N] [--json]",
 		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
+		"       web-spider search-key set <engine>    store a search-provider API key locally (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
+		"       web-spider search-key list             list engines with a locally stored key, never the key itself",
+		"       web-spider search-key remove <engine>  delete a locally stored key",
+		"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
 		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
 		"                          [--published-after ISO] [--published-before ISO]",
 		"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
@@ -292,6 +299,65 @@ async function runUsage(rest: string[], deps: CliDependencies): Promise<number> 
 		deps.stderr(error instanceof Error ? error.message : String(error));
 		return 1;
 	}
+}
+
+/**
+ * Local filesystem operations only -- never routed through the daemon's RPC,
+ * matching `login`-style CLI flows elsewhere: a stored key is re-read fresh
+ * by resolveSearchEnv() on the daemon's own next startup, no live push needed.
+ */
+async function runSearchKeySet(rest: string[], deps: CliDependencies): Promise<number> {
+	const [engine] = rest;
+	const known = listRegisteredSearchEngines();
+	if (!engine) {
+		deps.stderr(`usage: web-spider search-key set <engine> (known: ${known.sort().join(", ")})`);
+		return 1;
+	}
+	if (!known.includes(engine)) {
+		deps.stderr(`unknown search engine: "${engine}" (known: ${known.sort().join(", ")})`);
+		return 1;
+	}
+	// WEB_SPIDER_SEARCH_KEY_VALUE remains for non-interactive/scripted use (a provisioning
+	// script, `pass show brave | web-spider search-key set brave`) -- never accepted as a
+	// plain CLI flag value, which would land in shell history the way this would not.
+	const value = process.env.WEB_SPIDER_SEARCH_KEY_VALUE ?? (await promptMaskedSecret(`Paste the "${engine}" API key (input hidden): `));
+	if (!value) {
+		deps.stderr("no API key value provided — paste one at the prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE for non-interactive use");
+		return 1;
+	}
+	const dir = resolveSearchKeysDir(resolveWebSpiderPaths());
+	createSearchKeyStore(dir, engine).save(value);
+	deps.stdout(`Search key saved for "${engine}". Takes effect on the daemon's next restart.`);
+	return 0;
+}
+
+async function runSearchKeyList(_rest: string[], deps: CliDependencies): Promise<number> {
+	const dir = resolveSearchKeysDir(resolveWebSpiderPaths());
+	const names = existsSync(dir)
+		? readdirSync(dir)
+				.filter((file) => file.endsWith(".json"))
+				.map((file) => file.slice(0, -".json".length))
+				.sort()
+		: [];
+	deps.stdout(JSON.stringify(names));
+	return 0;
+}
+
+async function runSearchKeyRemove(rest: string[], deps: CliDependencies): Promise<number> {
+	const [engine] = rest;
+	if (!engine) {
+		deps.stderr("usage: web-spider search-key remove <engine>");
+		return 1;
+	}
+	const dir = resolveSearchKeysDir(resolveWebSpiderPaths());
+	const store = createSearchKeyStore(dir, engine);
+	if (store.load() === undefined) {
+		deps.stderr(`no search key stored for "${engine}"`);
+		return 1;
+	}
+	store.remove();
+	deps.stdout(`Removed search key for "${engine}".`);
+	return 0;
 }
 
 async function runCacheList(rest: string[], deps: CliDependencies): Promise<number> {
@@ -520,6 +586,13 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	if (command === "fetch") return runFetch(rest, deps);
 	if (command === "search") return runSearch(rest, deps);
 	if (command === "usage") return runUsage(rest, deps);
+	if (command === "search-key") {
+		const [subcommand, ...searchKeyRest] = rest;
+		if (subcommand === "set") return runSearchKeySet(searchKeyRest, deps);
+		if (subcommand === "list") return runSearchKeyList(searchKeyRest, deps);
+		if (subcommand === "remove") return runSearchKeyRemove(searchKeyRest, deps);
+		return usage(deps.stderr);
+	}
 	if (command === "cache") {
 		const [subcommand, ...cacheRest] = rest;
 		if (subcommand === "list") return runCacheList(cacheRest, deps);

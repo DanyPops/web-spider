@@ -280,6 +280,8 @@ Brave and Exa can each return more per result than the default `snippet` field a
 
 Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"serper"` | `"serpapi"` | `"you"`.
 
+A key can also live outside the daemon's raw process environment: `web-spider search-key set <engine>` stores it in a small local file instead (useful since a systemd `--user` service's environment is not actually scoped to what it needs), and Enigma can supply it too if configured. See the daemon README's "The full ladder" section for the exact precedence.
+
 DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it was removed. It's not a web search index — it only returns data for single named entities with a Wikipedia-style knowledge panel, and returns an empty (but HTTP-successful) response for nearly every other query. As the final entry in the fallback chain, an empty-but-successful DDG call masked real upstream failures (e.g. a quota-exhausted key) as an ordinary empty result instead of surfacing the error.
 
 ### Site-restricted queries and per-domain routing

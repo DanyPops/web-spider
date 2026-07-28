@@ -28,7 +28,7 @@ export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
 export type { BraveSearchOptions, DefaultAnswerEngineOptions, DefaultSearchEngineOptions, EngineFailureReason, EngineUsage, ExaSearchOptions, FallbackSearchEngineOptions, InMemorySiteAvailabilityTrackerOptions, NamedSearchEngine, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, SiteRoutedSearchEngineOptions, TavilyAnswerSearchOptions, TavilySearchOptions, WebSearchOptions, WebSearchResult, YouComSearchOptions } from "./web-search.js";
-export { braveSearch, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
+export { braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // Utilities
