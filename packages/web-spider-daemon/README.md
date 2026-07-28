@@ -84,6 +84,19 @@ Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SER
 
 A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all five provider key vars from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) re-renders the unit and picks up updated keys. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
 
+### Optional: credentials via Enigma, instead of a static key per provider
+
+If an [Enigma](https://github.com/DanyPops/enigma) vault is running, the daemon asks it at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
+
+```bash
+enigma login apikey --name Brave --env-var BRAVE_SEARCH_API_KEY
+enigma client add web-spider --backends brave,tavily,exa
+# -> prints a token once; export it wherever the daemon is started
+export ENIGMA_CLIENT_TOKEN=<printed token>
+```
+
+Without `ENIGMA_CLIENT_TOKEN`, Enigma's shared admin-token file is deliberately unreadable outside its own service account — the daemon falls straight through to its own environment's static keys, unchanged from before Enigma existed.
+
 `tree.query`/`tree.path` as standalone operations (today folded into `fetch(format: "tree")`), `robots.status`, `throttle.status`, `searchEnrich` composition, and `papyrus.ingest` land in follow-up work.
 
 ## CLI
