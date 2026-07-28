@@ -13,9 +13,19 @@
  * by inspecting Enigma's own registration, not a silent client-side guess
  * that only fails at first real search call.
  *
+ * Enigma involvement is opt-in via WEB_SPIDER_USE_ENIGMA, not inferred from
+ * Enigma merely being reachable: a shared admin-token file can exist for a
+ * totally unrelated daemon on the same machine, and being able to reach
+ * Enigma is not the same as this daemon wanting to. Without the flag, this
+ * resolves to baseEnv untouched with zero filesystem/network probing at all.
+ *
  * Runs once at daemon startup, not per search call -- these are static
  * provider keys with no refresh flow.
  */
+function enigmaOptedIn(env: Record<string, string | undefined>): boolean {
+	const flag = env.WEB_SPIDER_USE_ENIGMA;
+	return flag === "1" || flag === "true";
+}
 import { tryEnigmaCredential, tryEnigmaWhoAmI, type TryEnigmaCredential, type TryEnigmaWhoAmI } from "@danypops/enigma-client";
 
 export interface ResolveSearchEnvDeps {
@@ -41,9 +51,11 @@ export async function resolveSearchEnv(
 	baseEnv: Record<string, string | undefined> = process.env,
 	deps: ResolveSearchEnvDeps = {},
 ): Promise<Record<string, string | undefined>> {
+	const env = { ...baseEnv };
+	if (!enigmaOptedIn(baseEnv)) return env;
+
 	const tryWhoAmI = deps.tryWhoAmI ?? tryEnigmaWhoAmI;
 	const tryCredential = deps.tryCredential ?? tryEnigmaCredential;
-	const env = { ...baseEnv };
 	const token = baseEnv.ENIGMA_CLIENT_TOKEN;
 
 	let who: Awaited<ReturnType<TryEnigmaWhoAmI>>;

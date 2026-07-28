@@ -86,13 +86,16 @@ A systemd `--user` service does **not** inherit your login shell's environment. 
 
 ### Optional: credentials via Enigma, instead of a static key per provider
 
-If an [Enigma](https://github.com/DanyPops/enigma) vault is running, the daemon asks it at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
+Enigma involvement is opt-in — set `WEB_SPIDER_USE_ENIGMA=1` explicitly. Without it, the daemon never probes for Enigma at all, even if one happens to be running on the machine for some other daemon's sake: being reachable isn't the same as being wanted.
+
+With the flag set, the daemon asks Enigma at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
 
 ```bash
 enigma login apikey --name Brave --env-var BRAVE_SEARCH_API_KEY
 enigma client add web-spider --backends brave,tavily,exa
 # -> prints a token once; export it wherever the daemon is started
 export ENIGMA_CLIENT_TOKEN=<printed token>
+export WEB_SPIDER_USE_ENIGMA=1
 ```
 
 Without `ENIGMA_CLIENT_TOKEN`, Enigma's shared admin-token file is deliberately unreadable outside its own service account — the daemon falls straight through to its own environment's static keys, unchanged from before Enigma existed.
