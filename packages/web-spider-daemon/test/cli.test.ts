@@ -204,6 +204,16 @@ describe("runCli search", () => {
 		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "best pizza", siteFilter: "reddit.com" }) }]);
 	});
 
+	test("forwards --full-content as wantFullContent:true; omitted entirely when not passed", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ query: "q", results: [] }) });
+		await runCli(["search", "deep dive topic", "--full-content"], deps);
+		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "deep dive topic", wantFullContent: true }) }]);
+
+		operations.length = 0;
+		await runCli(["search", "plain query"], deps);
+		expect((operations[0]?.input as { wantFullContent?: boolean } | undefined)?.wantFullContent).toBeUndefined();
+	});
+
 	test("missing query prints usage and returns exit code 2", async () => {
 		const { deps, calls } = fakeDeps();
 		expect(await runCli(["search"], deps)).toBe(2);

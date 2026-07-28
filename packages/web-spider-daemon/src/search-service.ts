@@ -17,6 +17,8 @@ export interface WebSearchInput {
 	searchEngine?: SearchEngine;
 	/** Restrict results to one domain (e.g. "reddit.com"). Routed by SiteRoutedSearchEngine against whichever configured engines have actually returned matching results for that site before -- see @danypops/web-spider's defaultSearchEngine(). */
 	siteFilter?: string;
+	/** Declares intent -- "give me full page content" -- without naming which engine or option produces it (Tavily/Exa honour it; other engines ignore it, same as an unsupported timeRange). Routed by CapabilityRoutedSearchEngine to a content-capable engine when one is configured. See @danypops/web-spider's SearchQuery.wantFullContent. */
+	wantFullContent?: boolean;
 }
 
 export interface WebSearchOutput {
@@ -81,6 +83,7 @@ export class WebSearchService {
 			timeRange: input.timeRange,
 			topic: input.topic,
 			siteFilter: input.siteFilter,
+			wantFullContent: input.wantFullContent,
 		});
 		return { query, results };
 	}

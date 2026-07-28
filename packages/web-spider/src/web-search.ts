@@ -518,26 +518,47 @@ export async function youComSearch(query: string, opts: YouComSearchOptions = {}
  * Prefer {@link defaultSearchEngine} + {@link FallbackSearchEngine} when
  * you need composable retry / fallback behaviour.
  */
+export interface WebSearchOptions {
+	engine?: SearchEngine;
+	numResults?: number;
+	timeRange?: "day" | "week" | "month" | "year";
+	topic?: "news" | "general";
+	siteFilter?: string;
+	/** See {@link SearchQuery.wantFullContent}. Ignored when wantAnswer is also set -- an answer-first call has no results list to attach content to. */
+	wantFullContent?: boolean;
+}
+
+/**
+ * wantAnswer: true -- resolves an answer-capable engine by capability (see
+ * {@link defaultAnswerEngine}) and returns a synthesized {@link AnswerResult}
+ * instead of a results list. The return type follows the declared want,
+ * not which engine happens to serve it.
+ */
+export async function webSearch(query: string, opts: WebSearchOptions & { wantAnswer: true }): Promise<AnswerResult>;
+export async function webSearch(query: string, opts?: WebSearchOptions & { wantAnswer?: false }): Promise<WebSearchResult[]>;
 export async function webSearch(
 	query: string,
-	opts: {
-		engine?: SearchEngine;
-		numResults?: number;
-		timeRange?: "day" | "week" | "month" | "year";
-		topic?: "news" | "general";
-		siteFilter?: string;
-	} = {},
-): Promise<WebSearchResult[]> {
-	const engine = opts.engine
-		? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
-		: defaultSearchEngine();
-	return engine.search({
+	opts: WebSearchOptions & { wantAnswer?: boolean } = {},
+): Promise<WebSearchResult[] | AnswerResult> {
+	const req: SearchQuery = {
 		query,
 		numResults: opts.numResults,
 		timeRange: opts.timeRange,
 		topic: opts.topic,
 		siteFilter: opts.siteFilter,
-	});
+	};
+
+	if (opts.wantAnswer) {
+		const answerEngine = opts.engine
+			? resolveAnswerEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
+			: defaultAnswerEngine();
+		return answerEngine.searchForAnswer(req);
+	}
+
+	const engine = opts.engine
+		? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
+		: defaultSearchEngine();
+	return engine.search({ ...req, wantFullContent: opts.wantFullContent });
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +676,7 @@ export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
 			timeRange: req.timeRange,
 			topic: req.topic,
 			siteFilter: req.siteFilter,
+			includeRawContent: req.wantFullContent,
 			onUsage: this.onUsage,
 		});
 	}
@@ -673,10 +695,10 @@ export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
 
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void, private readonly includeText = false) {}
+	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage, includeText: this.includeText });
+		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage, includeText: req.wantFullContent });
 	}
 }
 
@@ -1020,6 +1042,13 @@ export class InMemorySiteAvailabilityTracker implements SiteAvailabilityTracker 
 export interface NamedSearchEngine {
 	name: string;
 	engine: ISearchEngine;
+	/**
+	 * True when this engine can honour {@link SearchQuery.wantFullContent}
+	 * (Tavily, Exa). Declared once at wiring time rather than learned --
+	 * unlike per-site coverage, content support is a fixed vendor capability,
+	 * not something that needs discovering empirically per call.
+	 */
+	supportsFullContent?: boolean;
 }
 
 export interface SiteRoutedSearchEngineOptions {
@@ -1103,6 +1132,53 @@ function extractSiteFromQuery(query: string): string | undefined {
 	return /\bsite:([a-z0-9.-]+\.[a-z]{2,})\b/i.exec(query)?.[1]?.toLowerCase();
 }
 
+/**
+ * Wraps a set of named engines plus a plain fallback/rotation engine.
+ * Realizes {@link SearchQuery.wantFullContent} as routing, not just a
+ * per-adapter hint: a caller declares the *want*, this decides *who*
+ * satisfies it, by capability rather than by name -- the same principle
+ * {@link SiteRoutedSearchEngine} already applies to domain coverage.
+ *
+ * When wantFullContent is set, tries engines with
+ * {@link NamedSearchEngine.supportsFullContent} first, in order, before
+ * falling through to the plain chain -- so a content-capable engine is
+ * preferred over whichever the round-robin's cursor happens to land on.
+ * Falls through to plain (not a throw) when no content-capable engine is
+ * configured at all, or every one of them fails: a declared want that
+ * can't be satisfied should degrade to an ordinary result, not fail the
+ * whole query, mirroring how an unsupported timeRange/topic is silently
+ * ignored rather than rejected.
+ *
+ * Delegates straight to plain, untouched, when wantFullContent isn't set --
+ * this composite only ever activates for that one declared intent.
+ */
+export class CapabilityRoutedSearchEngine implements ISearchEngine {
+	constructor(
+		private readonly engines: NamedSearchEngine[],
+		private readonly plain: ISearchEngine,
+	) {
+		if (engines.length === 0) throw new Error("CapabilityRoutedSearchEngine requires at least one engine");
+	}
+
+	async search(req: SearchQuery): Promise<WebSearchResult[]> {
+		if (!req.wantFullContent) return this.plain.search(req);
+
+		// A content-capable engine's own failure is never fatal here -- the
+		// plain chain (tried next) may still satisfy the query, just without
+		// content. Its error is the one that surfaces, since it's the last
+		// and most complete attempt.
+		for (const entry of this.engines.filter((e) => e.supportsFullContent)) {
+			try {
+				return await entry.engine.search(req);
+			} catch {
+				// try the next content-capable engine, then fall through to plain below
+			}
+		}
+
+		return this.plain.search(req);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Wiring — compose engines from environment variables
 // ---------------------------------------------------------------------------
@@ -1158,37 +1234,58 @@ export interface DefaultSearchEngineOptions {
 	siteAvailabilityTracker?: SiteAvailabilityTracker;
 }
 
-export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
-	const env = opts.env ?? process.env;
-	const rotationEngines: ISearchEngine[] = [];
-	const rotationNames: string[] = [];
+/** Engines whose adapter maps {@link SearchQuery.wantFullContent} to a real vendor param (Tavily's include_raw_content, Exa's contents.text). Declared once here, not learned -- content support is a fixed vendor capability. */
+const CONTENT_CAPABLE_ENGINES = new Set(["tavily", "exa"]);
+
+/** No configured provider key at all -- the one error shared by every capability resolver (results, content, answer) when there's nothing to even consider. */
+const NO_ENGINE_CONFIGURED_ERROR =
+	"No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
+	"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.";
+
+/** Every engine configured from environment keys, by real name, in a fixed declaration order (brave/tavily/exa/serper/serpapi/you) -- the single source of which adapters exist, shared by every capability resolver ({@link defaultSearchEngine}, {@link defaultAnswerEngine}) so they never drift out of sync with each other. */
+function buildConfiguredEngines(env: Record<string, string | undefined>, onUsage?: (engineName: string, usage: EngineUsage) => void): { engines: ISearchEngine[]; names: string[] } {
+	const engines: ISearchEngine[] = [];
+	const names: string[] = [];
 
 	const brave = env["BRAVE_SEARCH_API_KEY"];
-	if (brave) { rotationEngines.push(new BraveSearchEngine(brave, undefined, opts.onUsage ? (usage) => opts.onUsage?.("brave", usage) : undefined)); rotationNames.push("brave"); }
+	if (brave) { engines.push(new BraveSearchEngine(brave, undefined, onUsage ? (usage) => onUsage("brave", usage) : undefined)); names.push("brave"); }
 
 	const tavily = env["TAVILY_API_KEY"];
-	if (tavily) { rotationEngines.push(new TavilySearchEngine(tavily, opts.onUsage ? (usage) => opts.onUsage?.("tavily", usage) : undefined)); rotationNames.push("tavily"); }
+	if (tavily) { engines.push(new TavilySearchEngine(tavily, onUsage ? (usage) => onUsage("tavily", usage) : undefined)); names.push("tavily"); }
 
 	const exa = env["EXA_API_KEY"];
-	if (exa) { rotationEngines.push(new ExaSearchEngine(exa, opts.onUsage ? (usage) => opts.onUsage?.("exa", usage) : undefined)); rotationNames.push("exa"); }
+	if (exa) { engines.push(new ExaSearchEngine(exa, onUsage ? (usage) => onUsage("exa", usage) : undefined)); names.push("exa"); }
 
 	const serper = env["SERPER_API_KEY"];
-	if (serper) { rotationEngines.push(new SerperSearchEngine(serper)); rotationNames.push("serper"); }
+	if (serper) { engines.push(new SerperSearchEngine(serper)); names.push("serper"); }
 
 	const serpapi = env["SERPAPI_API_KEY"];
-	if (serpapi) { rotationEngines.push(new SerpApiSearchEngine(serpapi)); rotationNames.push("serpapi"); }
+	if (serpapi) { engines.push(new SerpApiSearchEngine(serpapi)); names.push("serpapi"); }
 
 	const you = env["YOU_API_KEY"];
-	if (you) { rotationEngines.push(new YouComSearchEngine(you)); rotationNames.push("you"); }
+	if (you) { engines.push(new YouComSearchEngine(you)); names.push("you"); }
+
+	return { engines, names };
+}
+
+/** True when engine implements {@link IAnswerSearchEngine} -- a structural capability check, not a name check. Whatever adapter satisfies this (today only TavilySearchEngine) is eligible for {@link defaultAnswerEngine}/wantAnswer with zero changes to either. */
+function isAnswerCapable(engine: ISearchEngine): engine is ISearchEngine & IAnswerSearchEngine {
+	return typeof (engine as Partial<IAnswerSearchEngine>).searchForAnswer === "function";
+}
+
+export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
+	const env = opts.env ?? process.env;
+	const { engines: rotationEngines, names: rotationNames } = buildConfiguredEngines(env, opts.onUsage);
 
 	if (rotationEngines.length === 0) {
-		throw new Error(
-			"No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
-				"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.",
-		);
+		throw new Error(NO_ENGINE_CONFIGURED_ERROR);
 	}
 
-	const namedEngines: NamedSearchEngine[] = rotationEngines.map((engine, i) => ({ name: rotationNames[i] as string, engine }));
+	const namedEngines: NamedSearchEngine[] = rotationEngines.map((engine, i) => ({
+		name: rotationNames[i] as string,
+		engine,
+		supportsFullContent: CONTENT_CAPABLE_ENGINES.has(rotationNames[i] as string),
+	}));
 
 	let plain: ISearchEngine;
 	if (rotationEngines.length > 1) {
@@ -1206,5 +1303,70 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 		});
 	}
 
-	return new SiteRoutedSearchEngine(namedEngines, plain, { tracker: opts.siteAvailabilityTracker });
+	const contentAware = new CapabilityRoutedSearchEngine(namedEngines, plain);
+	return new SiteRoutedSearchEngine(namedEngines, contentAware, { tracker: opts.siteAvailabilityTracker });
+}
+
+export interface DefaultAnswerEngineOptions {
+	/** Reads provider API keys from here. Defaults to process.env. */
+	env?: Record<string, string | undefined>;
+	/** Reports every successful call's own usage/cost data by real engine name. See {@link DefaultSearchEngineOptions.onUsage}. */
+	onUsage?: (engineName: string, usage: EngineUsage) => void;
+}
+
+/**
+ * Resolves an {@link IAnswerSearchEngine} from configured provider keys, by
+ * capability rather than by name -- a caller never names "Tavily" to get an
+ * answer; it declares the want (via {@link webSearch}'s wantAnswer, or by
+ * calling this directly) and whichever configured engine actually
+ * implements searchForAnswer is used. Extending an existing ISearchEngine
+ * adapter to also implement IAnswerSearchEngine (e.g. a future Serper/
+ * SerpApi answerBox mapping) makes it eligible here with zero other
+ * changes -- the whole point of routing by capability instead of name.
+ *
+ * Throws a distinct, more specific error than {@link defaultSearchEngine}'s
+ * own when provider keys exist but none of the configured engines can
+ * produce an answer -- "you have Brave configured" is a materially
+ * different problem to fix than "you have nothing configured at all".
+ */
+export function defaultAnswerEngine(opts: DefaultAnswerEngineOptions = {}): IAnswerSearchEngine {
+	const env = opts.env ?? process.env;
+	const { engines, names } = buildConfiguredEngines(env, opts.onUsage);
+
+	const capable = engines
+		.map((engine, i) => ({ engine, name: names[i] as string }))
+		.filter((entry): entry is { engine: ISearchEngine & IAnswerSearchEngine; name: string } => isAnswerCapable(entry.engine));
+
+	if (capable.length === 0) {
+		if (engines.length === 0) throw new Error(NO_ENGINE_CONFIGURED_ERROR);
+		throw new Error(
+			`Configured search engine(s) (${names.join(", ")}) don't support answer synthesis (wantAnswer). ` +
+				"Set TAVILY_API_KEY for a provider that does.",
+		);
+	}
+
+	if (capable.length === 1) return (capable[0] as { engine: ISearchEngine & IAnswerSearchEngine }).engine;
+
+	return {
+		async searchForAnswer(req: SearchQuery): Promise<AnswerResult> {
+			let lastError: unknown;
+			for (const entry of capable) {
+				try {
+					return await entry.engine.searchForAnswer(req);
+				} catch (err) {
+					lastError = err;
+				}
+			}
+			throw lastError;
+		},
+	};
+}
+
+/** Resolves a single named engine and asserts it supports wantAnswer, for webSearch's forced-engine path. Throws a clear, actionable error naming the engine rather than a generic type error when it doesn't. */
+function resolveAnswerEngine(name: string, key: string | undefined): IAnswerSearchEngine {
+	const engine = resolveSearchEngine(name, key);
+	if (!isAnswerCapable(engine)) {
+		throw new Error(`Engine "${name}" does not support wantAnswer (no searchForAnswer implementation). Currently only "tavily" does.`);
+	}
+	return engine;
 }

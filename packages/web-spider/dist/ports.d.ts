@@ -92,6 +92,20 @@ export interface SearchQuery {
      * return zero real coverage from most engines regardless of the filter.
      */
     siteFilter?: string;
+    /**
+     * Declares intent -- "give me full page content" -- without naming which
+     * engine or option produces it. An {@link ISearchEngine} adapter that can
+     * satisfy this (Tavily via its own include_raw_content, Exa via its own
+     * contents.text) maps it to that vendor-specific parameter internally;
+     * one that can't (Brave, Serper, SerpApi, You.com) ignores it, same as an
+     * unsupported timeRange/topic. Populates {@link WebSearchResult.content}
+     * when honoured. Prefer this over calling a vendor-specific function
+     * (tavilySearch's includeRawContent, exaSearch's includeText) directly --
+     * those still exist for callers who already know which vendor they want,
+     * but a caller going through {@link ISearchEngine}/{@link webSearch} should
+     * never need to know which vendor's option name means "give me content".
+     */
+    wantFullContent?: boolean;
 }
 /**
  * A single result from a web search engine.

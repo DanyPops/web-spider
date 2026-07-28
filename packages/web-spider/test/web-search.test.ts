@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, youComSearch } from "../src/web-search.js";
+import { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultAnswerEngine, defaultSearchEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
 import type { NamedSearchEngine } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
@@ -1724,6 +1724,163 @@ describe("SiteRoutedSearchEngine", () => {
 	it("implements ISearchEngine — assignable to the port type", () => {
 		const engine: ISearchEngine = new SiteRoutedSearchEngine([named("a", okEngine([]))], okEngine([]));
 		expect(typeof engine.search).toBe("function");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// CapabilityRoutedSearchEngine — declarative wantFullContent routing
+// ---------------------------------------------------------------------------
+
+describe("CapabilityRoutedSearchEngine", () => {
+	function named(name: string, engine: ISearchEngine, supportsFullContent = false): NamedSearchEngine {
+		return { name, engine, supportsFullContent };
+	}
+
+	it("delegates straight to plain, untouched, when wantFullContent isn't set", async () => {
+		const plain = okEngine([RESULT_A]);
+		const capable = okEngine([RESULT_B]);
+		const routed = new CapabilityRoutedSearchEngine([named("tavily", capable, true)], plain);
+		const results = await routed.search(REQ);
+		expect(results).toEqual([RESULT_A]);
+		expect(capable.search).not.toHaveBeenCalled();
+	});
+
+	it("tries a content-capable engine first when wantFullContent is set, never touching plain", async () => {
+		const plain = okEngine([RESULT_A]);
+		const capable = okEngine([{ ...RESULT_B, content: "full text" }]);
+		const routed = new CapabilityRoutedSearchEngine([named("brave", okEngine([RESULT_A]), false), named("tavily", capable, true)], plain);
+		const results = await routed.search({ ...REQ, wantFullContent: true });
+		expect(results).toEqual([{ ...RESULT_B, content: "full text" }]);
+		expect(plain.search).not.toHaveBeenCalled();
+	});
+
+	it("falls through to plain when no engine declares content support", async () => {
+		const plain = okEngine([RESULT_A]);
+		const routed = new CapabilityRoutedSearchEngine([named("brave", okEngine([RESULT_B]), false)], plain);
+		const results = await routed.search({ ...REQ, wantFullContent: true });
+		expect(results).toEqual([RESULT_A]);
+	});
+
+	it("falls through to plain when every content-capable engine fails", async () => {
+		const plain = okEngine([RESULT_A]);
+		const routed = new CapabilityRoutedSearchEngine([named("tavily", failEngine("tavily down"), true)], plain);
+		const results = await routed.search({ ...REQ, wantFullContent: true });
+		expect(results).toEqual([RESULT_A]);
+	});
+
+	it("throws when constructed with an empty engines array", () => {
+		expect(() => new CapabilityRoutedSearchEngine([], okEngine([]))).toThrow("at least one engine");
+	});
+
+	it("implements ISearchEngine — assignable to the port type", () => {
+		const engine: ISearchEngine = new CapabilityRoutedSearchEngine([named("tavily", okEngine([]), true)], okEngine([]));
+		expect(typeof engine.search).toBe("function");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// defaultAnswerEngine — capability-based resolution, not by name
+// ---------------------------------------------------------------------------
+
+describe("defaultAnswerEngine", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+
+	it("throws the no-engine-configured error when zero keys are set", () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		expect(() => defaultAnswerEngine()).toThrow(/No search engine API key configured/);
+	});
+
+	it("throws a distinct error naming the configured (but answer-incapable) engines", () => {
+		for (const key of ["TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
+		expect(() => defaultAnswerEngine()).toThrow(/brave.*don't support answer synthesis/);
+	});
+
+	it("resolves Tavily by capability when it's the only answer-capable engine configured, alongside a non-capable one", () => {
+		for (const key of ["EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+		const engine = defaultAnswerEngine();
+		expect(engine).toBeInstanceOf(TavilySearchEngine);
+	});
+
+	it("never depends on declaration order -- Tavily configured alone still resolves", () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+		expect(defaultAnswerEngine()).toBeInstanceOf(TavilySearchEngine);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// webSearch — declarative wantAnswer/wantFullContent dispatch
+// ---------------------------------------------------------------------------
+
+describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	it("wantAnswer:true returns an AnswerResult without the caller naming an engine", async () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ answer: "a synthesized answer", results: [] }),
+		}) as unknown as typeof fetch;
+		try {
+			const result = await webSearch("who won", { wantAnswer: true });
+			expect(result).toEqual({ answer: "a synthesized answer", sources: [] });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("wantAnswer:true with an explicitly forced non-capable engine throws a clear error", async () => {
+		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
+		await expect(webSearch("who won", { wantAnswer: true, engine: "brave" })).rejects.toThrow(/does not support wantAnswer/);
+	});
+
+	it("omitting wantAnswer returns a plain WebSearchResult[]", async () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK",
+			json: async () => ({ results: [{ url: "https://a.example", title: "A", content: "c" }] }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await webSearch("test", {});
+			expect(Array.isArray(results)).toBe(true);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("wantFullContent forwards through to SearchQuery.wantFullContent on the plain path", async () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		process.env["TAVILY_API_KEY"] = "tavily-key";
+
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await webSearch("test", { wantFullContent: true });
+			expect(capturedBody["include_raw_content"]).toBe(true);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });
 

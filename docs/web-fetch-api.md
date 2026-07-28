@@ -85,6 +85,7 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 | `timeRange` | `"day"` \| `"week"` \| `"month"` \| `"year"` | Restrict results to content published within this window. Supported by Tavily and Brave. Use `"month"` when asked for recent or latest news. |
 | `topic` | `"news"` \| `"general"` | Search topic mode. `"news"` prioritises freshly indexed news articles (Tavily only). Combine with `timeRange: "month"` for the freshest results. |
 | `siteFilter` | `string` | Restrict results to one domain (e.g. `"reddit.com"`). Routed by which configured engine has actually returned matching results for that domain before -- some domains (Reddit, which blocked most search engines' crawlers in 2024) have real coverage from only a subset of providers regardless of which one is asked first. |
+| `wantFullContent` | `boolean` | Declares intent -- "give me full page content alongside each result" -- without naming a provider. Routed to whichever configured engine can actually supply it (Tavily, Exa); engines that can't ignore it, same as an unsupported `timeRange`. Populates each result's `content` field. |
 
 ---
 
@@ -284,6 +285,10 @@ DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort f
 ### Site-restricted queries and per-domain routing
 
 Some domains block most search engines' crawlers outright -- Reddit updated its robots.txt in 2024 to disallow every crawler except Google's (and whoever licenses Google's index, e.g. Kagi), so Bing, DuckDuckGo, and most independent-index engines return little to no recent Reddit content regardless of query. Passing `siteFilter: "reddit.com"` restricts results to that domain and routes the query by which *configured* engine has actually returned matching results for it before -- an engine with no real coverage of the site is learned once (not re-paid on every call) and tried last, while the verdict still expires after 24h so a later-fixed engine isn't written off forever. Works automatically for a literal `site:domain.tld` operator typed directly into the query text too, not just the structured `siteFilter` parameter.
+
+### Declarative intent, not provider names
+
+`siteFilter` and `wantFullContent` are both intent flags, not provider selectors: you declare *what* you want, never *which engine* produces it. The underlying `@danypops/web-spider` package routes each to whichever configured provider can actually satisfy it (falling through gracefully, not erroring, when none can) -- the same principle covers a not-yet-daemon-exposed `wantAnswer` flag at the package level for a synthesized, cited answer instead of a results list, resolved by capability rather than by naming Tavily specifically. `searchEngine` remains available as an explicit escape hatch (forcing one named provider) for debugging or cost control, but it's the exception, not the primary way to ask for something.
 
 ---
 

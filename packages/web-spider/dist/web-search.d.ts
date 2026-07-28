@@ -168,12 +168,26 @@ export declare function youComSearch(query: string, opts?: YouComSearchOptions):
  * Prefer {@link defaultSearchEngine} + {@link FallbackSearchEngine} when
  * you need composable retry / fallback behaviour.
  */
-export declare function webSearch(query: string, opts?: {
+export interface WebSearchOptions {
     engine?: SearchEngine;
     numResults?: number;
     timeRange?: "day" | "week" | "month" | "year";
     topic?: "news" | "general";
     siteFilter?: string;
+    /** See {@link SearchQuery.wantFullContent}. Ignored when wantAnswer is also set -- an answer-first call has no results list to attach content to. */
+    wantFullContent?: boolean;
+}
+/**
+ * wantAnswer: true -- resolves an answer-capable engine by capability (see
+ * {@link defaultAnswerEngine}) and returns a synthesized {@link AnswerResult}
+ * instead of a results list. The return type follows the declared want,
+ * not which engine happens to serve it.
+ */
+export declare function webSearch(query: string, opts: WebSearchOptions & {
+    wantAnswer: true;
+}): Promise<AnswerResult>;
+export declare function webSearch(query: string, opts?: WebSearchOptions & {
+    wantAnswer?: false;
 }): Promise<WebSearchResult[]>;
 /**
  * A factory that creates an ISearchEngine from an optional API key.
@@ -214,8 +228,7 @@ export declare class TavilySearchEngine implements ISearchEngine, IAnswerSearchE
 export declare class ExaSearchEngine implements ISearchEngine {
     private readonly apiKey;
     private readonly onUsage?;
-    private readonly includeText;
-    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined, includeText?: boolean);
+    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Serper.dev adapter implementing ISearchEngine. */
@@ -378,6 +391,13 @@ export declare class InMemorySiteAvailabilityTracker implements SiteAvailability
 export interface NamedSearchEngine {
     name: string;
     engine: ISearchEngine;
+    /**
+     * True when this engine can honour {@link SearchQuery.wantFullContent}
+     * (Tavily, Exa). Declared once at wiring time rather than learned --
+     * unlike per-site coverage, content support is a fixed vendor capability,
+     * not something that needs discovering empirically per call.
+     */
+    supportsFullContent?: boolean;
 }
 export interface SiteRoutedSearchEngineOptions {
     /** Defaults to a fresh InMemorySiteAvailabilityTracker. */
@@ -408,6 +428,32 @@ export declare class SiteRoutedSearchEngine implements ISearchEngine {
     private readonly plain;
     private readonly tracker;
     constructor(engines: NamedSearchEngine[], plain: ISearchEngine, opts?: SiteRoutedSearchEngineOptions);
+    search(req: SearchQuery): Promise<WebSearchResult[]>;
+}
+/**
+ * Wraps a set of named engines plus a plain fallback/rotation engine.
+ * Realizes {@link SearchQuery.wantFullContent} as routing, not just a
+ * per-adapter hint: a caller declares the *want*, this decides *who*
+ * satisfies it, by capability rather than by name -- the same principle
+ * {@link SiteRoutedSearchEngine} already applies to domain coverage.
+ *
+ * When wantFullContent is set, tries engines with
+ * {@link NamedSearchEngine.supportsFullContent} first, in order, before
+ * falling through to the plain chain -- so a content-capable engine is
+ * preferred over whichever the round-robin's cursor happens to land on.
+ * Falls through to plain (not a throw) when no content-capable engine is
+ * configured at all, or every one of them fails: a declared want that
+ * can't be satisfied should degrade to an ordinary result, not fail the
+ * whole query, mirroring how an unsupported timeRange/topic is silently
+ * ignored rather than rejected.
+ *
+ * Delegates straight to plain, untouched, when wantFullContent isn't set --
+ * this composite only ever activates for that one declared intent.
+ */
+export declare class CapabilityRoutedSearchEngine implements ISearchEngine {
+    private readonly engines;
+    private readonly plain;
+    constructor(engines: NamedSearchEngine[], plain: ISearchEngine);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /**
@@ -461,4 +507,26 @@ export interface DefaultSearchEngineOptions {
     siteAvailabilityTracker?: SiteAvailabilityTracker;
 }
 export declare function defaultSearchEngine(opts?: DefaultSearchEngineOptions): ISearchEngine;
+export interface DefaultAnswerEngineOptions {
+    /** Reads provider API keys from here. Defaults to process.env. */
+    env?: Record<string, string | undefined>;
+    /** Reports every successful call's own usage/cost data by real engine name. See {@link DefaultSearchEngineOptions.onUsage}. */
+    onUsage?: (engineName: string, usage: EngineUsage) => void;
+}
+/**
+ * Resolves an {@link IAnswerSearchEngine} from configured provider keys, by
+ * capability rather than by name -- a caller never names "Tavily" to get an
+ * answer; it declares the want (via {@link webSearch}'s wantAnswer, or by
+ * calling this directly) and whichever configured engine actually
+ * implements searchForAnswer is used. Extending an existing ISearchEngine
+ * adapter to also implement IAnswerSearchEngine (e.g. a future Serper/
+ * SerpApi answerBox mapping) makes it eligible here with zero other
+ * changes -- the whole point of routing by capability instead of name.
+ *
+ * Throws a distinct, more specific error than {@link defaultSearchEngine}'s
+ * own when provider keys exist but none of the configured engines can
+ * produce an answer -- "you have Brave configured" is a materially
+ * different problem to fix than "you have nothing configured at all".
+ */
+export declare function defaultAnswerEngine(opts?: DefaultAnswerEngineOptions): IAnswerSearchEngine;
 //# sourceMappingURL=web-search.d.ts.map

@@ -132,6 +132,7 @@ export default async function (pi: ExtensionAPI) {
       query,
       numResults: params.limit ?? 10,
       siteFilter: params.siteFilter,
+      wantFullContent: params.wantFullContent,
     })
     log("info", "web search done", { query, hits: result.results.length })
     const papyrus = await maybeIngestSearch(params, query, result.results)
@@ -539,6 +540,14 @@ export default async function (pi: ExtensionAPI) {
           "configured provider has actually returned matching results for that domain before -- " +
           "some domains (e.g. reddit.com, which blocks most search engines' crawlers) return " +
           "real coverage from only a subset of providers regardless of which one answers first.",
+      })
+    ),
+    wantFullContent: Type.Optional(
+      Type.Boolean({
+        description:
+          "Declares intent -- \"give me full page content\" alongside each searchQuery result -- " +
+          "without naming a provider. Routed to whichever configured provider can actually supply it " +
+          "(Tavily, Exa); providers that can't ignore it, same as an unsupported filter.",
       })
     ),
     timeoutMs: Type.Optional(

@@ -55,6 +55,13 @@ describe("WebSearchService", () => {
 		await service.search({ query: "best pizza", siteFilter: "reddit.com" });
 		expect(engine.lastQuery?.siteFilter).toBe("reddit.com");
 	});
+
+	test("passes wantFullContent through to the resolved engine", async () => {
+		const engine = new FakeEngine();
+		const service = new WebSearchService(() => engine);
+		await service.search({ query: "x", wantFullContent: true });
+		expect(engine.lastQuery?.wantFullContent).toBe(true);
+	});
 });
 
 describe("createEngineResolver", () => {

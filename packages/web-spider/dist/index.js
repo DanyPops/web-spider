@@ -39,7 +39,7 @@ export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
 export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultAnswerEngine, defaultSearchEngine } from "./web-search.js";
 export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.
