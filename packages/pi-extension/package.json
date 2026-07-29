@@ -2,12 +2,24 @@
 	"name": "@danypops/pi-web-spider",
 	"version": "0.12.2",
 	"license": "MIT",
-	"description": "Pi extension: web_fetch, web_crawl, web_search — structured scraping for AI agents",
+	"description": "Pi extension for web_fetch, web_search, and live browser sessions: 7 search providers (Brave, Brave LLM Context, Tavily, Exa, Serper, SerpApi, You.com) with automatic fallback, robots.txt-respecting crawl, GitHub/Wikipedia/llms.txt-aware fetching, and a disk-backed page cache, all behind a supervised daemon",
 	"keywords": [
-		"pi-package"
+		"pi-package",
+		"web-search",
+		"web-scraping",
+		"web-fetch",
+		"crawler",
+		"browser-automation",
+		"playwright",
+		"brave",
+		"tavily",
+		"exa"
 	],
 	"type": "module",
 	"main": "./src/index.ts",
+	"files": [
+		"src"
+	],
 	"pi": {
 		"extensions": [
 			"./src/index.ts"
