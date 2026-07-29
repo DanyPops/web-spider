@@ -27,8 +27,8 @@ export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveSearchOptions, DefaultAnswerEngineOptions, DefaultSearchEngineOptions, EngineFailureReason, EngineUsage, ExaSearchOptions, FallbackSearchEngineOptions, InMemorySiteAvailabilityTrackerOptions, NamedSearchEngine, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, SiteRoutedSearchEngineOptions, TavilyAnswerSearchOptions, TavilySearchOptions, WebSearchOptions, WebSearchResult, YouComSearchOptions } from "./web-search.js";
-export { braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
+export type { BraveLlmContextSearchOptions, BraveSearchOptions, DefaultAnswerEngineOptions, DefaultSearchEngineOptions, EngineFailureReason, EngineUsage, ExaSearchOptions, FallbackSearchEngineOptions, InMemorySiteAvailabilityTrackerOptions, NamedSearchEngine, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, SiteRoutedSearchEngineOptions, TavilyAnswerSearchOptions, TavilySearchOptions, WebSearchOptions, WebSearchResult, YouComSearchOptions } from "./web-search.js";
+export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -73,7 +73,7 @@ export { RobotsCache, createRobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
 export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultAnswerEngine, defaultSearchEngine } from "./web-search.js";
+export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultAnswerEngine, defaultSearchEngine } from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

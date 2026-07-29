@@ -158,7 +158,7 @@ function usage(stderr: (line: string) => void): number {
 		"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
 		"                          [--top-n N] [--ignore-robots] [--json]",
 		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
-		"                          [--engine brave|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
+		"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
 		"       web-spider usage [--engine NAME] [--limit N] [--json]",
 		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
 		"       web-spider search-key set <engine>    store a search-provider API key locally (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
