@@ -82,7 +82,7 @@ The current operation registry (see `src/service.ts`):
 
 Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `YOU_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. `search` throws a clear error when zero provider keys are configured, rather than returning an empty result. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
-A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all five provider key vars from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) re-renders the unit and picks up updated keys. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
+A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all six provider key vars (plus `WEB_SPIDER_USE_ENIGMA`/`ENIGMA_CLIENT_TOKEN`, see below) from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) **replaces** the unit from scratch, re-reading only the current shell's environment — a var not currently exported is dropped, not preserved from the previous install. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
 
 ### Optional: a local, per-engine key file instead of an env var
 
@@ -101,6 +101,14 @@ This exists because a systemd `--user` service's env is not actually scoped to w
 Enigma involvement is opt-in — set `WEB_SPIDER_USE_ENIGMA=1` explicitly. Without it, the daemon never probes for Enigma at all, even if one happens to be running on the machine for some other daemon's sake: being reachable isn't the same as being wanted.
 
 With the flag set, the daemon asks Enigma at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
+
+Registering the client itself is Enigma's own administrative step (`enigma client add web-spider --backends ...`, printing a token once) and may need to run under Enigma's own service account rather than yours, depending on how Enigma is deployed — see Enigma's own docs for that part. Once you have the token, apply it the same way as a provider key rather than hand-editing the unit file:
+
+```bash
+WEB_SPIDER_USE_ENIGMA=1 ENIGMA_CLIENT_TOKEN=<printed token> web-spider service install
+```
+
+This re-renders the unit through the same tested path as the search API keys — no manual `sed`, no separate `daemon-reload`/`restart` step (`service install` does both already).
 
 ```bash
 enigma login apikey --name Brave --env-var BRAVE_SEARCH_API_KEY

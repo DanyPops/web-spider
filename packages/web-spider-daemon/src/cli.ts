@@ -34,6 +34,19 @@ import type { CachedPageListFilter } from "./domain/page.ts";
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
 const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"] as const;
 
+/**
+ * Forwarded the same way as the search API keys below, for the same reason:
+ * a systemd --user service does not inherit the installing shell's
+ * environment, so these would otherwise need to be typed directly into the
+ * unit file by hand (or patched in with a fragile sed one-liner) instead of
+ * flowing through the same install path every other daemon config does.
+ * Also fixes a real bug this shape used to have: re-running `service
+ * install` (e.g. after an upgrade) rewrites the unit from scratch, so
+ * without forwarding these too, a previously configured Enigma opt-in would
+ * be silently dropped on the next install.
+ */
+const ENIGMA_ENV_VARS = ["WEB_SPIDER_USE_ENIGMA", "ENIGMA_CLIENT_TOKEN"] as const;
+
 export interface SystemdUnitOptions {
 	bunBin: string;
 	cliPath: string;
@@ -47,6 +60,8 @@ export interface SystemdUnitOptions {
 	 * never logged anywhere.
 	 */
 	searchApiKeys?: Partial<Record<(typeof SEARCH_API_KEY_VARS)[number], string | undefined>>;
+	/** WEB_SPIDER_USE_ENIGMA and ENIGMA_CLIENT_TOKEN, forwarded the same way and for the same reason as searchApiKeys. */
+	enigmaEnv?: Partial<Record<(typeof ENIGMA_ENV_VARS)[number], string | undefined>>;
 }
 
 function escapeUnitValue(value: string): string {
@@ -54,8 +69,11 @@ function escapeUnitValue(value: string): string {
 }
 
 export function renderSystemdUnit(options: SystemdUnitOptions): string {
-	const environmentLines = SEARCH_API_KEY_VARS
-		.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]])
+	const forwardedVars: [string, string | undefined][] = [
+		...SEARCH_API_KEY_VARS.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]]),
+		...ENIGMA_ENV_VARS.map((name): [string, string | undefined] => [name, options.enigmaEnv?.[name]]),
+	];
+	const environmentLines = forwardedVars
 		.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
 		.map(([name, value]) => `Environment="${name}=${escapeUnitValue(value)}"\n`)
 		.join("");
@@ -88,6 +106,7 @@ function installService(): void {
 		bunBin: process.execPath,
 		cliPath: fileURLToPath(import.meta.url),
 		searchApiKeys: Object.fromEntries(SEARCH_API_KEY_VARS.map((name) => [name, process.env[name]])),
+		enigmaEnv: Object.fromEntries(ENIGMA_ENV_VARS.map((name) => [name, process.env[name]])),
 	}));
 	systemctl("daemon-reload");
 	systemctl("enable", SYSTEMD_UNIT_NAME);

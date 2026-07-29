@@ -80,6 +80,30 @@ describe("renderSystemdUnit", () => {
 		expect(unit).toContain('Environment="SERPER_API_KEY=test-serper-key"');
 		expect(unit).toContain('Environment="SERPAPI_API_KEY=test-serpapi-key"');
 	});
+
+	test("forwards WEB_SPIDER_USE_ENIGMA and ENIGMA_CLIENT_TOKEN, same as the search API keys", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1", ENIGMA_CLIENT_TOKEN: "test-enigma-token" },
+		});
+		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
+		expect(unit).toContain('Environment="ENIGMA_CLIENT_TOKEN=test-enigma-token"');
+	});
+
+	test("omits ENIGMA_CLIENT_TOKEN when WEB_SPIDER_USE_ENIGMA is set but no token is supplied (e.g. relying on Enigma's shared admin-token file)", () => {
+		const unit = renderSystemdUnit({
+			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1" },
+		});
+		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
+		expect(unit).not.toContain("ENIGMA_CLIENT_TOKEN");
+	});
+
+	test("re-rendering with no enigmaEnv given at all drops any previously configured Enigma vars -- installService always re-reads from its own current process.env, never merges with the prior unit", () => {
+		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
+		expect(unit).not.toContain("WEB_SPIDER_USE_ENIGMA");
+		expect(unit).not.toContain("ENIGMA_CLIENT_TOKEN");
+	});
 });
 
 describe("runCli — serve / service (unchanged surface)", () => {
