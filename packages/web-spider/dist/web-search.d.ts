@@ -43,32 +43,56 @@ export interface TavilySearchOptions {
     apiKey?: string;
     /** Number of results. Default 5. */
     numResults?: number;
-    /** "basic" (1 credit) or "advanced" (2 credits). Default "basic". */
-    depth?: "basic" | "advanced";
+    /**
+     * Latency/relevance tradeoff. `basic`/`advanced` return one NLP summary
+     * per URL; `fast`/`ultra-fast` return multiple semantically relevant
+     * chunks per URL instead (chunk count set separately by Tavily, not
+     * currently exposed here). Cost: basic/fast/ultra-fast 1 credit,
+     * advanced 2 credits. Default "basic".
+     */
+    depth?: "basic" | "advanced" | "fast" | "ultra-fast";
     /** Restrict results to content published within this window. */
     timeRange?: "day" | "week" | "month" | "year";
-    /** Topic mode: "news" prioritises fresh news articles. */
-    topic?: "news" | "general";
+    /** Topic mode: "news" prioritises fresh news articles, "finance" prioritises financial sources. */
+    topic?: "news" | "general" | "finance";
     /** Restrict results to one domain. Maps to Tavily's own `include_domains` array param (we only ever send one entry). */
     siteFilter?: string;
+    /** Domains to exclude from results. Maps to Tavily's own `exclude_domains` array param (max 150 domains). */
+    excludeDomains?: string[];
     /** Include each result's full cleaned/parsed page content in {@link WebSearchResult.content}. Off by default -- costs more and inflates payload size (Tavily's own `include_raw_content`). */
     includeRawContent?: boolean;
+    /** Include a favicon URL for each result (Tavily's own `include_favicon`). Off by default. */
+    includeFavicon?: boolean;
+    /** Boost results from this country (lowercase full name, e.g. "united states") -- Tavily's own `country` param. Only honoured by Tavily when topic is "general". */
+    country?: string;
+    /** Only return results published on/after this date (YYYY-MM-DD). Maps to Tavily's own `start_date`. */
+    startDate?: string;
+    /** Only return results published on/before this date (YYYY-MM-DD). Maps to Tavily's own `end_date`. */
+    endDate?: string;
     /** Called once with this call's own credit cost, when Tavily reports one. */
     onUsage?: (usage: EngineUsage) => void;
 }
-export type SearchEngine = "brave" | "tavily" | "exa" | "serper" | "serpapi" | "you";
+export type SearchEngine = "brave" | "brave-llm" | "tavily" | "exa" | "serper" | "serpapi" | "you";
 export interface ExaSearchOptions {
     /** API key. Defaults to process.env.EXA_API_KEY. */
     apiKey?: string;
     /** Number of results. Default 10. */
     numResults?: number;
     /**
-     * Search type.
-     * "auto"   — Exa decides keyword vs neural (default).
-     * "neural" — embedding-based semantic search.
-     * "keyword" — traditional keyword search.
+     * Search type -- a latency/quality dial, per Exa's own OpenAPI spec
+     * (exa-labs/openapi-spec): "neural" | "fast" | "auto" | "deep" |
+     * "deep-reasoning" | "instant". "keyword" is no longer a valid value --
+     * dropped, not aliased, since sending it now gets a 400 from Exa rather
+     * than silently degrading.
+     *
+     * "auto"           — Exa decides keyword vs neural (default).
+     * "neural"         — embeddings-based semantic search.
+     * "fast"           — streamlined versions of the search models, ~450ms.
+     * "instant"        — lowest latency, optimised for real-time apps, ~250ms.
+     * "deep"           — light deep search: multi-step, structured output.
+     * "deep-reasoning" — base deep search, more reasoning, 12-40s.
      */
-    type?: "auto" | "neural" | "keyword";
+    type?: "auto" | "neural" | "fast" | "instant" | "deep" | "deep-reasoning";
     /** Restrict results to one domain. Maps to Exa's own `includeDomains` array param (accepts domains, path prefixes, and subdomain wildcards per Exa's docs -- we only ever send one entry). */
     siteFilter?: string;
     /** Include each result's full extracted page text in {@link WebSearchResult.content} (Exa's own `contents.text`). Off by default -- costs more and inflates payload size, matching Tavily's includeRawContent. */
@@ -88,6 +112,31 @@ export declare function exaSearch(query: string, opts?: ExaSearchOptions): Promi
  * https://api.search.brave.com/app/documentation/web-search
  */
 export declare function braveSearch(query: string, opts?: BraveSearchOptions): Promise<WebSearchResult[]>;
+export interface BraveLlmContextSearchOptions {
+    /** API key. Defaults to process.env.BRAVE_SEARCH_API_KEY -- same subscription token as classic Brave web search. */
+    apiKey?: string;
+    /** Number of URLs to return (1-50). Maps to both Brave's own `count` (candidate pool) and `maximum_number_of_urls` (response cap) -- one dial instead of two, since a caller asking for N results has no reason to reason about both separately. Default 20 (Brave's own default) when omitted. */
+    numResults?: number;
+    /** ISO 3166-1 alpha-2 country code for localised results, e.g. "US". */
+    country?: string;
+    /** Freshness filter -- same pd/pw/pm/py values as classic Brave search. */
+    freshness?: "pd" | "pw" | "pm" | "py";
+    /** Restrict results to one domain. No native domain-filter param on this endpoint -- appended as a `site:` operator, same as classic Brave. */
+    siteFilter?: string;
+    /** Relevance-filtering aggressiveness. Default "balanced" (Brave's own default) when omitted. */
+    contextThresholdMode?: "strict" | "balanced" | "lenient" | "disabled";
+    /** Maximum tokens per URL (512-8192, Brave's own default 4096). Raised when honouring {@link SearchQuery.wantFullContent} -- this endpoint has no literal "full page content" toggle, so a larger per-URL token budget is the closest fit for that intent. */
+    maxTokensPerUrl?: number;
+    /** Called once with any rate-limit/quota-shaped response headers Brave sent -- same convention as {@link BraveSearchOptions.onUsage}. */
+    onUsage?: (usage: EngineUsage) => void;
+}
+/**
+ * Search the web via Brave's LLM Context API -- pre-extracted, chunked page
+ * content purpose-built for AI agents/RAG, distinct from {@link braveSearch}'s
+ * classic SERP-shaped endpoint.
+ * https://api-dashboard.search.brave.com/documentation/services/llm-context
+ */
+export declare function braveLlmContextSearch(query: string, opts?: BraveLlmContextSearchOptions): Promise<WebSearchResult[]>;
 /**
  * Search the web via the Tavily API.
  * https://docs.tavily.com/docs/rest-api/api-reference
@@ -218,6 +267,22 @@ export declare class BraveSearchEngine implements ISearchEngine {
     private readonly onUsage?;
     private readonly extraSnippets;
     constructor(apiKey: string, country?: string | undefined, onUsage?: ((usage: EngineUsage) => void) | undefined, extraSnippets?: boolean);
+    search(req: SearchQuery): Promise<WebSearchResult[]>;
+}
+/**
+ * Brave LLM Context adapter implementing ISearchEngine -- distinct from
+ * {@link BraveSearchEngine}, which hits Brave's classic SERP endpoint.
+ * Registered under "brave-llm", not folded into "brave": both read the same
+ * BRAVE_SEARCH_API_KEY subscription token, so a caller opts in explicitly
+ * (resolveSearchEngine/webSearch({engine: "brave-llm"})) instead of this
+ * variant silently doubling Brave's share of {@link defaultSearchEngine}'s
+ * auto-detected round-robin rotation for every existing BRAVE_SEARCH_API_KEY
+ * setup.
+ */
+export declare class BraveLlmContextSearchEngine implements ISearchEngine {
+    private readonly apiKey;
+    private readonly onUsage?;
+    constructor(apiKey: string, onUsage?: ((usage: EngineUsage) => void) | undefined);
     search(req: SearchQuery): Promise<WebSearchResult[]>;
 }
 /** Tavily adapter implementing ISearchEngine and IAnswerSearchEngine (reference implementation of the answer-first port, via Tavily's own include_answer). */

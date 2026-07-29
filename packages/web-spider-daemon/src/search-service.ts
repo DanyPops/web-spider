@@ -31,6 +31,7 @@ export type EngineResolver = (name?: SearchEngine) => ISearchEngine;
 /** Maps a forced engine name to the daemon-environment variable carrying its API key. */
 const ENGINE_ENV_VARS: Partial<Record<SearchEngine, string>> = {
 	brave: "BRAVE_SEARCH_API_KEY",
+	"brave-llm": "BRAVE_SEARCH_API_KEY",
 	tavily: "TAVILY_API_KEY",
 	exa: "EXA_API_KEY",
 	serper: "SERPER_API_KEY",

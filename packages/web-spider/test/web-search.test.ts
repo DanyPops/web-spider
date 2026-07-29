@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveSearch, defaultAnswerEngine, defaultSearchEngine, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
+import { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveLlmContextSearch, braveSearch, defaultAnswerEngine, defaultSearchEngine, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
 import type { NamedSearchEngine } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
@@ -1400,6 +1400,41 @@ describe("exaSearch — highlights field", () => {
 	});
 });
 
+describe("exaSearch — type parameter", () => {
+	it.each(["auto", "neural", "fast", "instant", "deep", "deep-reasoning"] as const)(
+		"sends type=%s verbatim (per Exa's own OpenAPI spec)",
+		async (type) => {
+			const originalFetch = globalThis.fetch;
+			let capturedBody: Record<string, unknown> = {};
+			globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+			}) as typeof fetch;
+			try {
+				await exaSearch("test", { apiKey: "key", type });
+			} finally {
+				globalThis.fetch = originalFetch;
+			}
+			expect(capturedBody["type"]).toBe(type);
+		},
+	);
+
+	it("defaults to auto when type is omitted", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await exaSearch("test", { apiKey: "key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody["type"]).toBe("auto");
+	});
+});
+
 // ---------------------------------------------------------------------------
 // braveSearch — extra_snippets field
 // ---------------------------------------------------------------------------
@@ -1461,6 +1496,126 @@ describe("braveSearch — extra_snippets field", () => {
 });
 
 // ---------------------------------------------------------------------------
+// braveLlmContextSearch — Brave's agent-oriented /v1/llm/context endpoint
+// ---------------------------------------------------------------------------
+
+describe("braveLlmContextSearch", () => {
+	it("hits the /res/v1/llm/context endpoint with the subscription-token header", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		let capturedHeaders: Record<string, string> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+			capturedUrl = url;
+			capturedHeaders = init?.headers as Record<string, string>;
+			return { ok: true, status: 200, statusText: "OK", headers: new Headers(), json: async () => ({ grounding: { generic: [] } }) };
+		}) as typeof fetch;
+		try {
+			await braveLlmContextSearch("tallest mountains", { apiKey: "my-key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedUrl).toContain("https://api.search.brave.com/res/v1/llm/context");
+		expect(capturedUrl).toContain("q=tallest");
+		expect(capturedHeaders["X-Subscription-Token"]).toBe("my-key");
+	});
+
+	it("maps grounding.generic[] to WebSearchResult, first snippet as snippet, rest as highlights", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK", headers: new Headers(),
+			json: async () => ({
+				grounding: {
+					generic: [
+						{ url: "https://example.com/page", title: "Page Title", snippets: ["first chunk", "second chunk"] },
+					],
+				},
+				sources: { "https://example.com/page": { title: "Page Title", hostname: "example.com", age: ["2024-01-15"] } },
+			}),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await braveLlmContextSearch("q", { apiKey: "key" });
+			expect(results).toEqual([
+				{ url: "https://example.com/page", title: "Page Title", snippet: "first chunk", publishedAt: "2024-01-15", highlights: ["second chunk"] },
+			]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("returns an empty snippet and no highlights for a single-snippet result, matching a missing source entry gracefully", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true, status: 200, statusText: "OK", headers: new Headers(),
+			json: async () => ({ grounding: { generic: [{ url: "https://a.example", title: "A", snippets: ["only chunk"] }] } }),
+		}) as unknown as typeof fetch;
+		try {
+			const results = await braveLlmContextSearch("q", { apiKey: "key" });
+			expect(results).toEqual([{ url: "https://a.example", title: "A", snippet: "only chunk" }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("appends a site: operator for siteFilter (no native domain param on this endpoint)", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return { ok: true, status: 200, statusText: "OK", headers: new Headers(), json: async () => ({ grounding: { generic: [] } }) };
+		}) as typeof fetch;
+		try {
+			await braveLlmContextSearch("test", { apiKey: "key", siteFilter: "reddit.com" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(decodeURIComponent(capturedUrl)).toContain("site:reddit.com");
+	});
+
+	it("maps numResults to both count and maximum_number_of_urls", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return { ok: true, status: 200, statusText: "OK", headers: new Headers(), json: async () => ({ grounding: { generic: [] } }) };
+		}) as typeof fetch;
+		try {
+			await braveLlmContextSearch("test", { apiKey: "key", numResults: 7 });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedUrl).toContain("count=7");
+		expect(capturedUrl).toContain("maximum_number_of_urls=7");
+	});
+
+	it("raises the per-URL token budget instead of failing when wantFullContent has no literal equivalent on this endpoint", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedUrl = "";
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+			capturedUrl = url;
+			return { ok: true, status: 200, statusText: "OK", headers: new Headers(), json: async () => ({ grounding: { generic: [] } }) };
+		}) as typeof fetch;
+		try {
+			const engine = new BraveLlmContextSearchEngine("key");
+			await engine.search({ query: "test", wantFullContent: true });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedUrl).toContain("maximum_number_of_tokens_per_url=8192");
+	});
+
+	it("throws a descriptive error when no API key is configured", async () => {
+		delete process.env["BRAVE_SEARCH_API_KEY"];
+		await expect(braveLlmContextSearch("q")).rejects.toThrow(/Brave Search API key required/);
+	});
+
+	it("is registered as \"brave-llm\" and resolvable via resolveSearchEngine", () => {
+		expect(listRegisteredSearchEngines()).toContain("brave-llm");
+		expect(envKeyForEngine("brave-llm")).toBe("BRAVE_SEARCH_API_KEY");
+		expect(resolveSearchEngine("brave-llm", "key")).toBeInstanceOf(BraveLlmContextSearchEngine);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // tavilySearch — content field, siteFilter; tavilySearchForAnswer
 // ---------------------------------------------------------------------------
 
@@ -1507,6 +1662,104 @@ describe("tavilySearch — content field and siteFilter", () => {
 			globalThis.fetch = originalFetch;
 		}
 		expect(capturedBody["include_domains"]).toEqual(["reddit.com"]);
+	});
+
+	it("sends excludeDomains, includeFavicon, country, startDate/endDate only when set", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", {
+				apiKey: "key",
+				excludeDomains: ["spam.example"],
+				includeFavicon: true,
+				country: "france",
+				startDate: "2025-01-01",
+				endDate: "2025-06-30",
+			});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody).toMatchObject({
+			exclude_domains: ["spam.example"],
+			include_favicon: true,
+			country: "france",
+			start_date: "2025-01-01",
+			end_date: "2025-06-30",
+		});
+	});
+
+	it("omits excludeDomains/includeFavicon/country/startDate/endDate when unset (no behavior change for existing callers)", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", { apiKey: "key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		for (const key of ["exclude_domains", "include_favicon", "country", "start_date", "end_date"]) {
+			expect(capturedBody).not.toHaveProperty(key);
+		}
+	});
+
+	it("accepts the fast/ultra-fast search_depth tiers and the finance topic", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", { apiKey: "key", depth: "ultra-fast", topic: "finance" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedBody).toMatchObject({ search_depth: "ultra-fast", topic: "finance" });
+	});
+});
+
+describe("tavilySearch — auth", () => {
+	it("sends the API key as an Authorization Bearer header, never in the body", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedHeaders: Record<string, string> = {};
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedHeaders = init?.headers as Record<string, string>;
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearch("test", { apiKey: "tvly-test-key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedHeaders["Authorization"]).toBe("Bearer tvly-test-key");
+		expect(capturedBody).not.toHaveProperty("api_key");
+	});
+
+	it("tavilySearchForAnswer also sends the Authorization Bearer header, never api_key in the body", async () => {
+		const originalFetch = globalThis.fetch;
+		let capturedHeaders: Record<string, string> = {};
+		let capturedBody: Record<string, unknown> = {};
+		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedHeaders = init?.headers as Record<string, string>;
+			capturedBody = JSON.parse(init?.body as string);
+			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+		}) as typeof fetch;
+		try {
+			await tavilySearchForAnswer("test", { apiKey: "tvly-test-key" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		expect(capturedHeaders["Authorization"]).toBe("Bearer tvly-test-key");
+		expect(capturedBody).not.toHaveProperty("api_key");
 	});
 });
 
