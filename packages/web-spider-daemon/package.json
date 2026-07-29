@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider-daemon",
-	"version": "0.13.0",
+	"version": "0.14.0",
 	"license": "MIT",
 	"description": "Supervised Bun daemon for @danypops/web-spider: authenticated loopback fetch/crawl/search/cache operations",
 	"type": "module",
@@ -21,7 +21,7 @@
 	"dependencies": {
 		"@danypops/daemon-kit": "^0.18.0",
 		"@danypops/enigma-client": "^0.5.0",
-		"@danypops/web-spider": "^0.13.0"
+		"@danypops/web-spider": "^0.14.0"
 	},
 	"optionalDependencies": {
 		"@danypops/papyrus": "*",
