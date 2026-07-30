@@ -12,7 +12,7 @@
  *   - script/url/selector inputs are never written to the journal verbatim
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { SESSION_ACT_DEFAULT_TIMEOUT_MS, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_SNAPSHOT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionInfo } from "./domain/session.ts";

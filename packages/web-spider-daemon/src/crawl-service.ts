@@ -6,7 +6,7 @@
  * not be able to request an unbounded crawl.
  */
 import { crawl, searchPages, type IHttpClient, type IRobotsChecker, type IThrottle } from "@danypops/web-spider";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import {
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,

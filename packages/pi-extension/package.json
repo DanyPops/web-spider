@@ -26,7 +26,7 @@
 		]
 	},
 	"dependencies": {
-		"@danypops/daemon-kit": "^0.7.0",
+		"@danypops/vehicle-client": "^0.1.1",
 		"@danypops/web-spider": "^0.14.0",
 		"@danypops/web-spider-daemon": "^0.14.0"
 	},

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { defaultBrowserLauncher, PlaywrightSessionRegistry, wrapPlaywrightPage, type PlaywrightDialogLike, type PlaywrightDownloadLike, type PlaywrightPageLike } from "../src/adapters/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 

@@ -21,7 +21,7 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_MAX_TABS, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
 import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "../ports/session-registry.ts";

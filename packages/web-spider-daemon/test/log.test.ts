@@ -6,21 +6,21 @@
  * anywhere.
  *
  * Originally fixed with a local log.ts (papyrus's logEvent(level, event,
- * fields) shape); migrated to @danypops/daemon-kit's createLogger, which
+ * fields) shape); migrated to @danypops/vehicle-server's createLogger, which
  * is pino-backed and therefore uses pino's own field name "msg" for the
  * log message text, not "event". That is a genuine, intentional shape
- * change (not a regression) -- verified directly against daemon-kit's own
+ * change (not a regression) -- verified directly against vehicle-server's own
  * logging.test.ts, which asserts the same "msg" convention.
  */
 import { describe, expect, it } from "bun:test";
-import { createLogger } from "@danypops/daemon-kit/logging";
+import { createLogger } from "@danypops/vehicle-server/logging";
 
 function capture() {
 	const lines: string[] = [];
 	return { lines, destination: { write: (chunk: string) => { lines.push(chunk); return true; } } };
 }
 
-describe("Web Spider daemon logging (via @danypops/daemon-kit's createLogger)", () => {
+describe("Web Spider daemon logging (via @danypops/vehicle-server's createLogger)", () => {
 	it("emits credential-free structured events with the right component and message", () => {
 		const { lines, destination } = capture();
 		const logger = createLogger("web-spider-daemon", { level: "debug", destination });

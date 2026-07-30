@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
 import type { SessionAuditEntry } from "../src/domain/session-audit.ts";
 import type { SessionAuditJournal } from "../src/ports/session-audit-journal.ts";

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HttpRequest, HttpResponse, IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
-import { createLogger } from "@danypops/daemon-kit/logging";
+import { createLogger } from "@danypops/vehicle-server/logging";
 import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
 import { FetchService } from "../src/fetch-service.ts";

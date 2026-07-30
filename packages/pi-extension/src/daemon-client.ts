@@ -30,7 +30,7 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomBytes } from "node:crypto"
 import { spawn as spawnProcess } from "node:child_process"
-import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/daemon-kit/pi-client"
+import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client"
 
 const LOOPBACK_HOST = "127.0.0.1"
 const WEB_SPIDER_STATE_DIRECTORY = "web-spider"
@@ -146,7 +146,7 @@ function resolveDaemonCliPath(): string {
  * auto-start fails (e.g. bun is not on PATH, or the package files are
  * missing), pointing at manual installation instead of failing silently.
  * Delegates the actual autoStart-vs-fail-closed policy and spawn/poll loop
- * to @danypops/daemon-kit's connectWithPolicy() -- the same shared policy
+ * to @danypops/vehicle-client's connectWithPolicy() -- the same shared policy
  * lector/papyrus/pi-packed each independently forked (they fail closed;
  * this extension is the one that opts into autoStart, explicitly).
  */

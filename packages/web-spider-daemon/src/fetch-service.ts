@@ -27,7 +27,7 @@ import {
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "./constants.ts";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { highlightHit, leanOutput, linksOutput, markdownOutput } from "./format.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 

@@ -14,7 +14,7 @@
 import { createServer, type Server } from "node:http";
 import { describe, expect, test } from "bun:test";
 import { PlaywrightHttpClient } from "@danypops/web-spider";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { createWebSpiderService } from "../src/service.ts";
 
 function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {

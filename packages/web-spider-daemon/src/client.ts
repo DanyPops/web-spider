@@ -1,5 +1,5 @@
 /**
- * Typed authenticated loopback client. Delegates to @danypops/daemon-kit's
+ * Typed authenticated loopback client. Delegates to @danypops/vehicle-client's
  * generic AuthenticatedRpcClient (this file used to duplicate jittor's own
  * client.ts byte-for-byte). The Pi extension and CLI both use this;
  * neither opens SQLite directly.
@@ -11,7 +11,7 @@
  * change that; daemon-kit itself is raw TypeScript too and would hit the
  * same risk if pi-extension ever imported it directly.
  */
-import { AuthenticatedRpcClient, type FetchTransport } from "@danypops/daemon-kit/rpc-client";
+import { AuthenticatedRpcClient, type FetchTransport } from "@danypops/vehicle-client/rpc-client";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";
 import { ensureAuthToken, readDaemonHandle, resolveWebSpiderPaths, type WebSpiderPaths } from "./state.ts";
 

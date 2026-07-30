@@ -4,13 +4,13 @@
  * far more broadly than intended: this daemon's own process environment
  * carries the whole desktop session's secrets, not just its own) and
  * Enigma (checked first when WEB_SPIDER_USE_ENIGMA is set). Reuses
- * daemon-kit's shared vault.ts file mechanics (atomic write, 0600) purely
+ * vehicle-server's shared vault.ts file mechanics (atomic write, 0600) purely
  * for a bare API key with no OAuth refresh -- RefreshableAccessToken's
  * accessToken field holds the key; nothing else on that shape is used.
  */
 import { existsSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createFileStore, type RefreshableAccessToken } from "@danypops/daemon-kit/vault";
+import { createFileStore, type RefreshableAccessToken } from "@danypops/vehicle-server/vault";
 import type { WebSpiderPaths } from "./state.ts";
 
 export interface SearchKeyStore {

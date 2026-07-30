@@ -1,5 +1,5 @@
 /**
- * Bun composition root. Delegates to @danypops/daemon-kit's
+ * Bun composition root. Delegates to @danypops/vehicle-server's
  * runDaemonProcess -- this file used to duplicate jittor's/papyrus's own
  * daemon.ts almost exactly (bind loopback:0, write the handle only after
  * a successful bind, periodic maintenance timers, clean SIGINT/SIGTERM
@@ -8,8 +8,8 @@
  * the exact bug this file's own checkpoint/optimize timers were fixed for
  * earlier this session.
  */
-import { runDaemonProcess } from "@danypops/daemon-kit/daemon";
-import { createLogger } from "@danypops/daemon-kit/logging";
+import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
+import { createLogger } from "@danypops/vehicle-server/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { resolveSearchEnv } from "./search-env.ts";
 import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";

@@ -1,6 +1,6 @@
 /**
  * SQLite composition root. Bootstrap (pragmas, PRAGMA user_version
- * migration runner) delegates to @danypops/daemon-kit's storage module --
+ * migration runner) delegates to @danypops/vehicle-server's storage module --
  * this file used to duplicate that skeleton with jittor's/papyrus's own
  * copies byte-for-byte. Web Spider's actual schema stays entirely here.
  *
@@ -13,7 +13,7 @@
  *   images — scraped images, child of pages, inline base64 or file_path
  */
 import type { Database } from "bun:sqlite";
-import { openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { SQLITE_BUSY_TIMEOUT_MS } from "./constants.ts";
 
 const INITIAL_SCHEMA = `

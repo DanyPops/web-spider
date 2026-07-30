@@ -1,6 +1,6 @@
 /**
  * Process/storage layout and authenticated discovery. Delegates to
- * @danypops/daemon-kit's generic paths module (XDG_DATA_HOME db,
+ * @danypops/vehicle-server's generic paths module (XDG_DATA_HOME db,
  * XDG_STATE_HOME token, XDG_RUNTIME_DIR daemon handle, XDG_CONFIG_HOME
  * systemd unit) -- this file used to duplicate that logic byte-for-byte
  * with jittor's/papyrus's own copies. Kept as a thin WebSpiderPaths-object
@@ -10,13 +10,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-	ensureAuthToken as daemonKitEnsureAuthToken,
-	readDaemonHandle as daemonKitReadDaemonHandle,
-	removeDaemonHandle as daemonKitRemoveDaemonHandle,
+	ensureAuthToken as vehicleEnsureAuthToken,
+	readDaemonHandle as vehicleReadDaemonHandle,
+	removeDaemonHandle as vehicleRemoveDaemonHandle,
 	resolveDaemonPaths,
-	writeDaemonHandle as daemonKitWriteDaemonHandle,
+	writeDaemonHandle as vehicleWriteDaemonHandle,
 	type DaemonHandle as DaemonKitHandle,
-} from "@danypops/daemon-kit/paths";
+} from "@danypops/vehicle-server/paths";
 import {
 	DATABASE_FILENAME,
 	HANDLE_FILENAME,
@@ -33,7 +33,7 @@ export interface WebSpiderPaths {
 	systemdUnit: string;
 }
 
-// daemon-kit's DaemonHandle is structurally { host: "127.0.0.1"; port; pid },
+// vehicle-server's DaemonHandle is structurally { host: "127.0.0.1"; port; pid },
 // identical to what this module has always exposed -- re-exported under the
 // existing name so no consumer needs to change its import.
 export type DaemonHandle = DaemonKitHandle;
@@ -45,7 +45,7 @@ export interface PathEnvironment {
 }
 
 export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderPaths {
-	// daemon-kit >=0.18 renamed DaemonPaths.systemdUnit to the platform-neutral
+	// vehicle-server renamed DaemonPaths.systemdUnit to the platform-neutral
 	// serviceDescriptor -- mapped back to this module's own stable field name
 	// here so no existing consumer (cli.ts) needs to change its own field access.
 	const resolved = resolveDaemonPaths(
@@ -62,19 +62,19 @@ export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderP
 }
 
 export function ensureAuthToken(paths: WebSpiderPaths = resolveWebSpiderPaths()): string {
-	return daemonKitEnsureAuthToken(paths.token, "Web Spider");
+	return vehicleEnsureAuthToken(paths.token, "Web Spider");
 }
 
 export function writeDaemonHandle(paths: WebSpiderPaths, handle: DaemonHandle): void {
-	daemonKitWriteDaemonHandle(paths.handle, handle);
+	vehicleWriteDaemonHandle(paths.handle, handle);
 }
 
 export function readDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): DaemonHandle | null {
-	return daemonKitReadDaemonHandle(paths.handle);
+	return vehicleReadDaemonHandle(paths.handle);
 }
 
 export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): void {
-	daemonKitRemoveDaemonHandle(paths.handle);
+	vehicleRemoveDaemonHandle(paths.handle);
 }
 
 /**
@@ -82,7 +82,7 @@ export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths
  * Respects WEB_SPIDER_CACHE_PATH (the same override the pi-extension has
  * used to date) so an existing custom cache location is still found.
  * Web-Spider-specific, not a generic daemon concern -- stays here rather
- * than moving into daemon-kit.
+ * than moving into vehicle-server.
  */
 export function resolveLegacyCachePath(options: PathEnvironment = {}): string {
 	const env = options.env ?? process.env;

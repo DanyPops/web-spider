@@ -1,6 +1,6 @@
 /**
  * Wraps connectOrStartWebSpiderClient() with the retry-once-on-stale-
- * connection policy generalized into @danypops/daemon-kit's pi-client
+ * connection policy generalized into @danypops/vehicle-client's daemon-client
  * module (this file, papyrus's callService(), and lector's lectorClient()
  * were three of the four independent reimplementations that motivated it).
  * The daemon binds a new random port on every restart; a client resolved
@@ -10,7 +10,7 @@
  * the first connection attempt), drops the stale cache entry, and retries
  * once against a freshly re-resolved client.
  */
-import { createRetryingClient } from "@danypops/daemon-kit/pi-client"
+import { createRetryingClient } from "@danypops/vehicle-client/daemon-client"
 import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js"
 
 type ClientConnector = () => Promise<WebSpiderClient>
