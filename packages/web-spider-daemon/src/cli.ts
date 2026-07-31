@@ -13,9 +13,9 @@
  * language for humans — never parsed from the human text).
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { listRegisteredSearchEngines } from "@danypops/web-spider";
 import {
 	formatCacheListResult, formatCacheSearchResult, formatCategoryAssignResult, formatCategoryListResult,
@@ -64,35 +64,33 @@ export interface SystemdUnitOptions {
 	enigmaEnv?: Partial<Record<(typeof ENIGMA_ENV_VARS)[number], string | undefined>>;
 }
 
-function escapeUnitValue(value: string): string {
-	return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
-export function renderSystemdUnit(options: SystemdUnitOptions): string {
+function webSpiderServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 	const forwardedVars: [string, string | undefined][] = [
 		...SEARCH_API_KEY_VARS.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]]),
 		...ENIGMA_ENV_VARS.map((name): [string, string | undefined] => [name, options.enigmaEnv?.[name]]),
 	];
-	const environmentLines = forwardedVars
-		.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
-		.map(([name, value]) => `Environment="${name}=${escapeUnitValue(value)}"\n`)
-		.join("");
-	return `[Unit]
-Description=Web Spider search, query, and scraping daemon
-After=default.target network-online.target
-Wants=network-online.target
+	const env = Object.fromEntries(forwardedVars.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0));
+	return {
+		name: "web-spider",
+		displayName: "Web Spider search, query, and scraping daemon",
+		binPath: options.bunBin,
+		args: [options.cliPath, "serve"],
+		env,
+		descriptorPath: resolveWebSpiderPaths().systemdUnit,
+		// The Pi extension's own daemon-client auto-spawns (connectWithPolicy), but the bare
+		// CLI client fails closed -- kept as Restart=always/RestartSec=2 to preserve this
+		// unit's existing, already-shipped behavior rather than silently weakening it.
+		restartOnFailure: true,
+		restartSec: 2,
+		noNewPrivileges: true,
+		privateTmp: true,
+		waitForNetwork: true,
+	};
+}
 
-[Service]
-Type=simple
-ExecStart=${options.bunBin} ${options.cliPath} serve
-${environmentLines}Restart=always
-RestartSec=2
-NoNewPrivileges=true
-PrivateTmp=true
-
-[Install]
-WantedBy=default.target
-`;
+/** Pure text generator, delegating to vehicle-server's shared generateSystemdUnit -- kept as its own named export since this package's own tests (and any external caller) call it directly with the same options shape as before. */
+export function renderSystemdUnit(options: SystemdUnitOptions): string {
+	return generateSystemdUnit(webSpiderServiceSpec(options));
 }
 
 function systemctl(...args: string[]): void {
@@ -100,16 +98,17 @@ function systemctl(...args: string[]): void {
 }
 
 function installService(): void {
-	const unitPath = resolveWebSpiderPaths().systemdUnit;
-	mkdirSync(dirname(unitPath), { recursive: true });
-	writeFileSync(unitPath, renderSystemdUnit({
+	const spec = webSpiderServiceSpec({
 		bunBin: process.execPath,
 		cliPath: fileURLToPath(import.meta.url),
 		searchApiKeys: Object.fromEntries(SEARCH_API_KEY_VARS.map((name) => [name, process.env[name]])),
 		enigmaEnv: Object.fromEntries(ENIGMA_ENV_VARS.map((name) => [name, process.env[name]])),
-	}));
-	systemctl("daemon-reload");
-	systemctl("enable", SYSTEMD_UNIT_NAME);
+	});
+	const result = installUserService(spec, createNodeServiceInstallDeps());
+	if (!result.installed) throw new Error(`failed to install the Web Spider service: ${result.reason}`);
+	// installUserService's Linux path is `enable --now` (starts if not already running) --
+	// an explicit restart on top ensures a re-install after an upgrade actually picks up the
+	// freshly-generated unit's new ExecStart/Environment lines, not just re-enables the old one.
 	systemctl("restart", SYSTEMD_UNIT_NAME);
 }
 

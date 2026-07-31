@@ -28,25 +28,36 @@ function fakeDeps(overrides: {
 }
 
 describe("renderSystemdUnit", () => {
-	test("renders a restart-always, no-new-privileges unit invoking serve", () => {
+	// Delegates to vehicle-server's shared generateSystemdUnit (see cli.ts's webSpiderServiceSpec) --
+	// ExecStart is now shell-quoted per argument, and DAEMON_KIT_LAUNCH_PROVENANCE=service is always
+	// present (needed for startDaemon()'s idle-shutdown provenance check), unlike the old bespoke
+	// generator which never set it at all.
+	test("renders a restart-always, no-new-privileges, network-online-waiting unit invoking serve", () => {
 		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
-		expect(unit).toContain("ExecStart=/usr/bin/bun /opt/web-spider/cli.ts serve");
+		expect(unit).toContain('ExecStart="/usr/bin/bun" "/opt/web-spider/cli.ts" "serve"');
 		expect(unit).toContain("Restart=always");
+		expect(unit).toContain("RestartSec=2");
 		expect(unit).toContain("NoNewPrivileges=true");
 		expect(unit).toContain("PrivateTmp=true");
+		expect(unit).toContain("After=default.target network-online.target");
+		expect(unit).toContain("Wants=network-online.target");
+		expect(unit).toContain('Environment="DAEMON_KIT_LAUNCH_PROVENANCE=service"');
 	});
 
-	test("omits Environment= lines entirely when no search API keys are supplied", () => {
+	test("emits only the DAEMON_KIT_LAUNCH_PROVENANCE line when no search API keys are supplied", () => {
 		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
-		expect(unit).not.toContain("Environment=");
+		const environmentLines = unit.split("\n").filter((line) => line.startsWith("Environment="));
+		expect(environmentLines).toEqual(['Environment="DAEMON_KIT_LAUNCH_PROVENANCE=service"']);
 	});
 
-	test("omits Environment= lines for keys that are undefined or empty", () => {
+	test("omits a key's own Environment= line when its value is undefined or empty", () => {
 		const unit = renderSystemdUnit({
 			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
 			searchApiKeys: { BRAVE_SEARCH_API_KEY: undefined, TAVILY_API_KEY: "", EXA_API_KEY: undefined },
 		});
-		expect(unit).not.toContain("Environment=");
+		expect(unit).not.toContain("BRAVE_SEARCH_API_KEY");
+		expect(unit).not.toContain("TAVILY_API_KEY");
+		expect(unit).not.toContain("EXA_API_KEY");
 	});
 
 	test("renders one Environment= line per configured key, between ExecStart and Restart", () => {
