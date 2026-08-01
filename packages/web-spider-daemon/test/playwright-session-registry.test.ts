@@ -4,7 +4,14 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { defaultBrowserLauncher, PlaywrightSessionRegistry, wrapPlaywrightPage, type PlaywrightDialogLike, type PlaywrightDownloadLike, type PlaywrightPageLike } from "../src/adapters/playwright-session-registry.ts";
+import {
+	defaultBrowserLauncher,
+	type PlaywrightDialogLike,
+	type PlaywrightDownloadLike,
+	type PlaywrightPageLike,
+	PlaywrightSessionRegistry,
+	wrapPlaywrightPage,
+} from "../src/adapters/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
 function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {
@@ -13,7 +20,9 @@ function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Recor
 		warnCalls,
 		debug: () => {},
 		info: () => {},
-		warn: (msg, fields) => { warnCalls.push({ msg, fields }); },
+		warn: (msg, fields) => {
+			warnCalls.push({ msg, fields });
+		},
 		error: () => {},
 	};
 }
@@ -40,7 +49,11 @@ describe("PlaywrightSessionRegistry — create", () => {
 
 	test("rejects an invalid name without ever calling the launcher", async () => {
 		let calls = 0;
-		const { launcher } = fakeLauncher({ onLaunch: () => { calls++; } });
+		const { launcher } = fakeLauncher({
+			onLaunch: () => {
+				calls++;
+			},
+		});
 		const registry = new PlaywrightSessionRegistry({ launcher });
 
 		await expect(registry.create("../etc/passwd")).rejects.toThrow(/invalid session name/);
@@ -108,7 +121,12 @@ describe("PlaywrightSessionRegistry — list / get", () => {
 
 		await registry.create("a");
 		await registry.create("b");
-		expect(registry.list().map((s) => s.name).sort()).toEqual(["a", "b"]);
+		expect(
+			registry
+				.list()
+				.map((s) => s.name)
+				.sort(),
+		).toEqual(["a", "b"]);
 		expect(registry.get("a")?.name).toBe("a");
 		expect(registry.get("does-not-exist")).toBeUndefined();
 	});
@@ -159,7 +177,10 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 });
 
 describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
-	function fakePage(overrides: Partial<PlaywrightPageLike> = {}): { page: PlaywrightPageLike; handlers: Record<string, (arg: never) => void | Promise<void>> } {
+	function fakePage(overrides: Partial<PlaywrightPageLike> = {}): {
+		page: PlaywrightPageLike;
+		handlers: Record<string, (arg: never) => void | Promise<void>>;
+	} {
 		const handlers: Record<string, (arg: never) => void | Promise<void>> = {};
 		const page = {
 			goto: async () => {},
@@ -167,13 +188,19 @@ describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
 			url: () => "about:blank",
 			title: async () => "",
 			close: async () => {},
-			locator: () => { throw new Error("not used in this test"); },
-			getByText: () => { throw new Error("not used in this test"); },
+			locator: () => {
+				throw new Error("not used in this test");
+			},
+			getByText: () => {
+				throw new Error("not used in this test");
+			},
 			waitForLoadState: async () => {},
 			evaluate: async () => undefined,
 			screenshot: async () => new Uint8Array(),
 			ariaSnapshot: async () => "",
-			on: (event: string, handler: (arg: never) => void | Promise<void>) => { handlers[event] = handler; },
+			on: (event: string, handler: (arg: never) => void | Promise<void>) => {
+				handlers[event] = handler;
+			},
 			keyboard: { press: async () => {} },
 			...overrides,
 		} as unknown as PlaywrightPageLike;
@@ -185,7 +212,12 @@ describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
 		const logger = fakeLogger();
 		const sessionPage = wrapPlaywrightPage(page, "/tmp/unused", logger);
 		await sessionPage.armDialogPolicy({ accept: true });
-		const dialog: PlaywrightDialogLike = { accept: async () => { throw new Error("simulated accept failure"); }, dismiss: async () => {} };
+		const dialog: PlaywrightDialogLike = {
+			accept: async () => {
+				throw new Error("simulated accept failure");
+			},
+			dismiss: async () => {},
+		};
 
 		// The registered handler itself must never reject — it's Playwright's own
 		// event dispatch that calls this, which awaits nothing.
@@ -199,13 +231,17 @@ describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
 		wrapPlaywrightPage(page, "/tmp/unused", logger);
 		const download: PlaywrightDownloadLike = {
 			suggestedFilename: () => "report.pdf",
-			saveAs: async () => { throw new Error("simulated saveAs failure"); },
+			saveAs: async () => {
+				throw new Error("simulated saveAs failure");
+			},
 			url: () => "https://example.com/report.pdf",
 			failure: async () => null,
 		};
 
 		await expect((handlers.download as (d: PlaywrightDownloadLike) => Promise<void>)(download)).resolves.toBeUndefined();
-		expect(logger.warnCalls).toEqual([{ msg: "session_download_handler_failed", fields: { error: "Error: simulated saveAs failure", filename: "report.pdf" } }]);
+		expect(logger.warnCalls).toEqual([
+			{ msg: "session_download_handler_failed", fields: { error: "Error: simulated saveAs failure", filename: "report.pdf" } },
+		]);
 	});
 });
 
@@ -381,9 +417,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		// near the bottom — proves fullPage actually captures scrolled-past
 		// content, and that an element-scoped shot is genuinely smaller than
 		// either whole-page capture, not just a claim.
-		await page.goto(
-			"data:text/html,<div style='height:3000px'></div><div id='chip' style='width:40px;height:20px;background:red'></div>",
-		);
+		await page.goto("data:text/html,<div style='height:3000px'></div><div id='chip' style='width:40px;height:20px;background:red'></div>");
 
 		const viewportShot = await page.screenshot();
 		const fullPageShot = await page.screenshot({ fullPage: true });
@@ -471,9 +505,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.create("real-dialog-default-session");
 		const page = await registry.page("real-dialog-default-session");
 
-		await page.goto(
-			"data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>",
-		);
+		await page.goto("data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>");
 		const start = Date.now();
 		await page.click("#b"); // must not hang
 		expect(Date.now() - start).toBeLessThan(5_000);
@@ -487,9 +519,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.create("real-dialog-accept-session");
 		const page = await registry.page("real-dialog-accept-session");
 
-		await page.goto(
-			"data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>",
-		);
+		await page.goto("data:text/html,<button onclick=\"window.result = confirm('proceed?') ? 'accepted' : 'dismissed'\" id='b'>go</button>");
 		await page.armDialogPolicy({ accept: true });
 		await page.click("#b");
 		expect(await page.evaluate<string>("window.result")).toBe("accepted");
@@ -532,9 +562,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.create("real-download-session");
 		const page = await registry.page("real-download-session");
 
-		await page.goto(
-			"data:text/html,<a href='data:text/plain,O-RAN.WG3.TS.E2AP-R004-v08.00' download='spec.txt' id='dl'>Download</a>",
-		);
+		await page.goto("data:text/html,<a href='data:text/plain,O-RAN.WG3.TS.E2AP-R004-v08.00' download='spec.txt' id='dl'>Download</a>");
 		await page.click("#dl");
 		// The download event may not have finished by the time click() resolves
 		// (verified empirically before designing this) — poll briefly rather
@@ -581,9 +609,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		await registry.create("real-presskey-session");
 		const page = await registry.page("real-presskey-session");
 
-		await page.goto(
-			"data:text/html,<form onsubmit='window.submitted = true; return false'><input id='q'></form>",
-		);
+		await page.goto("data:text/html,<form onsubmit='window.submitted = true; return false'><input id='q'></form>");
 		await page.type("#q", "E2");
 		await page.pressKey("Enter", { selector: "#q" });
 		expect(await page.evaluate<boolean>("window.submitted")).toBe(true);
@@ -623,7 +649,11 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		// test failed with a real "Failed to fetch" against a real server
 		// before switching to serving the page itself from the same origin).
 		const server = createServer((req, res) => {
-			if (req.url === "/api/data") { res.writeHead(200, { "content-type": "application/json" }); res.end("{}"); return; }
+			if (req.url === "/api/data") {
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end("{}");
+				return;
+			}
 			res.writeHead(200, { "content-type": "text/html" });
 			res.end("<div>ready</div>");
 		});

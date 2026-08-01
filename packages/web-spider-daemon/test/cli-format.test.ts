@@ -12,7 +12,9 @@ import {
 
 describe("formatFetchResult", () => {
 	test("robots-blocked result", () => {
-		expect(formatFetchResult({ blocked: true, url: "https://x.test", reason: "robots.txt" })).toBe("Blocked by robots.txt — https://x.test");
+		expect(formatFetchResult({ blocked: true, url: "https://x.test", reason: "robots.txt" })).toBe(
+			"Blocked by robots.txt — https://x.test",
+		);
 	});
 
 	test("tree path miss", () => {
@@ -24,7 +26,10 @@ describe("formatFetchResult", () => {
 			pagesFound: 2,
 			errors: 1,
 			note: "All pages cached.",
-			pages: [{ title: "One", url: "https://a.test" }, { title: "Two", url: "https://b.test" }],
+			pages: [
+				{ title: "One", url: "https://a.test" },
+				{ title: "Two", url: "https://b.test" },
+			],
 		});
 		expect(text).toContain("Crawled 2 pages");
 		expect(text).toContain("1 error(s)");
@@ -114,7 +119,13 @@ describe("formatCacheListResult", () => {
 	});
 
 	test("reports filtered vs. total when a grep narrows the result", () => {
-		const text = formatCacheListResult({ total: 5, filtered: 1, offset: 0, limit: 20, pages: [{ url: "https://a.test", domain: "a.test", title: "A", description: "", wordCount: 1, fetchedAt: 0, expiresAt: 0 }] });
+		const text = formatCacheListResult({
+			total: 5,
+			filtered: 1,
+			offset: 0,
+			limit: 20,
+			pages: [{ url: "https://a.test", domain: "a.test", title: "A", description: "", wordCount: 1, fetchedAt: 0, expiresAt: 0 }],
+		});
 		expect(text).toContain("1 of 5");
 	});
 });
@@ -125,7 +136,11 @@ describe("formatCacheSearchResult", () => {
 	});
 
 	test("lists ranked hits", () => {
-		const text = formatCacheSearchResult({ query: "q", pagesSearched: 2, hits: [{ url: "https://a.test", title: "A", score: 0.8, heading: "Intro", text: "hello" }] });
+		const text = formatCacheSearchResult({
+			query: "q",
+			pagesSearched: 2,
+			hits: [{ url: "https://a.test", title: "A", score: 0.8, heading: "Intro", text: "hello" }],
+		});
 		expect(text).toContain("1 hit(s)");
 		expect(text).toContain("A");
 		expect(text).toContain("Intro");

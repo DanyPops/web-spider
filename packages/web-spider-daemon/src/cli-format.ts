@@ -5,10 +5,16 @@
  * These never run for --json invocations; they format whatever operation
  * output shape service.ts's fetch/crawl/search/cache.* handlers returned.
  */
-import type { CachedPageListResult, CachedPageSearchResult, CategoryAssignmentResult, CategoryListResult, CategoryRenameResult } from "./domain/page.ts";
+import type {
+	CachedPageListResult,
+	CachedPageSearchResult,
+	CategoryAssignmentResult,
+	CategoryListResult,
+	CategoryRenameResult,
+} from "./domain/page.ts";
+import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import type { PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
-import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { WebSearchOutput } from "./search-service.ts";
 import type { SessionActOutput } from "./session-service.ts";
 
@@ -48,19 +54,23 @@ export function formatFetchResult(result: unknown): string {
 	// Crawl/fetch highlights — hits carry heading/score/text.
 	if (Array.isArray(result.hits) && result.hits.every((hit) => isRecord(hit) && "heading" in hit)) {
 		if (result.hits.length === 0) return "No matches.";
-		return result.hits.map((hit) => {
-			const h = hit as Record<string, unknown>;
-			return `[${Number(h.score ?? 0).toFixed(2)}] ${String(h.heading ?? "")}\n  ${String(h.text ?? "")}`;
-		}).join("\n\n");
+		return result.hits
+			.map((hit) => {
+				const h = hit as Record<string, unknown>;
+				return `[${Number(h.score ?? 0).toFixed(2)}] ${String(h.heading ?? "")}\n  ${String(h.text ?? "")}`;
+			})
+			.join("\n\n");
 	}
 
 	// Tree query hits.
 	if (Array.isArray(result.hits) && result.hits.every((hit) => isRecord(hit) && "path" in hit)) {
 		if (result.hits.length === 0) return "No matches.";
-		return result.hits.map((hit) => {
-			const h = hit as Record<string, unknown>;
-			return `${String(h.path ?? "")} (${String(h.tag ?? "")}) — ${String(h.snippet ?? "")}`;
-		}).join("\n");
+		return result.hits
+			.map((hit) => {
+				const h = hit as Record<string, unknown>;
+				return `${String(h.path ?? "")} (${String(h.tag ?? "")}) — ${String(h.snippet ?? "")}`;
+			})
+			.join("\n");
 	}
 
 	// Tree node (full tree or a navigated path result).
@@ -83,10 +93,13 @@ export function formatFetchResult(result: unknown): string {
 			typeof result.wordCount === "number" ? `${result.wordCount} words` : undefined,
 			typeof result.cache === "string" ? `cache ${result.cache}` : undefined,
 			result.truncated ? "truncated" : undefined,
-		].filter(Boolean).join(" · ");
-		const preview = result.markdown.length > PREVIEW_MARKDOWN_CHARACTERS
-			? `${result.markdown.slice(0, PREVIEW_MARKDOWN_CHARACTERS)}…\n[use --json for the full body]`
-			: result.markdown;
+		]
+			.filter(Boolean)
+			.join(" · ");
+		const preview =
+			result.markdown.length > PREVIEW_MARKDOWN_CHARACTERS
+				? `${result.markdown.slice(0, PREVIEW_MARKDOWN_CHARACTERS)}…\n[use --json for the full body]`
+				: result.markdown;
 		return `${header}\n\n${preview}`;
 	}
 
@@ -95,7 +108,9 @@ export function formatFetchResult(result: unknown): string {
 		const header = [
 			String(result.title ?? result.url ?? ""),
 			typeof result.wordCount === "number" ? `${result.wordCount} words` : undefined,
-		].filter(Boolean).join(" · ");
+		]
+			.filter(Boolean)
+			.join(" · ");
 		return [header, ...(result.headings as string[])].join("\n");
 	}
 
@@ -119,17 +134,18 @@ function formatUsageEntryLine(entry: SearchEngineUsageEntry): string {
 }
 
 export function formatSearchUsageResult(result: { entries: SearchEngineUsageEntry[] }): string {
-	if (result.entries.length === 0) return "No search usage recorded yet -- never a running account balance, only what each call itself reported.";
+	if (result.entries.length === 0)
+		return "No search usage recorded yet -- never a running account balance, only what each call itself reported.";
 	return [`${result.entries.length} usage entry(ies), newest first`, ...result.entries.map(formatUsageEntryLine)].join("\n");
 }
 
 export function formatCacheListResult(result: CachedPageListResult): string {
 	if (result.pages.length === 0) return "No cached pages.";
-	const suffix = result.filtered !== result.total ? ` (${result.filtered} of ${result.total} match the filter)` : ` (${result.total} total)`;
-	return [
-		`${result.pages.length} cached page(s)${suffix}`,
-		...result.pages.map((page) => `  ${page.title || page.url}  ${page.url}`),
-	].join("\n");
+	const suffix =
+		result.filtered !== result.total ? ` (${result.filtered} of ${result.total} match the filter)` : ` (${result.total} total)`;
+	return [`${result.pages.length} cached page(s)${suffix}`, ...result.pages.map((page) => `  ${page.title || page.url}  ${page.url}`)].join(
+		"\n",
+	);
 }
 
 export function formatPapyrusIngestResult(result: PapyrusIngestOutput): string {
@@ -164,7 +180,10 @@ export function formatCategoryRenameResult(result: CategoryRenameResult): string
 
 export function formatCategoryListResult(result: CategoryListResult): string {
 	if (result.categories.length === 0) return "No categories yet.";
-	return [`${result.categories.length} categor${result.categories.length === 1 ? "y" : "ies"}`, ...result.categories.map((c) => `  ${c.name}  (${c.pageCount} page(s), id=${c.id})`)].join("\n");
+	return [
+		`${result.categories.length} categor${result.categories.length === 1 ? "y" : "ies"}`,
+		...result.categories.map((c) => `  ${c.name}  (${c.pageCount} page(s), id=${c.id})`),
+	].join("\n");
 }
 
 function formatSessionInfoLine(session: SessionInfo): string {
@@ -186,7 +205,18 @@ export function formatSessionCloseResult(result: { name: string; closed: true })
 
 export function formatSessionActResult(result: SessionActOutput): string {
 	const header = `${result.action} on "${result.name}" — ok (snapshotVersion=${result.snapshotVersion})`;
-	if (result.action === "eval" || result.action === "queryText" || result.action === "readTable" || result.action === "snapshot" || result.action === "downloads" || result.action === "consoleMessages" || result.action === "networkRequests" || result.action === "tabs") return `${header}\n  result: ${JSON.stringify(result.result)}`;
-	if (result.action === "screenshot") return `${header}\n  screenshot: ${result.screenshotBase64?.length ?? 0} base64 characters (use --json to capture the image data)`;
+	if (
+		result.action === "eval" ||
+		result.action === "queryText" ||
+		result.action === "readTable" ||
+		result.action === "snapshot" ||
+		result.action === "downloads" ||
+		result.action === "consoleMessages" ||
+		result.action === "networkRequests" ||
+		result.action === "tabs"
+	)
+		return `${header}\n  result: ${JSON.stringify(result.result)}`;
+	if (result.action === "screenshot")
+		return `${header}\n  screenshot: ${result.screenshotBase64?.length ?? 0} base64 characters (use --json to capture the image data)`;
 	return header;
 }

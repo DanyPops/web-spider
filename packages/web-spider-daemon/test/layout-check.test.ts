@@ -3,9 +3,9 @@ import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapte
 import {
 	checkLayout,
 	checkLayoutConsistency,
+	type ElementMeasurement,
 	measureElements,
 	SelectorNotFoundError,
-	type ElementMeasurement,
 } from "../src/layout-check.ts";
 
 function measurement(selector: string, overrides: Partial<ElementMeasurement> = {}): ElementMeasurement {
@@ -29,11 +29,16 @@ describe("checkLayoutConsistency — pure, no browser", () => {
 		const toolCallCard = measurement(".tool-call-card", { padding: { top: 8, right: 8, bottom: 8, left: 8 } });
 		const result = checkLayoutConsistency([messageBubble, toolCallCard], ["paddingLeft"]);
 		expect(result.consistent).toBe(false);
-		expect(result.mismatches).toEqual([{
-			property: "paddingLeft",
-			values: [{ selector: ".message-bubble", value: 16 }, { selector: ".tool-call-card", value: 8 }],
-			deltaPx: 8,
-		}]);
+		expect(result.mismatches).toEqual([
+			{
+				property: "paddingLeft",
+				values: [
+					{ selector: ".message-bubble", value: 16 },
+					{ selector: ".tool-call-card", value: 8 },
+				],
+				deltaPx: 8,
+			},
+		]);
 	});
 
 	test("only reports mismatches for the properties actually requested, not every property", () => {

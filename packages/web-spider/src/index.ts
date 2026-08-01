@@ -7,28 +7,65 @@ export { SpiderCache } from "./cache.js";
 export { canonicalizeUrl } from "./cache-key.js";
 export type { CrawlOptions, CrawlResult } from "./crawl.js";
 export { crawl } from "./crawl.js";
+export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./github.js";
+export { parseGitHubUrl, queryGitHub } from "./github.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./graph.js";
 export { PageGraph } from "./graph.js";
-export type { FuzzySearchOptions, SearchHit } from "./search.js";
-export { searchPages } from "./search.js";
-/** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
-export { searchPages as fuzzySearch } from "./search.js";
-export type { SpiderOptions, TreePage } from "./spider.js";
-export { spider } from "./spider.js";
 export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./llms-txt.js";
 export { probeLlmsTxt } from "./llms-txt.js";
 export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./markdown-suffix.js";
 export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
 export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./mediawiki.js";
 export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
-export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./github.js";
-export { parseGitHubUrl, queryGitHub } from "./github.js";
+export type { FuzzySearchOptions, SearchHit } from "./search.js";
+/** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
+export { searchPages, searchPages as fuzzySearch } from "./search.js";
+export type { SpiderOptions, TreePage } from "./spider.js";
+export { spider } from "./spider.js";
 export type { QueryTreeOptions } from "./tree.js";
 export { buildTree, navigateTree, queryTree } from "./tree.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
 export { toLean } from "./views.js";
-export type { BraveLlmContextSearchOptions, BraveSearchOptions, DefaultAnswerEngineOptions, DefaultSearchEngineOptions, EngineFailureReason, EngineUsage, ExaSearchOptions, FallbackSearchEngineOptions, InMemorySiteAvailabilityTrackerOptions, NamedSearchEngine, RateLimitPredicate, RoundRobinSearchEngineOptions, SearchEngine, SerpApiSearchOptions, SerperSearchOptions, SiteRoutedSearchEngineOptions, TavilyAnswerSearchOptions, TavilySearchOptions, WebSearchOptions, WebSearchResult, YouComSearchOptions } from "./web-search.js";
-export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
+export type {
+	BraveLlmContextSearchOptions,
+	BraveSearchOptions,
+	DefaultAnswerEngineOptions,
+	DefaultSearchEngineOptions,
+	EngineFailureReason,
+	EngineUsage,
+	ExaSearchOptions,
+	FallbackSearchEngineOptions,
+	InMemorySiteAvailabilityTrackerOptions,
+	NamedSearchEngine,
+	RateLimitPredicate,
+	RoundRobinSearchEngineOptions,
+	SearchEngine,
+	SerpApiSearchOptions,
+	SerperSearchOptions,
+	SiteRoutedSearchEngineOptions,
+	TavilyAnswerSearchOptions,
+	TavilySearchOptions,
+	WebSearchOptions,
+	WebSearchResult,
+	YouComSearchOptions,
+} from "./web-search.js";
+export {
+	braveLlmContextSearch,
+	braveSearch,
+	envKeyForEngine,
+	exaSearch,
+	isLikelyQuotaExceededError,
+	isLikelyRateLimitError,
+	listRegisteredSearchEngines,
+	registerSearchEngine,
+	resolveSearchEngine,
+	serpApiSearch,
+	serperSearch,
+	tavilySearch,
+	tavilySearchForAnswer,
+	webSearch,
+	youComSearch,
+} from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -50,11 +87,7 @@ import type { Chunk, SpideredPage } from "./types.js";
  * const chunk = getChunk(cache, "https://example.com/article", 3)
  * if (chunk) console.log(chunk.text)
  */
-export function getChunk(
-	cache: ICache<string, SpideredPage>,
-	url: string,
-	index: number,
-): Chunk | undefined {
+export function getChunk(cache: ICache<string, SpideredPage>, url: string, index: number): Chunk | undefined {
 	if (index < 0) return undefined;
 	return cache.get(url)?.chunks[index];
 }
@@ -64,16 +97,44 @@ export function getChunk(
 // Import these when you need to inject custom implementations.
 // ---------------------------------------------------------------------------
 
-export type { AnswerResult, HttpRequest, HttpResponse, IAnswerSearchEngine, ICache, IHttpClient, IRobotsChecker, ISearchEngine, IThrottle, RobotsResult, SearchQuery, SiteAvailabilityTracker } from "./ports.js";
 export type { DiskCacheOptions } from "./disk-cache.js";
 export { DiskCache } from "./disk-cache.js";
 export type { PlaywrightClientOptions } from "./playwright.js";
-export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
-export { RobotsCache, createRobotsCache } from "./robots.js";
+export { createPlaywrightClient, PlaywrightHttpClient } from "./playwright.js";
+export type {
+	AnswerResult,
+	HttpRequest,
+	HttpResponse,
+	IAnswerSearchEngine,
+	ICache,
+	IHttpClient,
+	IRobotsChecker,
+	ISearchEngine,
+	IThrottle,
+	RobotsResult,
+	SearchQuery,
+	SiteAvailabilityTracker,
+} from "./ports.js";
+export { createRobotsCache, RobotsCache } from "./robots.js";
 export { fetchSitemapUrls } from "./sitemap.js";
 export type { ThrottleOptions } from "./throttle.js";
-export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultAnswerEngine, defaultSearchEngine } from "./web-search.js";
+export { createThrottle, DomainThrottle } from "./throttle.js";
+export {
+	BraveLlmContextSearchEngine,
+	BraveSearchEngine,
+	CapabilityRoutedSearchEngine,
+	defaultAnswerEngine,
+	defaultSearchEngine,
+	ExaSearchEngine,
+	FallbackSearchEngine,
+	InMemorySiteAvailabilityTracker,
+	RoundRobinSearchEngine,
+	SerpApiSearchEngine,
+	SerperSearchEngine,
+	SiteRoutedSearchEngine,
+	TavilySearchEngine,
+	YouComSearchEngine,
+} from "./web-search.js";
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -81,7 +142,7 @@ export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchE
 // ---------------------------------------------------------------------------
 
 export type { NDJSONRecord } from "./scribe-bridge.js";
-export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
+export { ingestToScribe, pagesToNDJSON, pageToRecords } from "./scribe-bridge.js";
 
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.

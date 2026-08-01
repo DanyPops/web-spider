@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createSessionInfo, isValidSessionName, withBumpedSnapshotVersion, withClosed, withTouchedActivity } from "../src/domain/session.ts";
+import {
+	createSessionInfo,
+	isValidSessionName,
+	withBumpedSnapshotVersion,
+	withClosed,
+	withTouchedActivity,
+} from "../src/domain/session.ts";
 
 describe("isValidSessionName", () => {
 	test("accepts alphanumeric, dash, underscore, starting with a letter or digit", () => {

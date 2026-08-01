@@ -13,10 +13,7 @@ import { spider } from "../src/spider.js";
 // Fixture HTML (loaded from disk)
 // ---------------------------------------------------------------------------
 
-const FIXTURE_HTML = readFileSync(
-	join(import.meta.dirname, "../fixtures/article-with-images.html"),
-	"utf8",
-);
+const FIXTURE_HTML = readFileSync(join(import.meta.dirname, "../fixtures/article-with-images.html"), "utf8");
 
 const TINY_PNG = readFileSync(join(import.meta.dirname, "../fixtures/images/tiny.png"));
 const SMALL_JPG = readFileSync(join(import.meta.dirname, "../fixtures/images/small.jpg"));

@@ -13,10 +13,7 @@ import type { IHttpClient } from "./ports.js";
  * Supports both standard sitemaps and sitemap index files.
  * Returns deduplicated absolute URLs, empty array on any failure.
  */
-export async function fetchSitemapUrls(
-	origin: string,
-	httpClient: IHttpClient,
-): Promise<string[]> {
+export async function fetchSitemapUrls(origin: string, httpClient: IHttpClient): Promise<string[]> {
 	const candidates = [`${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`];
 	const urls = new Set<string>();
 
@@ -38,9 +35,7 @@ export async function fetchSitemapUrls(
 				}
 			}
 			if (urls.size > 0) break; // found a working sitemap
-		} catch {
-			continue;
-		}
+		} catch {}
 	}
 
 	return [...urls];
@@ -59,8 +54,9 @@ async function fetchSitemapXml(url: string, httpClient: IHttpClient): Promise<st
 function extractLocs(xml: string): string[] {
 	const urls: string[] = [];
 	const re = /<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi;
-	let match: RegExpExecArray | null;
-	while ((match = re.exec(xml)) !== null) {
+	for (;;) {
+		const match = re.exec(xml);
+		if (match === null) break;
 		urls.push(match[1].trim());
 	}
 	return urls;

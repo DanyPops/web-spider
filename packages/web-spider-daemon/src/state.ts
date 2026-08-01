@@ -10,12 +10,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+	type DaemonHandle as DaemonKitHandle,
+	resolveDaemonPaths,
 	ensureAuthToken as vehicleEnsureAuthToken,
 	readDaemonHandle as vehicleReadDaemonHandle,
 	removeDaemonHandle as vehicleRemoveDaemonHandle,
-	resolveDaemonPaths,
 	writeDaemonHandle as vehicleWriteDaemonHandle,
-	type DaemonHandle as DaemonKitHandle,
 } from "@danypops/vehicle-server/paths";
 import {
 	DATABASE_FILENAME,
@@ -86,7 +86,7 @@ export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths
  */
 export function resolveLegacyCachePath(options: PathEnvironment = {}): string {
 	const env = options.env ?? process.env;
-	if (env["WEB_SPIDER_CACHE_PATH"]) return env["WEB_SPIDER_CACHE_PATH"];
+	if (env.WEB_SPIDER_CACHE_PATH) return env.WEB_SPIDER_CACHE_PATH;
 	const home = options.home ?? homedir();
 	return join(home, ...LEGACY_CACHE_DEFAULT_RELATIVE_PATH);
 }

@@ -9,7 +9,24 @@
  */
 import { SESSION_ACT_SELECTOR_MAX_LENGTH, SESSION_ACT_URL_MAX_LENGTH, SESSION_JOURNAL_ERROR_MAX_LENGTH } from "../constants.ts";
 
-export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type" | "select" | "waitFor" | "queryText" | "readTable" | "snapshot" | "handleDialog" | "downloads" | "consoleMessages" | "networkRequests" | "tabs" | "eval" | "screenshot";
+export type SessionAction =
+	| "navigate"
+	| "click"
+	| "hover"
+	| "pressKey"
+	| "type"
+	| "select"
+	| "waitFor"
+	| "queryText"
+	| "readTable"
+	| "snapshot"
+	| "handleDialog"
+	| "downloads"
+	| "consoleMessages"
+	| "networkRequests"
+	| "tabs"
+	| "eval"
+	| "screenshot";
 
 /**
  * The single source of truth for "is this a real action name" — co-located
@@ -22,8 +39,23 @@ export type SessionAction = "navigate" | "click" | "hover" | "pressKey" | "type"
  * was only caught by a test, not by any structural guarantee).
  */
 export const SESSION_ACTIONS: ReadonlySet<SessionAction> = new Set<SessionAction>([
-	"navigate", "click", "hover", "pressKey", "type", "select", "waitFor", "queryText", "readTable",
-	"snapshot", "handleDialog", "downloads", "consoleMessages", "networkRequests", "tabs", "eval", "screenshot",
+	"navigate",
+	"click",
+	"hover",
+	"pressKey",
+	"type",
+	"select",
+	"waitFor",
+	"queryText",
+	"readTable",
+	"snapshot",
+	"handleDialog",
+	"downloads",
+	"consoleMessages",
+	"networkRequests",
+	"tabs",
+	"eval",
+	"screenshot",
 ]);
 
 /** Type-narrowing guard over SESSION_ACTIONS — a plain Set.has() call doesn't narrow a string|undefined to SessionAction on its own; call sites that need the narrowing (not just the boolean) use this instead of re-deriving it. */
@@ -75,7 +107,19 @@ function boundedSelector(selector: string): string {
  * whole-page/viewport screenshot has no meaningful non-binary "target";
  * an element-scoped one logs the selector, same as click/type/select.
  */
-export function journalTargetFor(action: SessionAction, input: { url?: string; selector?: string; loadState?: string; text?: string; accept?: boolean; key?: string; tabOperation?: string; tabIndex?: number }): string {
+export function journalTargetFor(
+	action: SessionAction,
+	input: {
+		url?: string;
+		selector?: string;
+		loadState?: string;
+		text?: string;
+		accept?: boolean;
+		key?: string;
+		tabOperation?: string;
+		tabIndex?: number;
+	},
+): string {
 	switch (action) {
 		case "navigate":
 			return input.url ? sanitizeUrlForJournal(input.url) : "";

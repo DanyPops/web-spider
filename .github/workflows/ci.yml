@@ -1,0 +1,31 @@
+name: CI
+
+# Runs on every push/PR -- web-spider previously had no pre-merge CI at all,
+# only publish.yml's tag-triggered checks. Mirrors publish.yml's own mixed
+# npm+bun setup: web-spider-daemon is Bun-native (bun:sqlite, bun test),
+# the other two packages are npm-testable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - run: npm run lint:ci
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run build --workspace=packages/web-spider
+      - run: npm run check --workspace=packages/web-spider --workspace=packages/pi-extension
+      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-extension
+      - run: bun x tsc --noEmit
+        working-directory: packages/web-spider-daemon
+      - run: bun test
+        working-directory: packages/web-spider-daemon

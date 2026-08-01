@@ -32,12 +32,7 @@ const NAV_CLASS_RE =
 /** True if el or any ancestor up to 5 levels looks like navigation chrome. */
 export function isNavElement(el: Element): boolean {
 	if (el.closest("nav, header, footer, aside")) return true;
-	if (
-		el.closest(
-			"[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']",
-		)
-	)
-		return true;
+	if (el.closest("[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']")) return true;
 
 	let node: Element | null = el;
 	for (let i = 0; i < 5; i++) {

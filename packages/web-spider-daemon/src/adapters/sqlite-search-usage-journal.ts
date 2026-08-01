@@ -37,9 +37,7 @@ export class SQLiteSearchUsageJournal implements SearchUsageJournal {
 
 	record(entry: SearchEngineUsageEntry): void {
 		this.db
-			.query(
-				"INSERT INTO search_engine_usage (engine, observed_at, credits, cost_usd, rate_limit_headers) VALUES (?, ?, ?, ?, ?)",
-			)
+			.query("INSERT INTO search_engine_usage (engine, observed_at, credits, cost_usd, rate_limit_headers) VALUES (?, ?, ?, ?, ?)")
 			.run(
 				entry.engine,
 				entry.observedAt,
@@ -54,7 +52,9 @@ export class SQLiteSearchUsageJournal implements SearchUsageJournal {
 		const limit = Math.max(1, Math.min(opts.limit ?? 100, this.maxRows));
 		const rows = opts.engine
 			? (this.db
-					.query("SELECT engine, observed_at, credits, cost_usd, rate_limit_headers FROM search_engine_usage WHERE engine = ? ORDER BY id DESC LIMIT ?")
+					.query(
+						"SELECT engine, observed_at, credits, cost_usd, rate_limit_headers FROM search_engine_usage WHERE engine = ? ORDER BY id DESC LIMIT ?",
+					)
 					.all(opts.engine, limit) as UsageRow[])
 			: (this.db
 					.query("SELECT engine, observed_at, credits, cost_usd, rate_limit_headers FROM search_engine_usage ORDER BY id DESC LIMIT ?")
@@ -69,11 +69,7 @@ export class SQLiteSearchUsageJournal implements SearchUsageJournal {
 		const { count } = this.db.query("SELECT COUNT(*) as count FROM search_engine_usage").get() as { count: number };
 		const excess = count - this.maxRows;
 		if (excess <= 0) return 0;
-		this.db
-			.query(
-				"DELETE FROM search_engine_usage WHERE id IN (SELECT id FROM search_engine_usage ORDER BY id ASC LIMIT ?)",
-			)
-			.run(excess);
+		this.db.query("DELETE FROM search_engine_usage WHERE id IN (SELECT id FROM search_engine_usage ORDER BY id ASC LIMIT ?)").run(excess);
 		return excess;
 	}
 }

@@ -74,7 +74,7 @@ export function parseGitHubUrl(url: string): GitHubUrlInfo | null {
 }
 
 function resolveToken(options: GitHubStrategyOptions): string | undefined {
-	return options.token ?? process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
+	return options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
 }
 
 async function githubFetch<T>(url: string, httpClient: IHttpClient, options: GitHubStrategyOptions): Promise<T | null> {
@@ -135,7 +135,12 @@ interface IssueResponse {
 	pull_request?: unknown;
 }
 
-async function queryRepo(owner: string, repo: string, httpClient: IHttpClient, options: GitHubStrategyOptions): Promise<GitHubQueryResult | null> {
+async function queryRepo(
+	owner: string,
+	repo: string,
+	httpClient: IHttpClient,
+	options: GitHubStrategyOptions,
+): Promise<GitHubQueryResult | null> {
 	const info = await githubFetch<RepoResponse>(`https://api.github.com/repos/${owner}/${repo}`, httpClient, options);
 	if (!info) return null;
 
@@ -155,10 +160,21 @@ async function queryRepo(owner: string, repo: string, httpClient: IHttpClient, o
 	];
 	const markdown = [...summaryLines, "", "---", "", readmeText ?? "*No README found.*"].join("\n");
 
-	return { kind: "repo", title: info.full_name ?? `${owner}/${repo}`, markdown, htmlUrl: info.html_url ?? `https://github.com/${owner}/${repo}` };
+	return {
+		kind: "repo",
+		title: info.full_name ?? `${owner}/${repo}`,
+		markdown,
+		htmlUrl: info.html_url ?? `https://github.com/${owner}/${repo}`,
+	};
 }
 
-async function queryIssue(owner: string, repo: string, number: number, httpClient: IHttpClient, options: GitHubStrategyOptions): Promise<GitHubQueryResult | null> {
+async function queryIssue(
+	owner: string,
+	repo: string,
+	number: number,
+	httpClient: IHttpClient,
+	options: GitHubStrategyOptions,
+): Promise<GitHubQueryResult | null> {
 	const issue = await githubFetch<IssueResponse>(`https://api.github.com/repos/${owner}/${repo}/issues/${number}`, httpClient, options);
 	if (!issue) return null;
 
@@ -188,7 +204,11 @@ async function queryIssue(owner: string, repo: string, number: number, httpClien
  * shape, or when the API call itself fails (rate limited, not found,
  * network error) -- callers fall through to the normal fetch path on a miss.
  */
-export async function queryGitHub(url: string, httpClient: IHttpClient, options: GitHubStrategyOptions = {}): Promise<GitHubQueryResult | null> {
+export async function queryGitHub(
+	url: string,
+	httpClient: IHttpClient,
+	options: GitHubStrategyOptions = {},
+): Promise<GitHubQueryResult | null> {
 	const info = parseGitHubUrl(url);
 	if (!info) return null;
 	if (info.kind === "repo") return queryRepo(info.owner, info.repo, httpClient, options);

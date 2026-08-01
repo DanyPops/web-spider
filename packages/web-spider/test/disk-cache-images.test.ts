@@ -135,7 +135,9 @@ describe("DiskCache hybrid image persistence", () => {
 
 		const cache2 = makeCache(32 * 1024);
 		let result: SpideredPage | undefined;
-		expect(() => { result = cache2.get("https://example.com"); }).not.toThrow();
+		expect(() => {
+			result = cache2.get("https://example.com");
+		}).not.toThrow();
 		expect(result).toBeDefined();
 		expect(result!.images![0].filePath).toBeDefined();
 		expect(result!.images![0].base64).toBeUndefined();
@@ -170,10 +172,7 @@ describe("DiskCache hybrid image persistence", () => {
 	it("multiple images — mix of small and large — persisted correctly", () => {
 		const smallB64 = makeBase64(100);
 		const largeB64 = makeBase64(40 * 1024);
-		const page = makePage([
-			makeImage(smallB64, "https://example.com/small.jpg"),
-			makeImage(largeB64, "https://example.com/large.jpg"),
-		]);
+		const page = makePage([makeImage(smallB64, "https://example.com/small.jpg"), makeImage(largeB64, "https://example.com/large.jpg")]);
 
 		const cache1 = makeCache(32 * 1024);
 		cache1.set("https://example.com", page);

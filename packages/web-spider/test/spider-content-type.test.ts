@@ -74,9 +74,7 @@ describe("spider() — non-HTML content types", () => {
 
 	it("unsupported binary content types throw a clean, actionable error instead of an internal library error", async () => {
 		const httpClient = stubClient("image/png", "not real png bytes, doesn't matter");
-		await expect(spider("https://example.com/photo.png", { httpClient })).rejects.toThrow(
-			/Cannot extract content.*image\/png/,
-		);
+		await expect(spider("https://example.com/photo.png", { httpClient })).rejects.toThrow(/Cannot extract content.*image\/png/);
 	});
 
 	it("never throws the original opaque Readability constructor error for any classified content type", async () => {
@@ -103,7 +101,10 @@ describe("spider() — non-HTML content types", () => {
 	});
 
 	it("ordinary HTML is completely unaffected: no contentType field appears at all", async () => {
-		const httpClient = stubClient("text/html; charset=utf-8", "<html><head><title>Hi</title></head><body><article><h1>Hi</h1><p>Real content, long enough to count as an article body for readability's extraction heuristics to actually kick in here.</p></article></body></html>");
+		const httpClient = stubClient(
+			"text/html; charset=utf-8",
+			"<html><head><title>Hi</title></head><body><article><h1>Hi</h1><p>Real content, long enough to count as an article body for readability's extraction heuristics to actually kick in here.</p></article></body></html>",
+		);
 		const page = await spider("https://example.com/article", { httpClient });
 		expect(page.contentType).toBeUndefined();
 		expect(page.title).toBe("Hi");

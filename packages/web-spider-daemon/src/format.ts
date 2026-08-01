@@ -14,17 +14,13 @@ import type { SpideredPage } from "@danypops/web-spider";
 /** Remove keys whose value is an empty string, empty array, false, or undefined. Keeps 0 and null. */
 export function omitEmpty(obj: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(
-		Object.entries(obj).filter(
-			([, v]) => v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && v.length === 0),
-		),
+		Object.entries(obj).filter(([, v]) => v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && v.length === 0)),
 	);
 }
 
 /** Body links only — content references, not navigation chrome. */
 export function bodyLinks(page: SpideredPage): Array<{ href: string; text: string }> {
-	return page.links
-		.filter((l) => l.rel === "body")
-		.map((l) => ({ href: l.href, text: l.text }));
+	return page.links.filter((l) => l.rel === "body").map((l) => ({ href: l.href, text: l.text }));
 }
 
 /** Count of navigation links (menus, footers, breadcrumbs). */
@@ -80,9 +76,7 @@ export function highlightHit(
 	h: { heading: string; score: number; snippet: string; chunkId?: string },
 	chunks: SpideredPage["chunks"],
 ): Record<string, unknown> {
-	const text = h.chunkId
-		? (chunks.find((c) => c.id === h.chunkId)?.text ?? h.snippet)
-		: h.snippet;
+	const text = h.chunkId ? (chunks.find((c) => c.id === h.chunkId)?.text ?? h.snippet) : h.snippet;
 	return omitEmpty({
 		heading: h.heading,
 		score: h.score,

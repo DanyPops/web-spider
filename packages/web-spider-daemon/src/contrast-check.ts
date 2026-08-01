@@ -129,7 +129,10 @@ export function checkContrastMeasurements(measurements: ContrastMeasurement[]): 
 		const fg = parseCssColor(m.foregroundCss);
 		if (!fg) continue; // unparseable color is a data problem, not a contrast violation — skip rather than guess
 		// backgroundChainCss is innermost-first; compositeOver expects bottom(outermost)-to-top(innermost).
-		const layers = [...m.backgroundChainCss].reverse().map(parseCssColor).filter((c): c is ColorRGBA => c !== undefined);
+		const layers = [...m.backgroundChainCss]
+			.reverse()
+			.map(parseCssColor)
+			.filter((c): c is ColorRGBA => c !== undefined);
 		const background = compositeOver(layers);
 		const ratio = contrastRatio(fg, background);
 		const large = isLargeText(m.fontSizePx, m.fontWeight);

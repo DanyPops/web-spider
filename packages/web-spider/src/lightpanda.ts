@@ -37,7 +37,6 @@ export interface LightpandaClientOptions {
 }
 
 export class LightpandaHttpClient implements IHttpClient {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private browser: any | null = null;
 	private readonly endpoint: string;
 	private readonly timeoutMs: number;
@@ -58,7 +57,6 @@ export class LightpandaHttpClient implements IHttpClient {
 	async fetch(req: HttpRequest): Promise<HttpResponse> {
 		const browser = await this.getBrowser();
 		const context = browser.contexts()[0] ?? (await browser.newContext());
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const page: any = await context.newPage();
 
 		page.on("console", () => {});
@@ -119,10 +117,8 @@ export class LightpandaHttpClient implements IHttpClient {
  * WEB_SPIDER_LIGHTPANDA_ENDPOINT when opts.endpoint is omitted; set neither
  * to disable Lightpanda entirely (the default, unconfigured state).
  */
-export function createLightpandaClient(
-	opts: Partial<LightpandaClientOptions> = {},
-): LightpandaHttpClient | null {
-	const endpoint = opts.endpoint ?? process.env["WEB_SPIDER_LIGHTPANDA_ENDPOINT"];
+export function createLightpandaClient(opts: Partial<LightpandaClientOptions> = {}): LightpandaHttpClient | null {
+	const endpoint = opts.endpoint ?? process.env.WEB_SPIDER_LIGHTPANDA_ENDPOINT;
 	if (!endpoint) return null;
 	try {
 		return new LightpandaHttpClient({ endpoint, timeoutMs: opts.timeoutMs });

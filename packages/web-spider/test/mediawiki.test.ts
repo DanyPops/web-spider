@@ -43,7 +43,14 @@ function jsonClient(routes: Record<string, unknown>): IHttpClient {
 		async fetch(req) {
 			const body = routes[req.url];
 			if (body === undefined) {
-				return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			}
 			return {
 				ok: true,
@@ -86,7 +93,14 @@ describe("detectMediaWiki", () => {
 	it("returns null when a response is 200 but not valid siteinfo JSON shape", async () => {
 		const httpClient: IHttpClient = {
 			async fetch() {
-				return { ok: true, status: 200, statusText: "OK", headers: { get: () => "application/json" }, text: async () => "not json at all", arrayBuffer: async () => new ArrayBuffer(0) };
+				return {
+					ok: true,
+					status: 200,
+					statusText: "OK",
+					headers: { get: () => "application/json" },
+					text: async () => "not json at all",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			},
 		};
 		expect(await detectMediaWiki("https://example.com", httpClient)).toBeNull();
@@ -94,8 +108,12 @@ describe("detectMediaWiki", () => {
 
 	it("returns null for a generator that exists but isn't MediaWiki (e.g. a different wiki engine)", async () => {
 		const httpClient = jsonClient({
-			"https://example.com/w/api.php?action=query&meta=siteinfo&format=json": { query: { general: { generator: "SomeOtherWiki 2.0", sitename: "X" } } },
-			"https://example.com/api.php?action=query&meta=siteinfo&format=json": { query: { general: { generator: "SomeOtherWiki 2.0", sitename: "X" } } },
+			"https://example.com/w/api.php?action=query&meta=siteinfo&format=json": {
+				query: { general: { generator: "SomeOtherWiki 2.0", sitename: "X" } },
+			},
+			"https://example.com/api.php?action=query&meta=siteinfo&format=json": {
+				query: { general: { generator: "SomeOtherWiki 2.0", sitename: "X" } },
+			},
 		});
 		expect(await detectMediaWiki("https://example.com", httpClient)).toBeNull();
 	});
@@ -124,7 +142,9 @@ describe("queryMediaWikiPage", () => {
 
 	it("returns null for an empty/missing text field", async () => {
 		const httpClient = jsonClient({
-			"https://en.wikipedia.org/w/api.php?action=parse&page=Empty&prop=text&format=json&redirects=1": { parse: { title: "Empty", text: { "*": "" } } },
+			"https://en.wikipedia.org/w/api.php?action=parse&page=Empty&prop=text&format=json&redirects=1": {
+				parse: { title: "Empty", text: { "*": "" } },
+			},
 		});
 		expect(await queryMediaWikiPage("https://en.wikipedia.org/w/api.php", "Empty", httpClient)).toBeNull();
 	});

@@ -4,9 +4,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { spider } from "../src/spider.js";
 import { crawl } from "../src/crawl.js";
 import type { IHttpClient } from "../src/ports.js";
+import { spider } from "../src/spider.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -138,7 +138,7 @@ describe("sitemap.xml seeds crawl frontier", () => {
   <url><loc>https://example.com/page-c</loc></url>
 </urlset>`;
 
-	const pageHtml = articleHtml("Page", "<p>Content here. ".repeat(20) + "</p>");
+	const pageHtml = articleHtml("Page", `${"<p>Content here. ".repeat(20)}</p>`);
 
 	it("fetches sitemap.xml and includes those URLs in crawl", async () => {
 		const visited: string[] = [];
@@ -186,7 +186,9 @@ describe("sitemap.xml seeds crawl frontier", () => {
 			fetch: async (req) => {
 				if (req.url.includes("sitemap")) sitemapFetched.value = true;
 				return {
-					ok: true, status: 200, statusText: "OK",
+					ok: true,
+					status: 200,
+					statusText: "OK",
 					headers: { get: () => null },
 					text: async () => pageHtml,
 					arrayBuffer: async () => new ArrayBuffer(0),
@@ -208,19 +210,30 @@ describe("sitemap.xml seeds crawl frontier", () => {
 // Disk cache (tested via ICache contract)
 // ---------------------------------------------------------------------------
 
-import { DiskCache } from "../src/disk-cache.js";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DiskCache } from "../src/disk-cache.js";
 import type { SpideredPage } from "../src/types.js";
 
 describe("DiskCache persists across instances", () => {
 	function makePage(url: string): SpideredPage {
 		return {
-			url, domain: "example.com", fetchedAt: new Date().toISOString(),
-			title: "Test", description: "desc", author: "", publishedAt: "",
-			lang: "en", tags: [], wordCount: 10, readingTimeMinutes: 1,
-			headings: [], chunks: [], links: [], markdown: "hello",
+			url,
+			domain: "example.com",
+			fetchedAt: new Date().toISOString(),
+			title: "Test",
+			description: "desc",
+			author: "",
+			publishedAt: "",
+			lang: "en",
+			tags: [],
+			wordCount: 10,
+			readingTimeMinutes: 1,
+			headings: [],
+			chunks: [],
+			links: [],
+			markdown: "hello",
 		};
 	}
 
@@ -252,7 +265,9 @@ describe("DiskCache persists across instances", () => {
 
 			// Wait for TTL to expire
 			const waited = Date.now() + 5;
-			while (Date.now() < waited) { /* spin */ }
+			while (Date.now() < waited) {
+				/* spin */
+			}
 
 			const cache2 = new DiskCache(path, { ttlMs: 1 });
 			expect(cache2.get("https://example.com/b")).toBeUndefined();

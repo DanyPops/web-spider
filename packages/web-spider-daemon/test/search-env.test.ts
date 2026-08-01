@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EnigmaWhoAmI, TryEnigmaCredential, TryEnigmaWhoAmI, VaultCredential } from "@danypops/enigma-client";
-import { createSearchKeyStore } from "../src/search-secrets.ts";
 import { resolveSearchEnv } from "../src/search-env.ts";
+import { createSearchKeyStore } from "../src/search-secrets.ts";
 
 /**
  * Never a real filesystem path this machine might actually have search
@@ -184,7 +184,10 @@ describe("resolveSearchEnv: Enigma tier", () => {
 		const tryWhoAmI: TryEnigmaWhoAmI = async () => {
 			throw new Error("boom");
 		};
-		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" }, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR });
+		const env = await resolveSearchEnv(
+			{ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" },
+			{ tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR },
+		);
 		expect(env).toEqual({ WEB_SPIDER_USE_ENIGMA: "1", TAVILY_API_KEY: "static" });
 	});
 

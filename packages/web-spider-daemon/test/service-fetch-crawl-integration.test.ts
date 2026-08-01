@@ -31,16 +31,20 @@ function mockGlobalFetch(routes: Record<string, string>): () => void {
 		}
 		return new Response(body, { status: 200, headers: { "content-type": "text/html" } });
 	}) as typeof fetch;
-	return () => { globalThis.fetch = original; };
+	return () => {
+		globalThis.fetch = original;
+	};
 }
 
 async function post(app: { fetch(request: Request): Promise<Response> }, op: string, input: Record<string, unknown>) {
-	const response = await app.fetch(new Request("http://x/api/v1/ops", {
-		method: "POST",
-		headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-		body: JSON.stringify({ op, input }),
-	}));
-	const body = await response.json() as { result?: unknown; error?: string };
+	const response = await app.fetch(
+		new Request("http://x/api/v1/ops", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+			body: JSON.stringify({ op, input }),
+		}),
+	);
+	const body = (await response.json()) as { result?: unknown; error?: string };
 	return { status: response.status, body };
 }
 
@@ -57,7 +61,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 			expect(firstResult.title).toBe("Article With Images — Fixture");
 			expect(firstResult.cache).toBe("miss");
 			expect(typeof firstResult.markdown).toBe("string");
-			expect((firstResult.markdown as string)).toContain("Images are a fundamental part");
+			expect(firstResult.markdown as string).toContain("Images are a fundamental part");
 
 			const second = await post(app, "fetch", { url: ARTICLE_URL });
 			expect((second.body.result as Record<string, unknown>).cache).toBe("hit");

@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteSessionAuditJournal } from "../src/adapters/sqlite-session-audit-journal.ts";
+import { openWebSpiderDb } from "../src/db.ts";
 import type { SessionAuditEntry } from "../src/domain/session-audit.ts";
 
 function entry(overrides: Partial<SessionAuditEntry> = {}): SessionAuditEntry {
-	return { ts: 1_000, sessionName: "a", action: "navigate", snapshotVersion: 0, target: "https://example.com", outcome: "ok", error: "", ...overrides };
+	return {
+		ts: 1_000,
+		sessionName: "a",
+		action: "navigate",
+		snapshotVersion: 0,
+		target: "https://example.com",
+		outcome: "ok",
+		error: "",
+		...overrides,
+	};
 }
 
 describe("SQLiteSessionAuditJournal", () => {

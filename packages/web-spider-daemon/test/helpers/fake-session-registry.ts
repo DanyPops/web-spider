@@ -78,11 +78,19 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		readTableCalls,
 		snapshotCalls,
 		armDialogPolicyCalls,
-		get listDownloadsCallCount() { return listDownloadsCallCount; },
-		get listConsoleMessagesCallCount() { return listConsoleMessagesCallCount; },
-		get listNetworkRequestsCallCount() { return listNetworkRequestsCallCount; },
+		get listDownloadsCallCount() {
+			return listDownloadsCallCount;
+		},
+		get listConsoleMessagesCallCount() {
+			return listConsoleMessagesCallCount;
+		},
+		get listNetworkRequestsCallCount() {
+			return listNetworkRequestsCallCount;
+		},
 		evaluateCalls,
-		get screenshotCallCount() { return screenshotCallCount; },
+		get screenshotCallCount() {
+			return screenshotCallCount;
+		},
 		screenshotCalls,
 		async goto(url, callOpts) {
 			gotoCalls.push({ url, timeoutMs: callOpts?.timeoutMs });
@@ -187,7 +195,11 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 		// Capture this session's index before pushing — page() is called later,
 		// by which point launched.length would already have advanced past it.
 		const sessionIndex = launched.length;
-		interface FakeTab { page: FakeSessionPage; version: number; url: string }
+		interface FakeTab {
+			page: FakeSessionPage;
+			version: number;
+			url: string;
+		}
 		const tabs: FakeTab[] = [];
 		let activeIndex = -1;
 		const ensureFirstTab = () => {

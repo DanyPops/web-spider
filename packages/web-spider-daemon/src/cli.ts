@@ -13,26 +13,44 @@
  * language for humans — never parsed from the human text).
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { listRegisteredSearchEngines } from "@danypops/web-spider";
 import {
-	formatCacheListResult, formatCacheSearchResult, formatCategoryAssignResult, formatCategoryListResult,
-	formatCategoryRemoveResult, formatCategoryRenameResult, formatFetchResult, formatPapyrusIngestResult,
-	formatSearchResult, formatSearchUsageResult, formatSessionActResult, formatSessionCloseResult, formatSessionCreateResult, formatSessionListResult,
+	formatCacheListResult,
+	formatCacheSearchResult,
+	formatCategoryAssignResult,
+	formatCategoryListResult,
+	formatCategoryRemoveResult,
+	formatCategoryRenameResult,
+	formatFetchResult,
+	formatPapyrusIngestResult,
+	formatSearchResult,
+	formatSearchUsageResult,
+	formatSessionActResult,
+	formatSessionCloseResult,
+	formatSessionCreateResult,
+	formatSessionListResult,
 } from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
+import type { CachedPageListFilter } from "./domain/page.ts";
+import { isSessionAction } from "./domain/session-audit.ts";
 import { promptMaskedSecret } from "./masked-prompt.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
-import { isSessionAction } from "./domain/session-audit.ts";
-import type { CachedPageListFilter } from "./domain/page.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
-const SEARCH_API_KEY_VARS = ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"] as const;
+const SEARCH_API_KEY_VARS = [
+	"BRAVE_SEARCH_API_KEY",
+	"TAVILY_API_KEY",
+	"EXA_API_KEY",
+	"SERPER_API_KEY",
+	"SERPAPI_API_KEY",
+	"YOU_API_KEY",
+] as const;
 
 /**
  * Forwarded the same way as the search API keys below, for the same reason:
@@ -69,7 +87,9 @@ function webSpiderServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 		...SEARCH_API_KEY_VARS.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]]),
 		...ENIGMA_ENV_VARS.map((name): [string, string | undefined] => [name, options.enigmaEnv?.[name]]),
 	];
-	const env = Object.fromEntries(forwardedVars.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0));
+	const env = Object.fromEntries(
+		forwardedVars.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0),
+	);
 	return {
 		name: "web-spider",
 		displayName: "Web Spider search, query, and scraping daemon",
@@ -139,7 +159,9 @@ function readEvalScript(scriptFile?: string): string {
 }
 
 const DEFAULT_DEPENDENCIES: CliDependencies = {
-	get client() { return connectWebSpiderClient(); },
+	get client() {
+		return connectWebSpiderClient();
+	},
 	stdout: console.log,
 	stderr: console.error,
 	systemctl,
@@ -149,53 +171,55 @@ const DEFAULT_DEPENDENCIES: CliDependencies = {
 };
 
 function usage(stderr: (line: string) => void): number {
-	stderr([
-		"Usage: web-spider serve",
-		"       web-spider service <install|start|stop|restart|status>",
-		"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]",
-		"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
-		"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
-		"                          [--top-n N] [--ignore-robots] [--json]",
-		"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
-		"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
-		"       web-spider usage [--engine NAME] [--limit N] [--json]",
-		"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
-		"       web-spider search-key set <engine>    store a search-provider API key locally (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
-		"       web-spider search-key list             list engines with a locally stored key, never the key itself",
-		"       web-spider search-key remove <engine>  delete a locally stored key",
-		"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
-		"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
-		"                          [--published-after ISO] [--published-before ISO]",
-		"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
-		"       web-spider category assign <url> <category> [--json]",
-		"       web-spider category remove <url> <category> [--json]",
-		"       web-spider category rename <category> <newName> [--json]",
-		"       web-spider category list [--json]",
-		"       web-spider cache search <query> [--limit N] [--json]",
-		"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
-		"                          (each url must already be cached — fetch it first)",
-		"       web-spider session create <name> [--force-chrome-channel] [--json]",
-		"       web-spider session list [--json]",
-		"       web-spider session close <name> [--json]",
-		"       web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action hover --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action pressKey --snapshot-version N --key STR [--selector CSS] [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action type --snapshot-version N --selector CSS --text STR [--no-clear] [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action select --snapshot-version N --selector CSS (--value STR | --label STR) [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action waitFor --snapshot-version N (--selector CSS | --text STR | --load-state STATE) [--state STATE] [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action queryText --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action readTable --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action snapshot --snapshot-version N [--selector CSS] [--depth N] [--boxes] [--mode ai|default] [--timeout-ms N] [--json]",
-		"       web-spider session act <name> --action handleDialog --snapshot-version N (--accept | --dismiss) [--prompt-text STR] [--json]",
-		"       web-spider session act <name> --action downloads --snapshot-version N [--json]",
-		"       web-spider session act <name> --action consoleMessages --snapshot-version N [--json]",
-		"       web-spider session act <name> --action networkRequests --snapshot-version N [--include-static] [--json]",
-		"       web-spider session act <name> --action tabs --snapshot-version N --tab-operation list|new|close|select [--tab-index N] [--url URL] [--json]",
-		"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
-		"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
-		"       web-spider session act <name> --action screenshot --snapshot-version N [--full-page | --selector CSS] [--scale css|device] [--json]",
-	].join("\n"));
+	stderr(
+		[
+			"Usage: web-spider serve",
+			"       web-spider service <install|start|stop|restart|status>",
+			"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]",
+			"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
+			"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
+			"                          [--top-n N] [--ignore-robots] [--json]",
+			"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
+			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
+			"       web-spider usage [--engine NAME] [--limit N] [--json]",
+			"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
+			"       web-spider search-key set <engine>    store a search-provider API key locally (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
+			"       web-spider search-key list             list engines with a locally stored key, never the key itself",
+			"       web-spider search-key remove <engine>  delete a locally stored key",
+			"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
+			"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
+			"                          [--published-after ISO] [--published-before ISO]",
+			"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
+			"       web-spider category assign <url> <category> [--json]",
+			"       web-spider category remove <url> <category> [--json]",
+			"       web-spider category rename <category> <newName> [--json]",
+			"       web-spider category list [--json]",
+			"       web-spider cache search <query> [--limit N] [--json]",
+			"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
+			"                          (each url must already be cached — fetch it first)",
+			"       web-spider session create <name> [--force-chrome-channel] [--json]",
+			"       web-spider session list [--json]",
+			"       web-spider session close <name> [--json]",
+			"       web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action hover --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action pressKey --snapshot-version N --key STR [--selector CSS] [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action type --snapshot-version N --selector CSS --text STR [--no-clear] [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action select --snapshot-version N --selector CSS (--value STR | --label STR) [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action waitFor --snapshot-version N (--selector CSS | --text STR | --load-state STATE) [--state STATE] [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action queryText --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action readTable --snapshot-version N --selector CSS [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action snapshot --snapshot-version N [--selector CSS] [--depth N] [--boxes] [--mode ai|default] [--timeout-ms N] [--json]",
+			"       web-spider session act <name> --action handleDialog --snapshot-version N (--accept | --dismiss) [--prompt-text STR] [--json]",
+			"       web-spider session act <name> --action downloads --snapshot-version N [--json]",
+			"       web-spider session act <name> --action consoleMessages --snapshot-version N [--json]",
+			"       web-spider session act <name> --action networkRequests --snapshot-version N [--include-static] [--json]",
+			"       web-spider session act <name> --action tabs --snapshot-version N --tab-operation list|new|close|select [--tab-index N] [--url URL] [--json]",
+			"       web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]",
+			"                          (reads the script from stdin if --script-file is omitted — never a plain flag)",
+			"       web-spider session act <name> --action screenshot --snapshot-version N [--full-page | --selector CSS] [--scale css|device] [--json]",
+		].join("\n"),
+	);
 	return 2;
 }
 
@@ -216,7 +240,10 @@ function parseArgs(args: string[], valueFlags: readonly string[], booleanFlags: 
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
 		if (arg === undefined) continue;
-		if (arg === "--json" || booleanFlags.includes(arg)) { flags.add(arg.replace(/^--/, "")); continue; }
+		if (arg === "--json" || booleanFlags.includes(arg)) {
+			flags.add(arg.replace(/^--/, ""));
+			continue;
+		}
 		if (valueFlags.includes(arg)) {
 			index += 1;
 			const value = args[index];
@@ -237,10 +264,22 @@ function parseIntFlag(values: Record<string, string>, key: string): number | und
 }
 
 async function runFetch(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, [
-		"--format", "--depth", "--max-pages", "--root-selector", "--exclude-selectors",
-		"--token-budget", "--timeout-ms", "--query", "--path", "--top-n",
-	], ["--enhanced", "--no-same-domain", "--ignore-robots"]);
+	const parsed = parseArgs(
+		rest,
+		[
+			"--format",
+			"--depth",
+			"--max-pages",
+			"--root-selector",
+			"--exclude-selectors",
+			"--token-budget",
+			"--timeout-ms",
+			"--query",
+			"--path",
+			"--top-n",
+		],
+		["--enhanced", "--no-same-domain", "--ignore-robots"],
+	);
 	const url = parsed?.positional[0];
 	if (!parsed || !url) return usage(deps.stderr);
 
@@ -267,9 +306,15 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			query: parsed.values.query,
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
 		};
-		const result = (depth ?? 0) > 0
-			? await deps.client.call("crawl", { ...shared, depth, maxPages, sameDomain: parsed.flags.has("no-same-domain") ? false : undefined })
-			: await deps.client.call("fetch", { ...shared, path: parsed.values.path, topN });
+		const result =
+			(depth ?? 0) > 0
+				? await deps.client.call("crawl", {
+						...shared,
+						depth,
+						maxPages,
+						sameDomain: parsed.flags.has("no-same-domain") ? false : undefined,
+					})
+				: await deps.client.call("fetch", { ...shared, path: parsed.values.path, topN });
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatFetchResult(result));
 		return 0;
 	} catch (error) {
@@ -379,10 +424,24 @@ async function runSearchKeyRemove(rest: string[], deps: CliDependencies): Promis
 }
 
 async function runCacheList(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, [
-		"--grep", "--domain", "--tag", "--category", "--fetched-after", "--fetched-before",
-		"--published-after", "--published-before", "--sort-by", "--sort-order", "--offset", "--limit",
-	], []);
+	const parsed = parseArgs(
+		rest,
+		[
+			"--grep",
+			"--domain",
+			"--tag",
+			"--category",
+			"--fetched-after",
+			"--fetched-before",
+			"--published-after",
+			"--published-before",
+			"--sort-by",
+			"--sort-order",
+			"--offset",
+			"--limit",
+		],
+		[],
+	);
 	if (!parsed) return usage(deps.stderr);
 	const offset = parseIntFlag(parsed.values, "offset");
 	if (Number.isNaN(offset)) return usage(deps.stderr);
@@ -511,7 +570,10 @@ async function runSessionCreate(rest: string[], deps: CliDependencies): Promise<
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	try {
-		const result = await deps.client.call("session.create", { name, forceChromeChannel: parsed.flags.has("force-chrome-channel") || undefined });
+		const result = await deps.client.call("session.create", {
+			name,
+			forceChromeChannel: parsed.flags.has("force-chrome-channel") || undefined,
+		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionCreateResult(result));
 		return 0;
 	} catch (error) {
@@ -548,9 +610,30 @@ async function runSessionClose(rest: string[], deps: CliDependencies): Promise<n
 }
 
 async function runSessionAct(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, [
-		"--action", "--snapshot-version", "--url", "--selector", "--script-file", "--timeout-ms", "--text", "--value", "--label", "--load-state", "--state", "--scale", "--depth", "--mode", "--prompt-text", "--key", "--tab-operation", "--tab-index",
-	], ["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss", "--include-static"]);
+	const parsed = parseArgs(
+		rest,
+		[
+			"--action",
+			"--snapshot-version",
+			"--url",
+			"--selector",
+			"--script-file",
+			"--timeout-ms",
+			"--text",
+			"--value",
+			"--label",
+			"--load-state",
+			"--state",
+			"--scale",
+			"--depth",
+			"--mode",
+			"--prompt-text",
+			"--key",
+			"--tab-operation",
+			"--tab-index",
+		],
+		["--no-clear", "--full-page", "--boxes", "--accept", "--dismiss", "--include-static"],
+	);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	const action = parsed.values.action;
@@ -568,7 +651,10 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 	try {
 		const script = action === "eval" ? deps.readEvalScript(parsed.values["script-file"]) : undefined;
 		const result = await deps.client.call("session.act", {
-			name, action, snapshotVersion, timeoutMs,
+			name,
+			action,
+			snapshotVersion,
+			timeoutMs,
 			url: parsed.values.url,
 			selector: parsed.values.selector,
 			script,
@@ -600,7 +686,10 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 
 export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEPENDENCIES): Promise<number> {
 	const [command, ...rest] = args;
-	if (command === "serve") { await deps.serve(); return 0; }
+	if (command === "serve") {
+		await deps.serve();
+		return 0;
+	}
 	if (command === "fetch") return runFetch(rest, deps);
 	if (command === "search") return runSearch(rest, deps);
 	if (command === "usage") return runUsage(rest, deps);
@@ -640,12 +729,23 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	}
 	if (command !== "service") return usage(deps.stderr);
 	switch (rest[0]) {
-		case "install": deps.installService(); return 0;
-		case "start": deps.systemctl("start", SYSTEMD_UNIT_NAME); return 0;
-		case "stop": deps.systemctl("stop", SYSTEMD_UNIT_NAME); return 0;
-		case "restart": deps.systemctl("restart", SYSTEMD_UNIT_NAME); return 0;
-		case "status": deps.systemctl("status", SYSTEMD_UNIT_NAME); return 0;
-		default: return usage(deps.stderr);
+		case "install":
+			deps.installService();
+			return 0;
+		case "start":
+			deps.systemctl("start", SYSTEMD_UNIT_NAME);
+			return 0;
+		case "stop":
+			deps.systemctl("stop", SYSTEMD_UNIT_NAME);
+			return 0;
+		case "restart":
+			deps.systemctl("restart", SYSTEMD_UNIT_NAME);
+			return 0;
+		case "status":
+			deps.systemctl("status", SYSTEMD_UNIT_NAME);
+			return 0;
+		default:
+			return usage(deps.stderr);
 	}
 }
 

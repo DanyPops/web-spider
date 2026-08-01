@@ -6,26 +6,42 @@ import type { SessionAuditJournal } from "../src/ports/session-audit-journal.ts"
 import { SessionNotFoundError, SessionService, StaleSnapshotError } from "../src/session-service.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
-interface FakeLoggerCall { level: "debug" | "info" | "warn" | "error"; msg: string; fields?: Record<string, unknown> }
+interface FakeLoggerCall {
+	level: "debug" | "info" | "warn" | "error";
+	msg: string;
+	fields?: Record<string, unknown>;
+}
 function fakeLogger(): Logger & { calls: FakeLoggerCall[] } {
 	const calls: FakeLoggerCall[] = [];
 	return {
 		calls,
-		debug: (msg, fields) => { calls.push({ level: "debug", msg, fields }); },
-		info: (msg, fields) => { calls.push({ level: "info", msg, fields }); },
-		warn: (msg, fields) => { calls.push({ level: "warn", msg, fields }); },
-		error: (msg, fields) => { calls.push({ level: "error", msg, fields }); },
+		debug: (msg, fields) => {
+			calls.push({ level: "debug", msg, fields });
+		},
+		info: (msg, fields) => {
+			calls.push({ level: "info", msg, fields });
+		},
+		warn: (msg, fields) => {
+			calls.push({ level: "warn", msg, fields });
+		},
+		error: (msg, fields) => {
+			calls.push({ level: "error", msg, fields });
+		},
 	};
 }
 
 class FakeAuditJournal implements SessionAuditJournal {
 	entries: SessionAuditEntry[] = [];
-	record(entry: SessionAuditEntry): void { this.entries.push(entry); }
+	record(entry: SessionAuditEntry): void {
+		this.entries.push(entry);
+	}
 	recent(opts: { sessionName?: string; limit?: number } = {}): SessionAuditEntry[] {
 		const filtered = opts.sessionName ? this.entries.filter((e) => e.sessionName === opts.sessionName) : this.entries;
 		return filtered.slice(-(opts.limit ?? 100)).reverse();
 	}
-	pruneOldest(): number { return 0; }
+	pruneOldest(): number {
+		return 0;
+	}
 }
 
 function makeHarness(pageOptionsForSession?: NonNullable<Parameters<typeof fakeLauncher>[0]>["pageOptionsForSession"], logger?: Logger) {
@@ -47,7 +63,12 @@ describe("SessionService — create/list/close", () => {
 		const { service } = makeHarness();
 		await service.create({ name: "a" });
 		await service.create({ name: "b" });
-		expect(service.list().map((s) => s.name).sort()).toEqual(["a", "b"]);
+		expect(
+			service
+				.list()
+				.map((s) => s.name)
+				.sort(),
+		).toEqual(["a", "b"]);
 	});
 
 	test("close forwards to the registry and returns {name, closed:true}", async () => {
@@ -62,7 +83,12 @@ describe("SessionService — act: navigate", () => {
 	test("a successful navigate bumps snapshotVersion and journals outcome:ok with a sanitized URL target", async () => {
 		const { service, journal } = makeHarness();
 		await service.create({ name: "a" });
-		const out = await service.act({ name: "a", snapshotVersion: 0, action: "navigate", url: "https://example.com/page?token=SECRET123&q=hi" });
+		const out = await service.act({
+			name: "a",
+			snapshotVersion: 0,
+			action: "navigate",
+			url: "https://example.com/page?token=SECRET123&q=hi",
+		});
 		expect(out).toEqual({ name: "a", action: "navigate", snapshotVersion: 1 });
 		expect(journal.entries).toHaveLength(1);
 		expect(journal.entries[0]).toMatchObject({ sessionName: "a", action: "navigate", outcome: "ok", error: "" });
@@ -94,7 +120,12 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 		const { service, journal, pages } = makeHarness();
 		await service.create({ name: "a" });
 		// pages[0] resolves whatever evaluateResult the fake was configured with (undefined by default) — assert the shape and journal content-freeness instead.
-		const out = await service.act({ name: "a", snapshotVersion: 0, action: "eval", script: "document.title = 'super-secret-value-should-not-leak'" });
+		const out = await service.act({
+			name: "a",
+			snapshotVersion: 0,
+			action: "eval",
+			script: "document.title = 'super-secret-value-should-not-leak'",
+		});
 		expect(out.action).toBe("eval");
 		expect(pages[0]!.evaluateCalls).toEqual(["document.title = 'super-secret-value-should-not-leak'"]);
 		expect(journal.entries[0]!.target).toBe("<script>");
@@ -135,8 +166,9 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 	test("screenshot rejects fullPage combined with selector before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "screenshot", fullPage: true, selector: "#chart" }))
-			.rejects.toThrow(/fullPage or selector, not both/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "screenshot", fullPage: true, selector: "#chart" })).rejects.toThrow(
+			/fullPage or selector, not both/,
+		);
 		expect(pages).toHaveLength(0);
 	});
 });
@@ -177,14 +209,18 @@ describe("SessionService — act: type (does not bump snapshotVersion)", () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		const huge = "x".repeat(3_000);
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: huge })).rejects.toThrow(/exceeds/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: huge })).rejects.toThrow(
+			/exceeds/,
+		);
 		expect(pages).toHaveLength(0);
 	});
 
 	test("a page-level type failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failType: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#missing", text: "hi" })).rejects.toThrow(/simulated type failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#missing", text: "hi" })).rejects.toThrow(
+			/simulated type failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -202,7 +238,13 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 	test("selects by label", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
-		await service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", label: "WG3: Near-real-time RIC and E2 Interface Workgroup" });
+		await service.act({
+			name: "a",
+			snapshotVersion: 0,
+			action: "select",
+			selector: "#wg",
+			label: "WG3: Near-real-time RIC and E2 Interface Workgroup",
+		});
 		expect(pages[0]!.selectCalls[0]!.target).toEqual({ value: undefined, label: "WG3: Near-real-time RIC and E2 Interface Workgroup" });
 	});
 
@@ -216,21 +258,27 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 	test("select without value or label is rejected before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg" })).rejects.toThrow(/value or label is required/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg" })).rejects.toThrow(
+			/value or label is required/,
+		);
 		expect(pages).toHaveLength(0);
 	});
 
 	test("select with both value and label is rejected before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "wg3", label: "WG3" })).rejects.toThrow(/only one of value or label/);
+		await expect(
+			service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "wg3", label: "WG3" }),
+		).rejects.toThrow(/only one of value or label/);
 		expect(pages).toHaveLength(0);
 	});
 
 	test("a page-level select failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failSelect: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "ghost" })).rejects.toThrow(/simulated select failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "ghost" })).rejects.toThrow(
+			/simulated select failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -241,7 +289,9 @@ describe("SessionService — act: waitFor (does not bump snapshotVersion)", () =
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#results" });
 		expect(out.snapshotVersion).toBe(0);
-		expect(pages[0]!.waitForCalls).toEqual([{ target: { selector: "#results", text: undefined, loadState: undefined }, timeoutMs: undefined, state: undefined }]);
+		expect(pages[0]!.waitForCalls).toEqual([
+			{ target: { selector: "#results", text: undefined, loadState: undefined }, timeoutMs: undefined, state: undefined },
+		]);
 		expect(journal.entries[0]).toMatchObject({ action: "waitFor", outcome: "ok", target: "#results" });
 	});
 
@@ -281,14 +331,18 @@ describe("SessionService — act: waitFor (does not bump snapshotVersion)", () =
 	test("rejects state alongside loadState before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", loadState: "load", state: "visible" })).rejects.toThrow(/state is not valid alongside loadState/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", loadState: "load", state: "visible" })).rejects.toThrow(
+			/state is not valid alongside loadState/,
+		);
 		expect(pages).toHaveLength(0);
 	});
 
 	test("a page-level waitFor timeout is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failWaitFor: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#never-appears" })).rejects.toThrow(/simulated waitFor failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#never-appears" })).rejects.toThrow(
+			/simulated waitFor failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -330,18 +384,32 @@ describe("SessionService — act: queryText (does not bump snapshotVersion)", ()
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failQueryText: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "#missing" })).rejects.toThrow(/simulated queryText failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "queryText", selector: "#missing" })).rejects.toThrow(
+			/simulated queryText failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
 
 describe("SessionService — act: readTable (does not bump snapshotVersion)", () => {
 	test("returns extracted rows and journals only the selector", async () => {
-		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { readTableResult: [["a", "b"], ["c", "d"]] } : {}));
+		const { service, journal, pages } = makeHarness((i) =>
+			i === 0
+				? {
+						readTableResult: [
+							["a", "b"],
+							["c", "d"],
+						],
+					}
+				: {},
+		);
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "table" });
 		expect(out.snapshotVersion).toBe(0);
-		expect(out.result).toEqual([["a", "b"], ["c", "d"]]);
+		expect(out.result).toEqual([
+			["a", "b"],
+			["c", "d"],
+		]);
 		expect(pages[0]!.readTableCalls).toEqual([{ selector: "table", timeoutMs: undefined }]);
 		expect(journal.entries[0]).toMatchObject({ action: "readTable", outcome: "ok", target: "table" });
 	});
@@ -366,14 +434,16 @@ describe("SessionService — act: readTable (does not bump snapshotVersion)", ()
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failReadTable: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "#missing" })).rejects.toThrow(/simulated readTable failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "readTable", selector: "#missing" })).rejects.toThrow(
+			/simulated readTable failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
 
 describe("SessionService — act: snapshot (does not bump snapshotVersion)", () => {
 	test("returns the accessibility tree and journals a fixed placeholder for a whole-page snapshot", async () => {
-		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { snapshotResult: '- heading "Title" [level=1]' } : {}));
+		const { service, journal } = makeHarness((i) => (i === 0 ? { snapshotResult: '- heading "Title" [level=1]' } : {}));
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "snapshot" });
 		expect(out.snapshotVersion).toBe(0);
@@ -432,7 +502,13 @@ describe("SessionService — act: handleDialog (does not bump snapshotVersion)",
 	test("arms accept and journals a fixed placeholder, never promptText", async () => {
 		const { service, journal, pages } = makeHarness();
 		await service.create({ name: "a" });
-		const out = await service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true, promptText: "super-secret-answer" });
+		const out = await service.act({
+			name: "a",
+			snapshotVersion: 0,
+			action: "handleDialog",
+			accept: true,
+			promptText: "super-secret-answer",
+		});
 		expect(out.snapshotVersion).toBe(0);
 		expect(pages[0]!.armDialogPolicyCalls).toEqual([{ accept: true, promptText: "super-secret-answer" }]);
 		expect(journal.entries[0]).toMatchObject({ action: "handleDialog", outcome: "ok", target: "<dialog:accept>" });
@@ -457,7 +533,9 @@ describe("SessionService — act: handleDialog (does not bump snapshotVersion)",
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failHandleDialog: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true })).rejects.toThrow(/simulated handleDialog failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "handleDialog", accept: true })).rejects.toThrow(
+			/simulated handleDialog failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -502,7 +580,9 @@ describe("SessionService — act: hover (does not bump snapshotVersion)", () => 
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failHover: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "hover", selector: "#missing" })).rejects.toThrow(/simulated hover failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "hover", selector: "#missing" })).rejects.toThrow(
+			/simulated hover failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -534,7 +614,9 @@ describe("SessionService — act: pressKey (does not bump snapshotVersion)", () 
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failPressKey: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "pressKey", key: "Enter" })).rejects.toThrow(/simulated pressKey failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "pressKey", key: "Enter" })).rejects.toThrow(
+			/simulated pressKey failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -553,7 +635,9 @@ describe("SessionService — act: consoleMessages (does not bump snapshotVersion
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failListConsoleMessages: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "consoleMessages" })).rejects.toThrow(/simulated listConsoleMessages failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "consoleMessages" })).rejects.toThrow(
+			/simulated listConsoleMessages failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -564,7 +648,7 @@ describe("SessionService — act: networkRequests (does not bump snapshotVersion
 	const failedImageRequest = { url: "https://x.test/broken.png", method: "GET", status: 404, resourceType: "image" };
 
 	test("excludes successful static resources by default", async () => {
-		const { service, pages } = makeHarness(() => ({ networkRequestsResult: [apiRequest, imageRequest, failedImageRequest] }));
+		const { service } = makeHarness(() => ({ networkRequestsResult: [apiRequest, imageRequest, failedImageRequest] }));
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" });
 		// The successful image is excluded; the API call and the *failed*
@@ -589,7 +673,9 @@ describe("SessionService — act: networkRequests (does not bump snapshotVersion
 	test("a page-level failure is journaled and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failListNetworkRequests: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" })).rejects.toThrow(/simulated listNetworkRequests failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "networkRequests" })).rejects.toThrow(
+			/simulated listNetworkRequests failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 	});
 });
@@ -645,21 +731,24 @@ describe("SessionService — act: tabs (does not bump snapshotVersion of its own
 	test("select requires tabIndex", async () => {
 		const { service } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select" })).rejects.toThrow(/tabIndex is required/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select" })).rejects.toThrow(
+			/tabIndex is required/,
+		);
 	});
 
 	test("selecting an out-of-range tab index is rejected", async () => {
 		const { service } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select", tabIndex: 5 })).rejects.toThrow(/no such tab/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "select", tabIndex: 5 })).rejects.toThrow(
+			/no such tab/,
+		);
 	});
 });
 
 describe("SessionService — act: fails closed", () => {
 	test("acting on an unknown session throws SessionNotFoundError and journals the rejected attempt", async () => {
 		const { service, journal } = makeHarness();
-		await expect(service.act({ name: "ghost", snapshotVersion: 0, action: "click", selector: "#x" }))
-			.rejects.toThrow(SessionNotFoundError);
+		await expect(service.act({ name: "ghost", snapshotVersion: 0, action: "click", selector: "#x" })).rejects.toThrow(SessionNotFoundError);
 		expect(journal.entries[0]).toMatchObject({ sessionName: "ghost", outcome: "error" });
 	});
 
@@ -668,8 +757,7 @@ describe("SessionService — act: fails closed", () => {
 		await service.create({ name: "a" });
 		await service.act({ name: "a", snapshotVersion: 0, action: "navigate", url: "https://example.com/1" }); // bumps to version 1
 
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#x" }))
-			.rejects.toThrow(StaleSnapshotError);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#x" })).rejects.toThrow(StaleSnapshotError);
 		expect(journal.entries[1]).toMatchObject({ outcome: "stale-snapshot", snapshotVersion: 0 });
 		// only the earlier navigate reached the page; the stale click never did.
 		expect(pages[0]!.clickCalls).toHaveLength(0);
@@ -678,8 +766,9 @@ describe("SessionService — act: fails closed", () => {
 	test("a page-level failure (e.g. click on a missing element) is journaled with a bounded error message and rethrown", async () => {
 		const { service, journal } = makeHarness((i) => (i === 0 ? { failClick: true } : {}));
 		await service.create({ name: "a" });
-		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#missing" }))
-			.rejects.toThrow(/simulated click failure/);
+		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#missing" })).rejects.toThrow(
+			/simulated click failure/,
+		);
 		expect(journal.entries[0]).toMatchObject({ outcome: "error" });
 		expect(journal.entries[0]!.error).toMatch(/simulated click failure/);
 	});
@@ -725,7 +814,13 @@ describe("SessionService — structured logging", () => {
 		logger.calls.length = 0;
 		await service.act({ name: "a", snapshotVersion: 0, action: "eval", script: "document.title = 'secretApiKey123'" });
 
-		expect(logger.calls).toEqual([{ level: "debug", msg: "session_act", fields: { sessionName: "a", action: "eval", target: "<script>", outcome: "ok", durationMs: 0 } }]);
+		expect(logger.calls).toEqual([
+			{
+				level: "debug",
+				msg: "session_act",
+				fields: { sessionName: "a", action: "eval", target: "<script>", outcome: "ok", durationMs: 0 },
+			},
+		]);
 		expect(JSON.stringify(logger.calls)).not.toContain("secretApiKey123");
 	});
 
@@ -737,7 +832,11 @@ describe("SessionService — structured logging", () => {
 
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "click", selector: "#missing" })).rejects.toThrow();
 		expect(logger.calls).toHaveLength(1);
-		expect(logger.calls[0]).toMatchObject({ level: "warn", msg: "session_act", fields: { sessionName: "a", action: "click", outcome: "error" } });
+		expect(logger.calls[0]).toMatchObject({
+			level: "warn",
+			msg: "session_act",
+			fields: { sessionName: "a", action: "click", outcome: "error" },
+		});
 		expect(logger.calls[0]?.fields?.error).toMatch(/simulated click failure/);
 
 		logger.calls.length = 0;

@@ -11,7 +11,15 @@ function stubClient(routes: Record<string, { status: number; contentType: string
 	return {
 		async fetch(req) {
 			const route = routes[req.url];
-			if (!route) return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+			if (!route)
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			return {
 				ok: route.status >= 200 && route.status < 300,
 				status: route.status,
@@ -31,7 +39,9 @@ describe("spider() — preferMarkdownVariant", () => {
 			async fetch(req) {
 				if (req.url === "https://docs.aws.amazon.com/x/Welcome.md") {
 					return {
-						ok: true, status: 200, statusText: "OK",
+						ok: true,
+						status: 200,
+						statusText: "OK",
 						headers: { get: (name) => (name.toLowerCase() === "content-type" ? "text/markdown; charset=utf-8" : null) },
 						text: async () => "# Welcome to S3\n\nReal markdown content, straight from the source.",
 						arrayBuffer: async () => new ArrayBuffer(0),
@@ -39,9 +49,23 @@ describe("spider() — preferMarkdownVariant", () => {
 				}
 				if (req.url === "https://docs.aws.amazon.com/x/Welcome.html") {
 					htmlPageFetched = true;
-					return { ok: true, status: 200, statusText: "OK", headers: { get: () => "text/html" }, text: async () => "<html>should never be fetched</html>", arrayBuffer: async () => new ArrayBuffer(0) };
+					return {
+						ok: true,
+						status: 200,
+						statusText: "OK",
+						headers: { get: () => "text/html" },
+						text: async () => "<html>should never be fetched</html>",
+						arrayBuffer: async () => new ArrayBuffer(0),
+					};
 				}
-				return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			},
 		};
 		const page = await spider("https://docs.aws.amazon.com/x/Welcome.html", { httpClient, preferMarkdownVariant: true });
@@ -72,9 +96,12 @@ describe("spider() — preferMarkdownVariant", () => {
 			async fetch(req) {
 				if (req.url.endsWith(".md")) probedMd = true;
 				return {
-					ok: true, status: 200, statusText: "OK",
+					ok: true,
+					status: 200,
+					statusText: "OK",
 					headers: { get: (name) => (name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null) },
-					text: async () => "<html><head><title>Hi</title></head><body><article><p>Some real content here, long enough to be treated as a genuine article body.</p></article></body></html>",
+					text: async () =>
+						"<html><head><title>Hi</title></head><body><article><p>Some real content here, long enough to be treated as a genuine article body.</p></article></body></html>",
 					arrayBuffer: async () => new ArrayBuffer(0),
 				};
 			},
@@ -90,9 +117,23 @@ describe("spider() — preferMarkdownVariant", () => {
 			async fetch(req) {
 				if (req.url.endsWith(".md")) probedMd = true;
 				if (req.url === "https://docs.example.com/llms.txt") {
-					return { ok: true, status: 200, statusText: "OK", headers: { get: () => "text/plain" }, text: async () => "# Index", arrayBuffer: async () => new ArrayBuffer(0) };
+					return {
+						ok: true,
+						status: 200,
+						statusText: "OK",
+						headers: { get: () => "text/plain" },
+						text: async () => "# Index",
+						arrayBuffer: async () => new ArrayBuffer(0),
+					};
 				}
-				return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			},
 		};
 		const page = await spider("https://docs.example.com/page.html", { httpClient, preferLlmsTxt: true, preferMarkdownVariant: true });

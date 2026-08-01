@@ -17,44 +17,40 @@
  * gracefully rather than failing loudly).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import {
-  createExtensionHarness,
-  loadExtensionViaJiti,
-  type ExtensionHarness,
-} from "./harness/index.ts"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { isolatedDaemonEnv, type IsolatedDaemonEnv } from "./daemon-isolation.js"
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type IsolatedDaemonEnv, isolatedDaemonEnv } from "./daemon-isolation.js";
+import { createExtensionHarness, type ExtensionHarness, loadExtensionViaJiti } from "./harness/index.ts";
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const EXTENSION_PATH = join(__dirname, "../src/index.ts")
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const EXTENSION_PATH = join(__dirname, "../src/index.ts");
 
 // ---------------------------------------------------------------------------
 // Shared assertion — both loader modes must produce the same shape
 // ---------------------------------------------------------------------------
 
 async function assertWikipediaFetch(h: ExtensionHarness) {
-  const result = await h.invokeTool("web_fetch", {
-    url: "https://en.wikipedia.org/wiki/Web_crawler",
-    format: "lean",
-  }) as { content: { text: string }[] }
+	const result = (await h.invokeTool("web_fetch", {
+		url: "https://en.wikipedia.org/wiki/Web_crawler",
+		format: "lean",
+	})) as { content: { text: string }[] };
 
-  expect(result).toHaveProperty("content")
-  const text = JSON.parse(result.content[0].text)
+	expect(result).toHaveProperty("content");
+	const text = JSON.parse(result.content[0].text);
 
-  // Must not be an error
-  expect(text).not.toHaveProperty("error")
+	// Must not be an error
+	expect(text).not.toHaveProperty("error");
 
-  // Must have expected shape
-  expect(text).toHaveProperty("url", "https://en.wikipedia.org/wiki/Web_crawler")
-  expect(text).toHaveProperty("title")
-  expect(typeof text.title).toBe("string")
-  expect(text.title.length).toBeGreaterThan(0)
-  expect(text).toHaveProperty("wordCount")
-  expect(text.wordCount).toBeGreaterThan(100)
-  expect(text).toHaveProperty("headings")
-  expect(Array.isArray(text.headings)).toBe(true)
+	// Must have expected shape
+	expect(text).toHaveProperty("url", "https://en.wikipedia.org/wiki/Web_crawler");
+	expect(text).toHaveProperty("title");
+	expect(typeof text.title).toBe("string");
+	expect(text.title.length).toBeGreaterThan(0);
+	expect(text).toHaveProperty("wordCount");
+	expect(text.wordCount).toBeGreaterThan(100);
+	expect(text).toHaveProperty("headings");
+	expect(Array.isArray(text.headings)).toBe(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,72 +58,72 @@ async function assertWikipediaFetch(h: ExtensionHarness) {
 // ---------------------------------------------------------------------------
 
 describe("live fetch — native ESM (pi Node.js runtime path)", () => {
-  let h: ExtensionHarness
-  let isolated: IsolatedDaemonEnv
+	let h: ExtensionHarness;
+	let isolated: IsolatedDaemonEnv;
 
-  beforeAll(async () => {
-    isolated = isolatedDaemonEnv("pi-web-spider-live-fetch-native-")
-    // Direct import — no jiti. This is how pi loads extensions in Node.js dev
-    // mode: the factory is imported natively, then wrapped in createExtensionHarness.
-    const { default: factory } = await import("../src/index.js")
-    h = createExtensionHarness(factory, { cwd: "/tmp", env: isolated.env })
-    await h.boot()
-  })
+	beforeAll(async () => {
+		isolated = isolatedDaemonEnv("pi-web-spider-live-fetch-native-");
+		// Direct import — no jiti. This is how pi loads extensions in Node.js dev
+		// mode: the factory is imported natively, then wrapped in createExtensionHarness.
+		const { default: factory } = await import("../src/index.js");
+		h = createExtensionHarness(factory, { cwd: "/tmp", env: isolated.env });
+		await h.boot();
+	});
 
-  afterAll(async () => {
-    await h.shutdown()
-    isolated.cleanup()
-  })
+	afterAll(async () => {
+		await h.shutdown();
+		isolated.cleanup();
+	});
 
-  it("fetches Wikipedia lean — no Map errors, correct shape", async () => {
-    await assertWikipediaFetch(h)
-  }, 20_000)
+	it("fetches Wikipedia lean — no Map errors, correct shape", async () => {
+		await assertWikipediaFetch(h);
+	}, 20_000);
 
-  it("fetches markdown format without error", async () => {
-    const result = await h.invokeTool("web_fetch", {
-      url: "https://en.wikipedia.org/wiki/Web_crawler",
-      format: "markdown",
-    }) as { content: { text: string }[] }
+	it("fetches markdown format without error", async () => {
+		const result = (await h.invokeTool("web_fetch", {
+			url: "https://en.wikipedia.org/wiki/Web_crawler",
+			format: "markdown",
+		})) as { content: { text: string }[] };
 
-    const text = JSON.parse(result.content[0].text)
-    expect(text).not.toHaveProperty("error")
-    expect(text).toHaveProperty("markdown")
-    expect(typeof text.markdown).toBe("string")
-    expect(text.markdown.length).toBeGreaterThan(100)
-  }, 20_000)
+		const text = JSON.parse(result.content[0].text);
+		expect(text).not.toHaveProperty("error");
+		expect(text).toHaveProperty("markdown");
+		expect(typeof text.markdown).toBe("string");
+		expect(text.markdown.length).toBeGreaterThan(100);
+	}, 20_000);
 
-  it("no url — returns cache listing, not error", async () => {
-    const result = await h.invokeTool("web_fetch", {}) as { content: { text: string }[] }
-    const text = JSON.parse(result.content[0].text)
-    // After fetching Wikipedia above, the cache has at least 1 entry.
-    // Regardless: must return listing shape, not an error.
-    expect(text).not.toHaveProperty("error")
-    expect(text).toHaveProperty("total")
-    expect(typeof text.total).toBe("number")
-  }, 5_000)
-})
+	it("no url — returns cache listing, not error", async () => {
+		const result = (await h.invokeTool("web_fetch", {})) as { content: { text: string }[] };
+		const text = JSON.parse(result.content[0].text);
+		// After fetching Wikipedia above, the cache has at least 1 entry.
+		// Regardless: must return listing shape, not an error.
+		expect(text).not.toHaveProperty("error");
+		expect(text).toHaveProperty("total");
+		expect(typeof text.total).toBe("number");
+	}, 5_000);
+});
 
 // ---------------------------------------------------------------------------
 // Mode B: jiti tryNative:false — matches Bun binary + loadExtensionViaJiti
 // ---------------------------------------------------------------------------
 
 describe("live fetch — jiti tryNative:false (Bun binary path)", () => {
-  let h: ExtensionHarness
-  let isolated: IsolatedDaemonEnv
+	let h: ExtensionHarness;
+	let isolated: IsolatedDaemonEnv;
 
-  beforeAll(async () => {
-    isolated = isolatedDaemonEnv("pi-web-spider-live-fetch-jiti-")
-    const factory = await loadExtensionViaJiti(EXTENSION_PATH)
-    h = createExtensionHarness(factory, { cwd: "/tmp", env: isolated.env })
-    await h.boot()
-  })
+	beforeAll(async () => {
+		isolated = isolatedDaemonEnv("pi-web-spider-live-fetch-jiti-");
+		const factory = await loadExtensionViaJiti(EXTENSION_PATH);
+		h = createExtensionHarness(factory, { cwd: "/tmp", env: isolated.env });
+		await h.boot();
+	});
 
-  afterAll(async () => {
-    await h.shutdown()
-    isolated.cleanup()
-  })
+	afterAll(async () => {
+		await h.shutdown();
+		isolated.cleanup();
+	});
 
-  it("fetches Wikipedia lean — no Map errors, correct shape", async () => {
-    await assertWikipediaFetch(h)
-  }, 20_000)
-})
+	it("fetches Wikipedia lean — no Map errors, correct shape", async () => {
+		await assertWikipediaFetch(h);
+	}, 20_000);
+});

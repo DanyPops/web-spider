@@ -18,17 +18,15 @@ describe("tavilySearch() — live Tavily API", () => {
 		// An invalid key is rejected during authentication, before any quota
 		// check -- this assertion holds regardless of the real account's
 		// remaining balance.
-		await expect(
-			tavilySearch("test", { apiKey: "tvly-invalid-key-000" }),
-		).rejects.toThrow(/tavily/i);
+		await expect(tavilySearch("test", { apiKey: "tvly-invalid-key-000" })).rejects.toThrow(/tavily/i);
 	});
 });
 
 describe("webSearch() — auto-detect configuration errors", () => {
 	it("throws a descriptive error when forced to 'brave' with no key set", async () => {
-		const saved = process.env["BRAVE_SEARCH_API_KEY"];
-		delete process.env["BRAVE_SEARCH_API_KEY"];
+		const saved = process.env.BRAVE_SEARCH_API_KEY;
+		delete process.env.BRAVE_SEARCH_API_KEY;
 		await expect(webSearch("test", { engine: "brave" })).rejects.toThrow("BRAVE_SEARCH_API_KEY");
-		if (saved) process.env["BRAVE_SEARCH_API_KEY"] = saved;
+		if (saved) process.env.BRAVE_SEARCH_API_KEY = saved;
 	});
 });

@@ -3,17 +3,29 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage, WebSearchResult } from "@danypops/web-spider";
-import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { PAPYRUS_INGEST_MAX_BATCH } from "../src/constants.ts";
+import { openWebSpiderDb } from "../src/db.ts";
 import { PapyrusIngestService } from "../src/papyrus-ingest-service.ts";
 import type { PapyrusDocInput, PapyrusIngestPort } from "../src/ports/papyrus-ingest.ts";
-import { PAPYRUS_INGEST_MAX_BATCH } from "../src/constants.ts";
 
 function page(url: string, title: string): SpideredPage {
 	return {
-		url, domain: new URL(url).hostname, fetchedAt: new Date().toISOString(),
-		title, description: "", author: "", publishedAt: "", lang: "en", tags: [],
-		wordCount: 10, readingTimeMinutes: 1, headings: [], chunks: [], links: [], markdown: `# ${title}`,
+		url,
+		domain: new URL(url).hostname,
+		fetchedAt: new Date().toISOString(),
+		title,
+		description: "",
+		author: "",
+		publishedAt: "",
+		lang: "en",
+		tags: [],
+		wordCount: 10,
+		readingTimeMinutes: 1,
+		headings: [],
+		chunks: [],
+		links: [],
+		markdown: `# ${title}`,
 	};
 }
 
@@ -145,7 +157,11 @@ describe("PapyrusIngestService — search results", () => {
 	});
 
 	test("bounds the batch to PAPYRUS_INGEST_MAX_BATCH", async () => {
-		const many = Array.from({ length: PAPYRUS_INGEST_MAX_BATCH + 3 }, (_, i) => ({ url: `https://a.example/${i}`, title: `Hit ${i}`, snippet: "s" }));
+		const many = Array.from({ length: PAPYRUS_INGEST_MAX_BATCH + 3 }, (_, i) => ({
+			url: `https://a.example/${i}`,
+			title: `Hit ${i}`,
+			snippet: "s",
+		}));
 		const store = storeWith([]);
 		const papyrus = new FakePapyrus();
 		const service = new PapyrusIngestService(store, papyrus);

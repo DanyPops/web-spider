@@ -48,11 +48,13 @@ describe("pageToPapyrusDoc", () => {
 	});
 
 	test("body combines description, truncated markdown, and a heading outline", () => {
-		const doc = pageToPapyrusDoc(page({
-			description: "A short description.",
-			markdown: "# Title\n\nBody text.",
-			headings: [{ level: 1, text: "Title" }],
-		}));
+		const doc = pageToPapyrusDoc(
+			page({
+				description: "A short description.",
+				markdown: "# Title\n\nBody text.",
+				headings: [{ level: 1, text: "Title" }],
+			}),
+		);
 		expect(doc.body).toContain("A short description.");
 		expect(doc.body).toContain("Body text.");
 		expect(doc.body).toContain("# Title");

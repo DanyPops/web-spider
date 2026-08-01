@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { pagesToNDJSON, pageToRecords } from "../src/scribe-bridge.js";
 import type { SpideredPage } from "../src/types.js";
-import { pageToRecords, pagesToNDJSON } from "../src/scribe-bridge.js";
 
 function fakePage(overrides: Partial<SpideredPage> = {}): SpideredPage {
 	return {
@@ -20,8 +20,22 @@ function fakePage(overrides: Partial<SpideredPage> = {}): SpideredPage {
 			{ level: 2, text: "JWT Setup" },
 		],
 		chunks: [
-			{ id: "https://example.com/docs/auth#chunk-0", index: 0, heading: "Auth Guide", text: "JWT is a token standard.", wordCount: 100, contentType: "text" },
-			{ id: "https://example.com/docs/auth#chunk-1", index: 1, heading: "JWT Setup", text: "Install the library...", wordCount: 80, contentType: "text" },
+			{
+				id: "https://example.com/docs/auth#chunk-0",
+				index: 0,
+				heading: "Auth Guide",
+				text: "JWT is a token standard.",
+				wordCount: 100,
+				contentType: "text",
+			},
+			{
+				id: "https://example.com/docs/auth#chunk-1",
+				index: 1,
+				heading: "JWT Setup",
+				text: "Install the library...",
+				wordCount: 80,
+				contentType: "text",
+			},
 		],
 		links: [
 			{ href: "https://example.com/docs/tokens", text: "Token docs", isExternal: false, rel: "body" },
@@ -67,9 +81,7 @@ describe("scribe-bridge", () => {
 	it("does not produce edges for external or nav links", () => {
 		const records = pageToRecords(fakePage());
 		const allEdges = records.filter((r) => r.type === "edge");
-		const externalOrNav = allEdges.filter(
-			(e) => e.to === "https://jwt.io" || e.to === "https://example.com/nav",
-		);
+		const externalOrNav = allEdges.filter((e) => e.to === "https://jwt.io" || e.to === "https://example.com/nav");
 		expect(externalOrNav).toHaveLength(0);
 	});
 

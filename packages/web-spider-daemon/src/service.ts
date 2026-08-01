@@ -11,48 +11,75 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DomainThrottle, PlaywrightHttpClient, RobotsCache, type IHttpClient, type WebSearchResult } from "@danypops/web-spider";
-import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
-import { SERVICE_MAX_BODY_BYTES, SESSION_DOWNLOADS_DIRECTORY_NAME, SQLITE_SCHEMA_VERSION } from "./constants.ts";
-import { VERSION } from "./version.ts";
-import { openWebSpiderDb, schemaVersion } from "./db.ts";
-import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
-import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
-import { createEngineResolver, WebSearchService, type WebSearchInput, type WebSearchOutput } from "./search-service.ts";
-import { FetchService, type FetchOperationInput, type FetchOperationOutput } from "./fetch-service.ts";
-import { CrawlService, type CrawlOperationInput, type CrawlOperationOutput } from "./crawl-service.ts";
-import { PapyrusIngestService, type PapyrusIngestInput, type PapyrusIngestOutput } from "./papyrus-ingest-service.ts";
+import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type WebSearchResult } from "@danypops/web-spider";
 import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
 import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
-import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
+import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
-import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
-import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
-import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "./constants.ts";
-import { SessionNotFoundError, SessionService, StaleSnapshotError, type SessionActInput, type SessionActOutput, type SessionCloseInput } from "./session-service.ts";
-import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
-import type { SessionInfo } from "./domain/session.ts";
+import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
+import {
+	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
+	SERVICE_MAX_BODY_BYTES,
+	SESSION_DOWNLOADS_DIRECTORY_NAME,
+	SQLITE_SCHEMA_VERSION,
+} from "./constants.ts";
+import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./crawl-service.ts";
+import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import type {
-	CachedPageListFilter, CachedPageListResult, CachedPageSearchResult,
-	CategoryAssignmentResult, CategoryListResult, CategoryRenameResult,
+	CachedPageListFilter,
+	CachedPageListResult,
+	CachedPageSearchResult,
+	CategoryAssignmentResult,
+	CategoryListResult,
+	CategoryRenameResult,
 } from "./domain/page.ts";
+import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
+import type { SessionInfo } from "./domain/session.ts";
+import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
+import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch-service.ts";
+import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
+import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./papyrus-ingest-service.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
+import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
+import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search-service.ts";
+import {
+	type SessionActInput,
+	type SessionActOutput,
+	type SessionCloseInput,
+	SessionNotFoundError,
+	SessionService,
+	StaleSnapshotError,
+} from "./session-service.ts";
+import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
-	"cache.list", "cache.search", "search", "search.usage", "fetch", "crawl", "papyrus.ingest",
-	"session.create", "session.list", "session.close", "session.act",
-	"category.assign", "category.remove", "category.rename", "category.list",
+	"cache.list",
+	"cache.search",
+	"search",
+	"search.usage",
+	"fetch",
+	"crawl",
+	"papyrus.ingest",
+	"session.create",
+	"session.list",
+	"session.close",
+	"session.act",
+	"category.assign",
+	"category.remove",
+	"category.rename",
+	"category.list",
 ] as const;
-export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
+export type OperationName = (typeof EXPECTED_OPERATION_NAMES)[number];
 
 export interface OperationInputs {
 	"cache.list": CachedPageListFilter;
 	"cache.search": { query: string; limit?: number };
-	"search": WebSearchInput;
+	search: WebSearchInput;
 	"search.usage": { engine?: string; limit?: number };
-	"fetch": FetchOperationInput;
-	"crawl": CrawlOperationInput;
+	fetch: FetchOperationInput;
+	crawl: CrawlOperationInput;
 	"papyrus.ingest": PapyrusIngestInput;
 	"session.create": { name: string; forceChromeChannel?: boolean };
 	"session.list": Record<string, never>;
@@ -66,10 +93,10 @@ export interface OperationInputs {
 export interface OperationOutputs {
 	"cache.list": CachedPageListResult;
 	"cache.search": CachedPageSearchResult;
-	"search": WebSearchOutput;
+	search: WebSearchOutput;
 	"search.usage": { entries: SearchEngineUsageEntry[] };
-	"fetch": FetchOperationOutput;
-	"crawl": CrawlOperationOutput;
+	fetch: FetchOperationOutput;
+	crawl: CrawlOperationOutput;
 	"papyrus.ingest": PapyrusIngestOutput;
 	"session.create": SessionInfo;
 	"session.list": { sessions: SessionInfo[] };
@@ -216,48 +243,61 @@ function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
 	throw new Error('kind must be "pages" or "search"');
 }
 
-function handlers(store: CacheStore, webSearch: WebSearchService, fetchService: FetchService, crawlService: CrawlService, papyrusIngest: PapyrusIngestService, sessionService: SessionService, searchUsage: SearchUsageJournal): Record<OperationName, OperationHandler> {
+function handlers(
+	store: CacheStore,
+	webSearch: WebSearchService,
+	fetchService: FetchService,
+	crawlService: CrawlService,
+	papyrusIngest: PapyrusIngestService,
+	sessionService: SessionService,
+	searchUsage: SearchUsageJournal,
+): Record<OperationName, OperationHandler> {
 	return {
-		"cache.list": (input) => store.list({
-			grep: optionalString(input, "grep"),
-			domain: optionalString(input, "domain"),
-			tag: optionalString(input, "tag"),
-			category: optionalString(input, "category"),
-			fetchedAfter: optionalNumber(input, "fetchedAfter"),
-			fetchedBefore: optionalNumber(input, "fetchedBefore"),
-			publishedAfter: optionalString(input, "publishedAfter"),
-			publishedBefore: optionalString(input, "publishedBefore"),
-			sortBy: optionalString(input, "sortBy") as CachedPageListFilter["sortBy"],
-			sortOrder: optionalString(input, "sortOrder") as CachedPageListFilter["sortOrder"],
-			offset: optionalNumber(input, "offset"),
-			limit: optionalNumber(input, "limit"),
-		}),
-		"cache.search": (input) => store.search(requireString(input, "query"), {
-			topN: optionalNumber(input, "limit"),
-		}),
-		"search": (input) => webSearch.search({
-			query: requireString(input, "query"),
-			numResults: optionalNumber(input, "numResults"),
-			timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
-			topic: optionalString(input, "topic") as WebSearchInput["topic"],
-			searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
-		}),
+		"cache.list": (input) =>
+			store.list({
+				grep: optionalString(input, "grep"),
+				domain: optionalString(input, "domain"),
+				tag: optionalString(input, "tag"),
+				category: optionalString(input, "category"),
+				fetchedAfter: optionalNumber(input, "fetchedAfter"),
+				fetchedBefore: optionalNumber(input, "fetchedBefore"),
+				publishedAfter: optionalString(input, "publishedAfter"),
+				publishedBefore: optionalString(input, "publishedBefore"),
+				sortBy: optionalString(input, "sortBy") as CachedPageListFilter["sortBy"],
+				sortOrder: optionalString(input, "sortOrder") as CachedPageListFilter["sortOrder"],
+				offset: optionalNumber(input, "offset"),
+				limit: optionalNumber(input, "limit"),
+			}),
+		"cache.search": (input) =>
+			store.search(requireString(input, "query"), {
+				topN: optionalNumber(input, "limit"),
+			}),
+		search: (input) =>
+			webSearch.search({
+				query: requireString(input, "query"),
+				numResults: optionalNumber(input, "numResults"),
+				timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
+				topic: optionalString(input, "topic") as WebSearchInput["topic"],
+				searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
+			}),
 		"search.usage": (input) => ({
 			entries: searchUsage.recent({
 				engine: optionalString(input, "engine"),
 				limit: optionalNumber(input, "limit") ?? SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 			}),
 		}),
-		"fetch": (input) => fetchService.fetch(fetchInput(input)),
-		"crawl": (input) => crawlService.crawl({
-			...fetchInput(input),
-			format: optionalString(input, "format") as CrawlOperationInput["format"],
-			depth: optionalNumber(input, "depth"),
-			maxPages: optionalNumber(input, "maxPages"),
-			sameDomain: optionalBoolean(input, "sameDomain"),
-		}),
+		fetch: (input) => fetchService.fetch(fetchInput(input)),
+		crawl: (input) =>
+			crawlService.crawl({
+				...fetchInput(input),
+				format: optionalString(input, "format") as CrawlOperationInput["format"],
+				depth: optionalNumber(input, "depth"),
+				maxPages: optionalNumber(input, "maxPages"),
+				sameDomain: optionalBoolean(input, "sameDomain"),
+			}),
 		"papyrus.ingest": (input) => papyrusIngest.ingest(papyrusIngestInput(input)),
-		"session.create": (input) => sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
+		"session.create": (input) =>
+			sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
 		"session.list": () => ({ sessions: sessionService.list() }),
 		"session.close": (input) => sessionService.close({ name: requireString(input, "name") }),
 		"session.act": (input) => sessionService.act(sessionActInput(input)),
@@ -289,7 +329,10 @@ export interface WebSpiderService {
 	close(): void;
 }
 
-export function createWebSpiderService(path: string, deps: { logger?: Logger; env?: Record<string, string | undefined> } = {}): WebSpiderService {
+export function createWebSpiderService(
+	path: string,
+	deps: { logger?: Logger; env?: Record<string, string | undefined> } = {},
+): WebSpiderService {
 	const db = openWebSpiderDb(path);
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
@@ -297,7 +340,8 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger; en
 	// Same derivation as imagesDir above — a sibling of the database, or an
 	// isolated temp directory for :memory: (test) databases with no sibling
 	// directory to spill downloaded files into.
-	const downloadsBaseDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
+	const downloadsBaseDir =
+		path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
 	const store = new SQLiteCacheStore(db, { imagesDir });
 	const logger = deps.logger ?? createLogger("web-spider-daemon");
 	// Provider API keys are read from this (daemon) process's own environment only —
@@ -306,16 +350,22 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger; en
 	// environment resolveSearchEnv() built at startup (see daemon.ts); defaults to the
 	// raw process environment for callers (tests) that construct this directly.
 	const searchUsage = new SQLiteSearchUsageJournal(db);
-	const webSearch = new WebSearchService(createEngineResolver(
-		deps.env ?? process.env,
-		(engineName, error, reason) => {
-			logger.warn("web_search_engine_degraded", { engine: engineName, reason, error: error instanceof Error ? error.message : String(error) });
-		},
-		(engineName, usage) => {
-			searchUsage.record({ engine: engineName, observedAt: Date.now(), ...usage });
-			logger.debug("web_search_engine_usage", { engine: engineName, ...usage });
-		},
-	));
+	const webSearch = new WebSearchService(
+		createEngineResolver(
+			deps.env ?? process.env,
+			(engineName, error, reason) => {
+				logger.warn("web_search_engine_degraded", {
+					engine: engineName,
+					reason,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			},
+			(engineName, usage) => {
+				searchUsage.record({ engine: engineName, observedAt: Date.now(), ...usage });
+				logger.debug("web_search_engine_usage", { engine: engineName, ...usage });
+			},
+		),
+	);
 
 	// Daemon-process-wide throttle/robots singletons — replaces the pi-extension's
 	// per-session instances with per-daemon ones, a more correct scope since the
@@ -327,7 +377,7 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger; en
 	let playwrightClient: PlaywrightHttpClient | undefined;
 	const getPlaywrightClient = (): IHttpClient => {
 		if (!playwrightClient) {
-			const executablePath = process.env["WEB_SPIDER_PLAYWRIGHT_EXECUTABLE"];
+			const executablePath = process.env.WEB_SPIDER_PLAYWRIGHT_EXECUTABLE;
 			playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined);
 		}
 		return playwrightClient;
@@ -356,8 +406,12 @@ export function createWebSpiderService(path: string, deps: { logger?: Logger; en
 			if (total > 0) return { imported: 0, skipped: true };
 			return importLegacyJsonCache(store, jsonPath);
 		},
-		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
-		optimize: () => { db.exec("PRAGMA optimize"); },
+		checkpoint: () => {
+			db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+		},
+		optimize: () => {
+			db.exec("PRAGMA optimize");
+		},
 		close: () => {
 			// Best-effort — daemon shutdown must not hang or crash on a stuck browser process.
 			// playwrightClient (the enhanced:true fetch/crawl browser) is launched lazily
@@ -393,7 +447,10 @@ async function readOperationBody(request: Request): Promise<{ op?: unknown; inpu
 	}
 	const bytes = new Uint8Array(size);
 	let offset = 0;
-	for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
 	return JSON.parse(new TextDecoder().decode(bytes)) as { op?: unknown; input?: unknown };
 }
 
@@ -423,10 +480,14 @@ export function createApp(deps: { service: WebSpiderService; token: string }): {
 					}
 					return jsonResponse({ result: await deps.service.execute(body.op, input as OperationInput) });
 				} catch (error) {
-					const status = error instanceof PayloadTooLargeError ? 413
-						: error instanceof UnknownOperationError || error instanceof SessionNotFoundError ? 404
-							: error instanceof StaleSnapshotError ? 409
-								: 400;
+					const status =
+						error instanceof PayloadTooLargeError
+							? 413
+							: error instanceof UnknownOperationError || error instanceof SessionNotFoundError
+								? 404
+								: error instanceof StaleSnapshotError
+									? 409
+									: 400;
 					return errorResponse(error instanceof Error ? error.message : String(error), status);
 				}
 			}

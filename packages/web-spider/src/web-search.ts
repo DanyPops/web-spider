@@ -10,7 +10,17 @@
 // WebSearchResult is defined in ports.ts (the abstraction layer).
 // web-search.ts is an adapter — it imports from the port, not the other way.
 export type { AnswerResult, IAnswerSearchEngine, SiteAvailabilityTracker, WebSearchResult } from "./ports.js";
-import type { AnswerResult, EngineUsage, IAnswerSearchEngine, ISearchEngine, SearchQuery, SiteAvailabilityTracker, WebSearchResult } from "./ports.js";
+
+import type {
+	AnswerResult,
+	EngineUsage,
+	IAnswerSearchEngine,
+	ISearchEngine,
+	SearchQuery,
+	SiteAvailabilityTracker,
+	WebSearchResult,
+} from "./ports.js";
+
 export type { EngineUsage } from "./ports.js";
 
 /**
@@ -129,7 +139,7 @@ export interface ExaSearchOptions {
  * Returns highlights inline per result — richer snippets without extra round-trips.
  */
 export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["EXA_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.EXA_API_KEY;
 	if (!apiKey) throw new Error("Exa API key required — set EXA_API_KEY or pass opts.apiKey");
 
 	const controller = new AbortController();
@@ -188,7 +198,7 @@ export async function exaSearch(query: string, opts: ExaSearchOptions = {}): Pro
  * https://api.search.brave.com/app/documentation/web-search
  */
 export async function braveSearch(query: string, opts: BraveSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["BRAVE_SEARCH_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.BRAVE_SEARCH_API_KEY;
 	if (!apiKey) throw new Error("Brave Search API key required — set BRAVE_SEARCH_API_KEY or pass opts.apiKey");
 
 	const params = new URLSearchParams({
@@ -270,7 +280,7 @@ export interface BraveLlmContextSearchOptions {
  * https://api-dashboard.search.brave.com/documentation/services/llm-context
  */
 export async function braveLlmContextSearch(query: string, opts: BraveLlmContextSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["BRAVE_SEARCH_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.BRAVE_SEARCH_API_KEY;
 	if (!apiKey) throw new Error("Brave Search API key required — set BRAVE_SEARCH_API_KEY or pass opts.apiKey");
 
 	const count = opts.numResults ? Math.min(opts.numResults, 50) : undefined;
@@ -332,7 +342,7 @@ export async function braveLlmContextSearch(query: string, opts: BraveLlmContext
  * https://docs.tavily.com/docs/rest-api/api-reference
  */
 export async function tavilySearch(query: string, opts: TavilySearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["TAVILY_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.TAVILY_API_KEY;
 	if (!apiKey) throw new Error("Tavily API key required — set TAVILY_API_KEY or pass opts.apiKey");
 
 	const controller = new AbortController();
@@ -402,7 +412,7 @@ export interface TavilyAnswerSearchOptions extends Omit<TavilySearchOptions, "in
  * and API key rather than requiring a new vendor.
  */
 export async function tavilySearchForAnswer(query: string, opts: TavilyAnswerSearchOptions = {}): Promise<AnswerResult> {
-	const apiKey = opts.apiKey ?? process.env["TAVILY_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.TAVILY_API_KEY;
 	if (!apiKey) throw new Error("Tavily API key required — set TAVILY_API_KEY or pass opts.apiKey");
 
 	const controller = new AbortController();
@@ -474,7 +484,7 @@ export interface SerperSearchOptions {
  * this session (their playground page is JS-rendered/cookie-walled).
  */
 export async function serperSearch(query: string, opts: SerperSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["SERPER_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.SERPER_API_KEY;
 	if (!apiKey) throw new Error("Serper API key required — set SERPER_API_KEY or pass opts.apiKey");
 
 	const controller = new AbortController();
@@ -525,7 +535,7 @@ export interface SerpApiSearchOptions {
  * checked explicitly, not just res.ok.
  */
 export async function serpApiSearch(query: string, opts: SerpApiSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["SERPAPI_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.SERPAPI_API_KEY;
 	if (!apiKey) throw new Error("SerpApi key required — set SERPAPI_API_KEY or pass opts.apiKey");
 
 	const params = new URLSearchParams({
@@ -578,7 +588,7 @@ export interface YouComSearchOptions {
  * {@link WebSearchResult.highlights}.
  */
 export async function youComSearch(query: string, opts: YouComSearchOptions = {}): Promise<WebSearchResult[]> {
-	const apiKey = opts.apiKey ?? process.env["YOU_API_KEY"];
+	const apiKey = opts.apiKey ?? process.env.YOU_API_KEY;
 	if (!apiKey) throw new Error("You.com API key required — set YOU_API_KEY or pass opts.apiKey");
 
 	const params = new URLSearchParams({
@@ -664,15 +674,11 @@ export async function webSearch(
 	};
 
 	if (opts.wantAnswer) {
-		const answerEngine = opts.engine
-			? resolveAnswerEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
-			: defaultAnswerEngine();
+		const answerEngine = opts.engine ? resolveAnswerEngine(opts.engine, process.env[envKeyForEngine(opts.engine)]) : defaultAnswerEngine();
 		return answerEngine.searchForAnswer(req);
 	}
 
-	const engine = opts.engine
-		? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)])
-		: defaultSearchEngine();
+	const engine = opts.engine ? resolveSearchEngine(opts.engine, process.env[envKeyForEngine(opts.engine)]) : defaultSearchEngine();
 	return engine.search({ ...req, wantFullContent: opts.wantFullContent });
 }
 
@@ -774,7 +780,12 @@ const BRAVE_FRESHNESS: Record<string, "pd" | "pw" | "pm" | "py"> = {
 
 /** Brave Search adapter implementing ISearchEngine. */
 export class BraveSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly country?: string, private readonly onUsage?: (usage: EngineUsage) => void, private readonly extraSnippets = true) {}
+	constructor(
+		private readonly apiKey: string,
+		private readonly country?: string,
+		private readonly onUsage?: (usage: EngineUsage) => void,
+		private readonly extraSnippets = true,
+	) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		const freshness = req.timeRange ? BRAVE_FRESHNESS[req.timeRange] : undefined;
@@ -801,7 +812,10 @@ export class BraveSearchEngine implements ISearchEngine {
  * setup.
  */
 export class BraveLlmContextSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
+	constructor(
+		private readonly apiKey: string,
+		private readonly onUsage?: (usage: EngineUsage) => void,
+	) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		return braveLlmContextSearch(req.query, {
@@ -817,7 +831,10 @@ export class BraveLlmContextSearchEngine implements ISearchEngine {
 
 /** Tavily adapter implementing ISearchEngine and IAnswerSearchEngine (reference implementation of the answer-first port, via Tavily's own include_answer). */
 export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
-	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
+	constructor(
+		private readonly apiKey: string,
+		private readonly onUsage?: (usage: EngineUsage) => void,
+	) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
 		return tavilySearch(req.query, {
@@ -845,10 +862,19 @@ export class TavilySearchEngine implements ISearchEngine, IAnswerSearchEngine {
 
 /** Exa adapter implementing ISearchEngine. */
 export class ExaSearchEngine implements ISearchEngine {
-	constructor(private readonly apiKey: string, private readonly onUsage?: (usage: EngineUsage) => void) {}
+	constructor(
+		private readonly apiKey: string,
+		private readonly onUsage?: (usage: EngineUsage) => void,
+	) {}
 
 	search(req: SearchQuery): Promise<WebSearchResult[]> {
-		return exaSearch(req.query, { apiKey: this.apiKey, numResults: req.numResults, siteFilter: req.siteFilter, onUsage: this.onUsage, includeText: req.wantFullContent });
+		return exaSearch(req.query, {
+			apiKey: this.apiKey,
+			numResults: req.numResults,
+			siteFilter: req.siteFilter,
+			onUsage: this.onUsage,
+			includeText: req.wantFullContent,
+		});
 	}
 }
 
@@ -1243,7 +1269,10 @@ export class SiteRoutedSearchEngine implements ISearchEngine {
 		if (!site) return this.plain.search(req);
 
 		const byName = new Map(this.engines.map((e) => [e.name, e] as const));
-		const order = this.tracker.order(site, this.engines.map((e) => e.name));
+		const order = this.tracker.order(
+			site,
+			this.engines.map((e) => e.name),
+		);
 
 		let lastError: unknown;
 		let anySucceeded = false;
@@ -1393,27 +1422,48 @@ const NO_ENGINE_CONFIGURED_ERROR =
 	"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.";
 
 /** Every engine configured from environment keys, by real name, in a fixed declaration order (brave/tavily/exa/serper/serpapi/you) -- the single source of which adapters exist, shared by every capability resolver ({@link defaultSearchEngine}, {@link defaultAnswerEngine}) so they never drift out of sync with each other. */
-function buildConfiguredEngines(env: Record<string, string | undefined>, onUsage?: (engineName: string, usage: EngineUsage) => void): { engines: ISearchEngine[]; names: string[] } {
+function buildConfiguredEngines(
+	env: Record<string, string | undefined>,
+	onUsage?: (engineName: string, usage: EngineUsage) => void,
+): { engines: ISearchEngine[]; names: string[] } {
 	const engines: ISearchEngine[] = [];
 	const names: string[] = [];
 
-	const brave = env["BRAVE_SEARCH_API_KEY"];
-	if (brave) { engines.push(new BraveSearchEngine(brave, undefined, onUsage ? (usage) => onUsage("brave", usage) : undefined)); names.push("brave"); }
+	const brave = env.BRAVE_SEARCH_API_KEY;
+	if (brave) {
+		engines.push(new BraveSearchEngine(brave, undefined, onUsage ? (usage) => onUsage("brave", usage) : undefined));
+		names.push("brave");
+	}
 
-	const tavily = env["TAVILY_API_KEY"];
-	if (tavily) { engines.push(new TavilySearchEngine(tavily, onUsage ? (usage) => onUsage("tavily", usage) : undefined)); names.push("tavily"); }
+	const tavily = env.TAVILY_API_KEY;
+	if (tavily) {
+		engines.push(new TavilySearchEngine(tavily, onUsage ? (usage) => onUsage("tavily", usage) : undefined));
+		names.push("tavily");
+	}
 
-	const exa = env["EXA_API_KEY"];
-	if (exa) { engines.push(new ExaSearchEngine(exa, onUsage ? (usage) => onUsage("exa", usage) : undefined)); names.push("exa"); }
+	const exa = env.EXA_API_KEY;
+	if (exa) {
+		engines.push(new ExaSearchEngine(exa, onUsage ? (usage) => onUsage("exa", usage) : undefined));
+		names.push("exa");
+	}
 
-	const serper = env["SERPER_API_KEY"];
-	if (serper) { engines.push(new SerperSearchEngine(serper)); names.push("serper"); }
+	const serper = env.SERPER_API_KEY;
+	if (serper) {
+		engines.push(new SerperSearchEngine(serper));
+		names.push("serper");
+	}
 
-	const serpapi = env["SERPAPI_API_KEY"];
-	if (serpapi) { engines.push(new SerpApiSearchEngine(serpapi)); names.push("serpapi"); }
+	const serpapi = env.SERPAPI_API_KEY;
+	if (serpapi) {
+		engines.push(new SerpApiSearchEngine(serpapi));
+		names.push("serpapi");
+	}
 
-	const you = env["YOU_API_KEY"];
-	if (you) { engines.push(new YouComSearchEngine(you)); names.push("you"); }
+	const you = env.YOU_API_KEY;
+	if (you) {
+		engines.push(new YouComSearchEngine(you));
+		names.push("you");
+	}
 
 	return { engines, names };
 }
@@ -1442,7 +1492,9 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 		plain = new RoundRobinSearchEngine(rotationEngines, {
 			cooldownMs: opts.cooldownMs,
 			quotaCooldownMs: opts.quotaCooldownMs,
-			onEngineFailure: opts.onEngineFailure ? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason) : undefined,
+			onEngineFailure: opts.onEngineFailure
+				? (index, error, reason) => opts.onEngineFailure?.(rotationNames[index] ?? `engine-${index}`, error, reason)
+				: undefined,
 		});
 	} else {
 		const soleName = rotationNames[0] as string;

@@ -31,7 +31,11 @@ export function importLegacyJsonCache(store: CacheStore, jsonPath: string): Lega
 	for (const page of pages) store.set(page.url, page);
 
 	if (pages.length > 0) {
-		try { renameSync(jsonPath, `${jsonPath}.migrated`); } catch { /* best-effort — leave the original file in place */ }
+		try {
+			renameSync(jsonPath, `${jsonPath}.migrated`);
+		} catch {
+			/* best-effort — leave the original file in place */
+		}
 	}
 
 	return { imported: pages.length, skipped: false };

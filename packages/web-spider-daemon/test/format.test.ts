@@ -15,15 +15,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { SpideredPage } from "@danypops/web-spider";
-import {
-	bodyLinks,
-	highlightHit,
-	leanOutput,
-	linksOutput,
-	markdownOutput,
-	navLinksCount,
-	omitEmpty,
-} from "../src/format.ts";
+import { bodyLinks, highlightHit, leanOutput, linksOutput, markdownOutput, navLinksCount, omitEmpty } from "../src/format.ts";
 
 function makeNavLinks(n: number): SpideredPage["links"] {
 	return Array.from({ length: n }, (_, i) => ({
@@ -60,8 +52,22 @@ const NOISY_PAGE: SpideredPage = {
 	],
 
 	chunks: [
-		{ id: "c0", index: 0, heading: "What is an Agent?", text: "An agent is a system that perceives its environment and takes actions.", wordCount: 13, contentType: "text" },
-		{ id: "c1", index: 1, heading: "Memory and State", text: "Memory allows agents to retain information across interactions.", wordCount: 10, contentType: "text" },
+		{
+			id: "c0",
+			index: 0,
+			heading: "What is an Agent?",
+			text: "An agent is a system that perceives its environment and takes actions.",
+			wordCount: 13,
+			contentType: "text",
+		},
+		{
+			id: "c1",
+			index: 1,
+			heading: "Memory and State",
+			text: "Memory allows agents to retain information across interactions.",
+			wordCount: 10,
+			contentType: "text",
+		},
 	],
 
 	links: [

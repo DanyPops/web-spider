@@ -36,7 +36,10 @@ describe("web-spider search-key set (real subprocess)", () => {
 	it("exits non-zero for an engine name web-spider doesn't know", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
 		try {
-			const { code, stderr } = await runCliProcess(["search-key", "set", "bogus-engine"], { ...tempXdgEnv(dir), WEB_SPIDER_SEARCH_KEY_VALUE: "x" });
+			const { code, stderr } = await runCliProcess(["search-key", "set", "bogus-engine"], {
+				...tempXdgEnv(dir),
+				WEB_SPIDER_SEARCH_KEY_VALUE: "x",
+			});
 			expect(code).not.toBe(0);
 			expect(stderr).toContain('unknown search engine: "bogus-engine"');
 		} finally {
@@ -47,7 +50,10 @@ describe("web-spider search-key set (real subprocess)", () => {
 	it("saves a real key via WEB_SPIDER_SEARCH_KEY_VALUE, non-interactively", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
 		try {
-			const { code, stdout } = await runCliProcess(["search-key", "set", "brave"], { ...tempXdgEnv(dir), WEB_SPIDER_SEARCH_KEY_VALUE: "real-brave-key" });
+			const { code, stdout } = await runCliProcess(["search-key", "set", "brave"], {
+				...tempXdgEnv(dir),
+				WEB_SPIDER_SEARCH_KEY_VALUE: "real-brave-key",
+			});
 			expect(code).toBe(0);
 			expect(stdout).toContain('Search key saved for "brave"');
 
@@ -63,7 +69,12 @@ describe("web-spider search-key set (real subprocess)", () => {
 	it("exits non-zero with a clear message when no value is provided and stdin has nothing piped in", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
 		try {
-			const proc = Bun.spawn(["bun", CLI_PATH, "search-key", "set", "brave"], { env: tempXdgEnv(dir), stdin: new Blob([""]), stdout: "pipe", stderr: "pipe" });
+			const proc = Bun.spawn(["bun", CLI_PATH, "search-key", "set", "brave"], {
+				env: tempXdgEnv(dir),
+				stdin: new Blob([""]),
+				stdout: "pipe",
+				stderr: "pipe",
+			});
 			const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 			expect(code).not.toBe(0);
 			expect(stderr).toContain("no API key value provided");

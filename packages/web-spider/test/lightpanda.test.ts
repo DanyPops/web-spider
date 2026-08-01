@@ -100,7 +100,6 @@ describe("LightpandaHttpClient interface conformance", () => {
 
 describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () => {
 	const CDP_PORT = 9333;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let realBrowser: any;
 	let client: LightpandaHttpClient;
 	let fixture: { url: string; close: () => Promise<void> } | undefined;

@@ -35,9 +35,9 @@ function sleep(ms: number): Promise<void> {
 function parseRetryAfter(header: string | null): number {
 	if (!header) return 0;
 	const seconds = parseInt(header, 10);
-	if (!isNaN(seconds)) return seconds * 1_000;
+	if (!Number.isNaN(seconds)) return seconds * 1_000;
 	const date = new Date(header).getTime();
-	if (!isNaN(date)) return Math.max(0, date - Date.now());
+	if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
 	return 0;
 }
 
@@ -69,10 +69,7 @@ export class DomainThrottle implements IThrottle {
 		const s = this.state(new URL(url).hostname);
 		const minDelay = s.minDelayMs ?? this.minDelayMs;
 		const now = Date.now();
-		const delay = Math.max(
-			Math.max(0, s.backoffUntil - now),
-			Math.max(0, s.lastAt + minDelay - now),
-		);
+		const delay = Math.max(Math.max(0, s.backoffUntil - now), Math.max(0, s.lastAt + minDelay - now));
 		if (delay > 0) await sleep(delay);
 		s.lastAt = Date.now();
 	}

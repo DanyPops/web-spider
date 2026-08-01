@@ -11,56 +11,60 @@
  * Every createExtensionHarness() call in this package's tests must pass
  * `env: isolatedDaemonEnv().env` and call `.cleanup()` in an after hook.
  */
-import { mkdtempSync, rmSync } from "node:fs"
-import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
-import { readDaemonHandle, resolveWebSpiderPaths, type WebSpiderPaths } from "../src/daemon-client.js"
+import { mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { readDaemonHandle, resolveWebSpiderPaths, type WebSpiderPaths } from "../src/daemon-client.js";
 
 export interface IsolatedDaemonEnv {
-  root: string
-  env: Record<string, string>
-  paths: WebSpiderPaths
-  /** Kills any daemon this test started and removes the temp root. Call in afterAll/afterEach. */
-  cleanup(): void
+	root: string;
+	env: Record<string, string>;
+	paths: WebSpiderPaths;
+	/** Kills any daemon this test started and removes the temp root. Call in afterAll/afterEach. */
+	cleanup(): void;
 }
 
 export function isolatedDaemonEnv(prefix = "pi-web-spider-test-"): IsolatedDaemonEnv {
-  const root = mkdtempSync(join(tmpdir(), prefix))
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    // HOME and WEB_SPIDER_CACHE_PATH matter too, not just the three XDG_* vars:
-    // the daemon's one-time legacy-cache importer (resolveLegacyCachePath())
-    // falls back to the real home directory when WEB_SPIDER_CACHE_PATH is unset
-    // — verified happening in practice, twice, importing (and renaming) the
-    // operator's real ~/.cache/web-spider/pages.json into an "isolated" daemon
-    // that only isolated the three XDG vars.
-    HOME: root,
-    XDG_DATA_HOME: join(root, "data"),
-    XDG_STATE_HOME: join(root, "state"),
-    XDG_RUNTIME_DIR: join(root, "run"),
-    WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
-    // Same class of bug as WEB_SPIDER_CACHE_PATH above, found via a real CI
-    // failure (never reproduced locally, only on a fresh runner): Playwright
-    // resolves its installed-browsers cache relative to $HOME by default when
-    // PLAYWRIGHT_BROWSERS_PATH isn't set. The spawned daemon subprocess (which
-    // launches real session browsers) inherits this isolated HOME, so without
-    // this override it looks for browsers under the fake temp root — where
-    // none were ever installed — instead of the real, already-installed
-    // location, even though the real browsers exist and CI's own install step
-    // ran successfully. Computed from the *real* homedir(), not the fake root.
-    PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache", "ms-playwright"),
-  }
-  const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 })
-  return {
-    root,
-    env,
-    paths,
-    cleanup() {
-      const handle = readDaemonHandle(paths)
-      if (handle) {
-        try { process.kill(handle.pid, "SIGTERM") } catch { /* already gone */ }
-      }
-      rmSync(root, { recursive: true, force: true })
-    },
-  }
+	const root = mkdtempSync(join(tmpdir(), prefix));
+	const env: Record<string, string> = {
+		...(process.env as Record<string, string>),
+		// HOME and WEB_SPIDER_CACHE_PATH matter too, not just the three XDG_* vars:
+		// the daemon's one-time legacy-cache importer (resolveLegacyCachePath())
+		// falls back to the real home directory when WEB_SPIDER_CACHE_PATH is unset
+		// — verified happening in practice, twice, importing (and renaming) the
+		// operator's real ~/.cache/web-spider/pages.json into an "isolated" daemon
+		// that only isolated the three XDG vars.
+		HOME: root,
+		XDG_DATA_HOME: join(root, "data"),
+		XDG_STATE_HOME: join(root, "state"),
+		XDG_RUNTIME_DIR: join(root, "run"),
+		WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
+		// Same class of bug as WEB_SPIDER_CACHE_PATH above, found via a real CI
+		// failure (never reproduced locally, only on a fresh runner): Playwright
+		// resolves its installed-browsers cache relative to $HOME by default when
+		// PLAYWRIGHT_BROWSERS_PATH isn't set. The spawned daemon subprocess (which
+		// launches real session browsers) inherits this isolated HOME, so without
+		// this override it looks for browsers under the fake temp root — where
+		// none were ever installed — instead of the real, already-installed
+		// location, even though the real browsers exist and CI's own install step
+		// ran successfully. Computed from the *real* homedir(), not the fake root.
+		PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache", "ms-playwright"),
+	};
+	const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 });
+	return {
+		root,
+		env,
+		paths,
+		cleanup() {
+			const handle = readDaemonHandle(paths);
+			if (handle) {
+				try {
+					process.kill(handle.pid, "SIGTERM");
+				} catch {
+					/* already gone */
+				}
+			}
+			rmSync(root, { recursive: true, force: true });
+		},
+	};
 }

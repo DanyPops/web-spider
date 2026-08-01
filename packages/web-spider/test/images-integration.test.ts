@@ -8,10 +8,9 @@
  * No real network, no real browser.
  */
 
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DiskCache } from "../src/disk-cache.js";
 import { PlaywrightHttpClient } from "../src/playwright.js";
@@ -22,10 +21,7 @@ import { spider } from "../src/spider.js";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const FIXTURE_HTML = readFileSync(
-	join(import.meta.dirname, "../fixtures/article-with-images.html"),
-	"utf8",
-);
+const FIXTURE_HTML = readFileSync(join(import.meta.dirname, "../fixtures/article-with-images.html"), "utf8");
 const SMALL_JPG = readFileSync(join(import.meta.dirname, "../fixtures/images/small.jpg"));
 const TINY_PNG = readFileSync(join(import.meta.dirname, "../fixtures/images/tiny.png"));
 const LARGE_JPG = readFileSync(join(import.meta.dirname, "../fixtures/images/large.jpg"));
@@ -57,7 +53,7 @@ function makeCachePath() {
 function makeStubClient(opts: { useLargeImages?: boolean } = {}): IHttpClient {
 	return {
 		async fetch(req) {
-			const isImageReq = (req.headers?.["Accept"] ?? "").startsWith("image/");
+			const isImageReq = (req.headers?.Accept ?? "").startsWith("image/");
 
 			if (!isImageReq) {
 				// Page fetch
@@ -291,7 +287,7 @@ describe("PlaywrightHttpClient captureImages integration", () => {
 		// a Playwright client — returns HTML for page fetches, images for image fetches.
 		const playwrightShapedStub: IHttpClient = {
 			async fetch(req) {
-				const isImageReq = (req.headers?.["Accept"] ?? "").startsWith("image/");
+				const isImageReq = (req.headers?.Accept ?? "").startsWith("image/");
 				if (!isImageReq) {
 					return {
 						ok: true,
@@ -302,10 +298,7 @@ describe("PlaywrightHttpClient captureImages integration", () => {
 						arrayBuffer: async () => new ArrayBuffer(0),
 					};
 				}
-				const buf = SMALL_JPG.buffer.slice(
-					SMALL_JPG.byteOffset,
-					SMALL_JPG.byteOffset + SMALL_JPG.byteLength,
-				) as ArrayBuffer;
+				const buf = SMALL_JPG.buffer.slice(SMALL_JPG.byteOffset, SMALL_JPG.byteOffset + SMALL_JPG.byteLength) as ArrayBuffer;
 				return {
 					ok: true,
 					status: 200,

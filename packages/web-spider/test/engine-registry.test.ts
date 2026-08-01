@@ -8,13 +8,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
 import {
+	BraveSearchEngine,
+	defaultSearchEngine,
+	ExaSearchEngine,
 	registerSearchEngine,
 	resolveSearchEngine,
-	defaultSearchEngine,
-	BraveSearchEngine,
-	TavilySearchEngine,
-	ExaSearchEngine,
 	SerperSearchEngine,
+	TavilySearchEngine,
 } from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ describe("defaultSearchEngine", () => {
 	});
 
 	it("returns an ISearchEngine when at least one provider key is configured", () => {
-		process.env["TAVILY_API_KEY"] = "fake-key";
+		process.env.TAVILY_API_KEY = "fake-key";
 		const engine = defaultSearchEngine();
 		expect(typeof engine.search).toBe("function");
 	});

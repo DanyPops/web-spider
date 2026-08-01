@@ -1,7 +1,11 @@
 import type { ICache, SpideredPage } from "@danypops/web-spider";
 import type {
-	CachedPageListFilter, CachedPageListResult, CachedPageSearchResult,
-	CategoryAssignmentResult, CategoryListResult, CategoryRenameResult,
+	CachedPageListFilter,
+	CachedPageListResult,
+	CachedPageSearchResult,
+	CategoryAssignmentResult,
+	CategoryListResult,
+	CategoryRenameResult,
 } from "../domain/page.ts";
 
 /**

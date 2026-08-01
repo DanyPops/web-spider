@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runCli, type CliDependencies } from "../src/cli.ts";
+import { type CliDependencies, runCli } from "../src/cli.ts";
 import { createApp, createWebSpiderService, EXPECTED_OPERATION_NAMES, type OperationName } from "../src/service.ts";
 
 // ---------------------------------------------------------------------------
@@ -22,10 +22,10 @@ import { createApp, createWebSpiderService, EXPECTED_OPERATION_NAMES, type Opera
 const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"cache.list": ["cache", "list"],
 	"cache.search": ["cache", "search", "drift-proof-query"],
-	"search": ["search", "drift-proof-query"],
+	search: ["search", "drift-proof-query"],
 	"search.usage": ["usage"],
-	"fetch": ["fetch", "https://drift-proof.test/article"],
-	"crawl": ["fetch", "https://drift-proof.test/article", "--depth", "1"],
+	fetch: ["fetch", "https://drift-proof.test/article"],
+	crawl: ["fetch", "https://drift-proof.test/article", "--depth", "1"],
 	"papyrus.ingest": ["papyrus", "ingest", "https://drift-proof.test/article"],
 	"session.create": ["session", "create", "drift-proof-session"],
 	"session.list": ["session", "list"],
@@ -45,9 +45,32 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 				ops.push(op);
 				// Minimal shape satisfying every formatter without throwing.
 				return {
-					pagesFound: 0, pages: [], total: 0, filtered: 0, offset: 0, limit: 20, query: "q", results: [], pagesSearched: 0, hits: [], ingested: [], skipped: [], entries: [],
-					name: "drift-proof-session", createdAt: 0, lastActivityAt: 0, snapshotVersion: 0, closed: true, sessions: [], action: "screenshot",
-					url: "https://drift-proof.test/article", category: "drift-proof-category", categoryId: 1, removed: true, merged: false, categories: [],
+					pagesFound: 0,
+					pages: [],
+					total: 0,
+					filtered: 0,
+					offset: 0,
+					limit: 20,
+					query: "q",
+					results: [],
+					pagesSearched: 0,
+					hits: [],
+					ingested: [],
+					skipped: [],
+					entries: [],
+					name: "drift-proof-session",
+					createdAt: 0,
+					lastActivityAt: 0,
+					snapshotVersion: 0,
+					closed: true,
+					sessions: [],
+					action: "screenshot",
+					url: "https://drift-proof.test/article",
+					category: "drift-proof-category",
+					categoryId: 1,
+					removed: true,
+					merged: false,
+					categories: [],
 				} as never;
 			},
 		},
@@ -92,17 +115,54 @@ describe("operation registry → CLI coverage", () => {
  * without updating the doc is a silent contract drift.
  */
 const DOCUMENTED_TOOL_PARAMETERS = new Set([
-	"url", "searchQuery", "format", "depth", "maxPages", "sameDomain",
-	"rootSelector", "excludeSelectors", "tokenBudget", "query", "path", "topN",
-	"searchEngine", "numResults", "timeRange", "topic", "searchEnrich",
-	"enhanced", "timeoutMs", "grep", "offset", "limit", "ignoreRobots",
+	"url",
+	"searchQuery",
+	"format",
+	"depth",
+	"maxPages",
+	"sameDomain",
+	"rootSelector",
+	"excludeSelectors",
+	"tokenBudget",
+	"query",
+	"path",
+	"topN",
+	"searchEngine",
+	"numResults",
+	"timeRange",
+	"topic",
+	"searchEnrich",
+	"enhanced",
+	"timeoutMs",
+	"grep",
+	"offset",
+	"limit",
+	"ignoreRobots",
 ]);
 
 /** Field names the daemon's fetch/crawl/search operations actually accept (service.ts's fetchInput()/handlers()). */
 const DAEMON_OPERATION_FIELDS = [
-	"url", "format", "rootSelector", "excludeSelectors", "tokenBudget", "enhanced",
-	"timeoutMs", "query", "path", "topN", "depth", "maxPages", "sameDomain",
-	"numResults", "timeRange", "topic", "searchEngine", "grep", "offset", "limit", "ignoreRobots",
+	"url",
+	"format",
+	"rootSelector",
+	"excludeSelectors",
+	"tokenBudget",
+	"enhanced",
+	"timeoutMs",
+	"query",
+	"path",
+	"topN",
+	"depth",
+	"maxPages",
+	"sameDomain",
+	"numResults",
+	"timeRange",
+	"topic",
+	"searchEngine",
+	"grep",
+	"offset",
+	"limit",
+	"ignoreRobots",
 ];
 
 describe("daemon operation fields → documented tool parameter surface", () => {
@@ -122,7 +182,11 @@ describe("--json output is the exact operation result, not a reformatted copy", 
 			const canned = { marker: `canned-${operation}`, nested: { a: 1 } };
 			const lines: string[] = [];
 			const deps: CliDependencies = {
-				client: { async call() { return canned as never; } },
+				client: {
+					async call() {
+						return canned as never;
+					},
+				},
 				stdout: (line) => lines.push(line),
 				stderr: () => {},
 				systemctl: () => {},
@@ -150,11 +214,13 @@ describe("trust boundary — authentication", () => {
 		const app = createApp({ service, token: TOKEN });
 		try {
 			for (const op of EXPECTED_OPERATION_NAMES) {
-				const response = await app.fetch(new Request("http://x/api/v1/ops", {
-					method: "POST",
-					headers: { "content-type": "application/json" }, // no Authorization header
-					body: JSON.stringify({ op, input: { url: "https://x.test", query: "q" } }),
-				}));
+				const response = await app.fetch(
+					new Request("http://x/api/v1/ops", {
+						method: "POST",
+						headers: { "content-type": "application/json" }, // no Authorization header
+						body: JSON.stringify({ op, input: { url: "https://x.test", query: "q" } }),
+					}),
+				);
 				expect(response.status).toBe(401);
 			}
 		} finally {
@@ -167,11 +233,13 @@ describe("trust boundary — authentication", () => {
 		const app = createApp({ service, token: TOKEN });
 		try {
 			const oversized = "x".repeat(2_000_000); // exceeds SERVICE_MAX_BODY_BYTES (1 MiB)
-			const response = await app.fetch(new Request("http://x/api/v1/ops", {
-				method: "POST",
-				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-				body: JSON.stringify({ op: "cache.list", input: { grep: oversized } }),
-			}));
+			const response = await app.fetch(
+				new Request("http://x/api/v1/ops", {
+					method: "POST",
+					headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+					body: JSON.stringify({ op: "cache.list", input: { grep: oversized } }),
+				}),
+			);
 			expect(response.status).toBe(413);
 		} finally {
 			service.close();

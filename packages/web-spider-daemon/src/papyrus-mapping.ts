@@ -42,7 +42,12 @@ export function pageToPapyrusDoc(page: SpideredPage, categories: string[] = []):
 		title: page.title || page.url,
 		subtype: "web-spider:web",
 		body: sections.join("\n\n"),
-		labels: ["source:web-spider", `domain:${page.domain}`, ...page.tags.map((tag) => `tag:${tag}`), ...categories.map((category) => `relevance:${category}`)],
+		labels: [
+			"source:web-spider",
+			`domain:${page.domain}`,
+			...page.tags.map((tag) => `tag:${tag}`),
+			...categories.map((category) => `relevance:${category}`),
+		],
 		extra: omitEmptyExtra({
 			url: page.url,
 			canonicalUrl: page.canonicalUrl,

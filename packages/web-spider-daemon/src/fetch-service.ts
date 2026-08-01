@@ -8,16 +8,18 @@
  * HTTP client, and Playwright are adapters composed once by the daemon
  * (see service.ts), matching the design doc's ports/adapters table.
  */
+
+import type { Logger } from "@danypops/vehicle-server/logging";
 import {
-	navigateTree,
-	queryTree,
-	spider,
-	searchPages,
 	type DOMNode,
 	type IHttpClient,
 	type IRobotsChecker,
 	type IThrottle,
+	navigateTree,
+	queryTree,
 	type SpideredPage,
+	searchPages,
+	spider,
 } from "@danypops/web-spider";
 import {
 	FETCH_DEFAULT_TIMEOUT_MS,
@@ -27,7 +29,6 @@ import {
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "./constants.ts";
-import type { Logger } from "@danypops/vehicle-server/logging";
 import { highlightHit, leanOutput, linksOutput, markdownOutput } from "./format.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 
@@ -173,7 +174,10 @@ export class FetchService {
 		// historical tool computed for its details channel, never part of the content.
 		if (format === "links") return { ...linksOutput(page), cache: fetched.cache };
 		if (format === "highlights") {
-			const hits = searchPages([page], input.query ?? "", { topN: FETCH_HIGHLIGHTS_DEFAULT_TOP_N, snippetRadius: FETCH_HIGHLIGHTS_SNIPPET_RADIUS });
+			const hits = searchPages([page], input.query ?? "", {
+				topN: FETCH_HIGHLIGHTS_DEFAULT_TOP_N,
+				snippetRadius: FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
+			});
 			return {
 				url: page.url,
 				title: page.title,

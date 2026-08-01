@@ -111,9 +111,7 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 					const url = urls[index++];
 					inFlight++;
 
-					const fetch_ = cache.has(url)
-						? Promise.resolve(cache.get(url)!)
-						: spider(url, { ...spiderOpts, throttle, robotsCache });
+					const fetch_ = cache.has(url) ? Promise.resolve(cache.get(url)!) : spider(url, { ...spiderOpts, throttle, robotsCache });
 
 					fetch_
 						.then((page) => {

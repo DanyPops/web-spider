@@ -12,7 +12,10 @@
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "check": "npm run check --workspaces",
-    "postinstall": "node scripts/postinstall.mjs"
+    "postinstall": "node scripts/postinstall.mjs",
+    "format": "biome format --write .",
+    "lint": "biome check --write . && eslint packages --max-warnings 0",
+    "lint:ci": "biome ci . && eslint packages --max-warnings 0"
   },
   "pi": {
     "extensions": [
@@ -22,5 +25,16 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
-  }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
+    "eslint": "^10.8.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "jiti": "^2.7.0",
+    "typescript-eslint": "^8.65.0"
+  },
+  "trustedDependencies": [
+    "unrs-resolver"
+  ]
 }

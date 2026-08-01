@@ -35,8 +35,6 @@ export function toLean(page: SpideredPage, graph?: PageGraph): LeanPage {
 			.filter((l) => l.rel === "body")
 			.slice(0, 10)
 			.map((l) => ({ href: l.href, text: l.text })),
-		...(graph !== undefined
-			? { inboundCount: graph.inbound(page.url).length }
-			: {}),
+		...(graph !== undefined ? { inboundCount: graph.inbound(page.url).length } : {}),
 	};
 }

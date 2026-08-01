@@ -26,7 +26,12 @@ describe("probeLlmsTxt", () => {
 	it("finds a real llms.txt at the target URL's origin", async () => {
 		const httpClient = stubClient((url) => {
 			if (url === "https://docs.example.com/llms.txt") {
-				return { ok: true, status: 200, contentType: "text/plain; charset=utf-8", body: "# Example Docs\n\n- [Guide](https://docs.example.com/guide)" };
+				return {
+					ok: true,
+					status: 200,
+					contentType: "text/plain; charset=utf-8",
+					body: "# Example Docs\n\n- [Guide](https://docs.example.com/guide)",
+				};
 			}
 			return { ok: false, status: 404, contentType: null, body: "" };
 		});
@@ -53,7 +58,12 @@ describe("probeLlmsTxt", () => {
 	});
 
 	it("returns null for a 200 text/html response -- SPA soft-404, not a real llms.txt", async () => {
-		const httpClient = stubClient(() => ({ ok: true, status: 200, contentType: "text/html; charset=utf-8", body: "<html><body>App shell</body></html>" }));
+		const httpClient = stubClient(() => ({
+			ok: true,
+			status: 200,
+			contentType: "text/html; charset=utf-8",
+			body: "<html><body>App shell</body></html>",
+		}));
 		expect(await probeLlmsTxt("https://example.com", httpClient)).toBeNull();
 	});
 
@@ -68,14 +78,19 @@ describe("probeLlmsTxt", () => {
 	});
 
 	it("returns null when the request throws (network error, timeout)", async () => {
-		const httpClient: IHttpClient = { async fetch() { throw new Error("network down"); } };
+		const httpClient: IHttpClient = {
+			async fetch() {
+				throw new Error("network down");
+			},
+		};
 		expect(await probeLlmsTxt("https://example.com", httpClient)).toBeNull();
 	});
 
 	it("falls back to llms-full.txt only when includeFullVariant is set and llms.txt is missing", async () => {
 		const httpClient = stubClient((url) => {
 			if (url === "https://example.com/llms.txt") return { ok: false, status: 404, contentType: null, body: "" };
-			if (url === "https://example.com/llms-full.txt") return { ok: true, status: 200, contentType: "text/markdown", body: "full content here" };
+			if (url === "https://example.com/llms-full.txt")
+				return { ok: true, status: 200, contentType: "text/markdown", body: "full content here" };
 			return { ok: false, status: 404, contentType: null, body: "" };
 		});
 		const withoutFull = await probeLlmsTxt("https://example.com", httpClient);

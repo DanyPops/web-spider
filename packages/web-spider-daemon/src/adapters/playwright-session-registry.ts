@@ -22,7 +22,14 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { SESSION_MAX_CONSOLE_MESSAGES_TRACKED, SESSION_MAX_DOWNLOADS_TRACKED, SESSION_MAX_NETWORK_REQUESTS_TRACKED, SESSION_MAX_TABS, SESSION_NAME_MAX_LENGTH, SESSION_REGISTRY_MAX_CONCURRENT } from "../constants.ts";
+import {
+	SESSION_MAX_CONSOLE_MESSAGES_TRACKED,
+	SESSION_MAX_DOWNLOADS_TRACKED,
+	SESSION_MAX_NETWORK_REQUESTS_TRACKED,
+	SESSION_MAX_TABS,
+	SESSION_NAME_MAX_LENGTH,
+	SESSION_REGISTRY_MAX_CONCURRENT,
+} from "../constants.ts";
 import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "../ports/session-registry.ts";
 
@@ -98,7 +105,8 @@ function wrapPlaywrightBrowser(
 		},
 		newTab: async (url) => {
 			await ensureFirstTab();
-			if (tabs.length >= SESSION_MAX_TABS) throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
+			if (tabs.length >= SESSION_MAX_TABS)
+				throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
 			const playwrightPage = await browser.newPage();
 			if (url !== undefined) await playwrightPage.goto(url);
 			tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger), version: 0 });
@@ -281,12 +289,19 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 	const networkRequests: Array<{ url: string; method: string; status: number; resourceType: string }> = [];
 	page.on("response", (response) => {
 		const request = response.request();
-		networkRequests.push({ url: response.url(), method: request.method(), status: response.status(), resourceType: request.resourceType() });
+		networkRequests.push({
+			url: response.url(),
+			method: request.method(),
+			status: response.status(),
+			resourceType: request.resourceType(),
+		});
 		if (networkRequests.length > SESSION_MAX_NETWORK_REQUESTS_TRACKED) networkRequests.shift();
 	});
 
 	return {
-		goto: async (url, opts) => { await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined); },
+		goto: async (url, opts) => {
+			await page.goto(url, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined);
+		},
 		click: (selector, opts) => page.click(selector, opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
 		hover: (selector, opts) => page.locator(selector).hover(opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined),
 		pressKey: (key, opts) => {
@@ -329,29 +344,37 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 			const locator = target.selector !== undefined ? page.locator(target.selector) : page.getByText(target.text as string);
 			await locator.waitFor({ ...(opts?.state !== undefined ? { state: opts.state } : {}), ...timeoutOpt });
 		},
-		queryText: async (selector, opts) => {
+		queryText: async (selector, _opts) => {
 			const texts = await page.locator(selector).allTextContents();
 			return texts.map((t) => t.trim());
 		},
 		readTable: async (selector, opts) => {
 			const timeoutOpt = opts?.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : undefined;
-			return page.locator(selector).evaluate((el) => {
-				// :scope-rooted so a nested table's own rows are never captured as
-				// if they belonged to the matched (outer) table.
-				const rows = el.querySelectorAll(":scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr");
-				return Array.from(rows).map((row) => Array.from(row.querySelectorAll(":scope > td, :scope > th")).map((cell) => (cell.textContent ?? "").trim()));
-			}, undefined, timeoutOpt);
+			return page.locator(selector).evaluate(
+				(el) => {
+					// :scope-rooted so a nested table's own rows are never captured as
+					// if they belonged to the matched (outer) table.
+					const rows = el.querySelectorAll(":scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr");
+					return Array.from(rows).map((row) =>
+						Array.from(row.querySelectorAll(":scope > td, :scope > th")).map((cell) => (cell.textContent ?? "").trim()),
+					);
+				},
+				undefined,
+				timeoutOpt,
+			);
 		},
 		snapshot: (opts) => {
 			const ariaOpts = { depth: opts?.depth, boxes: opts?.boxes, mode: opts?.mode, timeout: opts?.timeoutMs };
 			if (opts?.selector !== undefined) return page.locator(opts.selector).ariaSnapshot(ariaOpts);
 			return page.ariaSnapshot(ariaOpts);
 		},
-		armDialogPolicy: async (policy) => { armedPolicy = policy; },
+		armDialogPolicy: async (policy) => {
+			armedPolicy = policy;
+		},
 		listDownloads: async () => [...downloads],
 		listConsoleMessages: async () => [...consoleMessages],
 		listNetworkRequests: async () => [...networkRequests],
-		evaluate: <T,>(script: string) => page.evaluate(script) as Promise<T>,
+		evaluate: <T>(script: string) => page.evaluate(script) as Promise<T>,
 		screenshot: (opts) => {
 			if (opts?.selector !== undefined) return page.locator(opts.selector).screenshot({ scale: opts.scale });
 			return page.screenshot({ fullPage: opts?.fullPage, scale: opts?.scale });
@@ -363,7 +386,9 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 export function defaultBrowserLauncher(logger?: Logger): BrowserLauncher {
 	return async ({ forceChromeChannel, downloadsDir }) => {
 		const { chromium } = await import("playwright-core");
-		const launchOpts = forceChromeChannel ? { channel: "chrome" as const, headless: true } : { channel: "chromium" as const, headless: true };
+		const launchOpts = forceChromeChannel
+			? { channel: "chrome" as const, headless: true }
+			: { channel: "chromium" as const, headless: true };
 		const browser = await chromium.launch(launchOpts);
 		mkdirSync(downloadsDir, { recursive: true });
 		return wrapPlaywrightBrowser(browser, downloadsDir, logger);
@@ -414,7 +439,10 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 
 		this.pending.add(name);
 		try {
-			const browser = await this.launcher({ forceChromeChannel: opts.forceChromeChannel ?? false, downloadsDir: join(this.downloadsBaseDir, name) });
+			const browser = await this.launcher({
+				forceChromeChannel: opts.forceChromeChannel ?? false,
+				downloadsDir: join(this.downloadsBaseDir, name),
+			});
 			const info = createSessionInfo(name, this.now());
 			this.sessions.set(name, { info, browser });
 			return info;

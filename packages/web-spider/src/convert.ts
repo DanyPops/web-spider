@@ -13,7 +13,9 @@ import type { Chunk, ChunkType } from "./types.js";
 // ---------------------------------------------------------------------------
 
 // TurndownService exposes .escape as a mutable internal — not in @types/turndown.
-interface PatchableTurndown { escape: (s: string) => string }
+interface PatchableTurndown {
+	escape: (s: string) => string;
+}
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 

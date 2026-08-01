@@ -6,7 +6,12 @@ import { createSearchKeyStore, resolveSearchKeysDir } from "../src/search-secret
 
 describe("resolveSearchKeysDir", () => {
 	it("is a sibling directory of the auth token file, under this daemon's own state directory", () => {
-		const dir = resolveSearchKeysDir({ database: "/x/db", token: "/home/u/.local/state/web-spider/token", handle: "/x/h", systemdUnit: "/x/s" });
+		const dir = resolveSearchKeysDir({
+			database: "/x/db",
+			token: "/home/u/.local/state/web-spider/token",
+			handle: "/x/h",
+			systemdUnit: "/x/s",
+		});
 		expect(dir).toBe("/home/u/.local/state/web-spider/search-keys");
 	});
 });

@@ -61,7 +61,6 @@ export interface PlaywrightClientOptions {
 let stealthApplied = false;
 
 export class PlaywrightHttpClient implements IHttpClient {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private browser: any | null = null;
 	private readonly channel: string;
 	private readonly executablePath: string;
@@ -106,7 +105,6 @@ export class PlaywrightHttpClient implements IHttpClient {
 
 	async fetch(req: HttpRequest): Promise<HttpResponse> {
 		const browser = await this.getBrowser();
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const page: any = await browser.newPage();
 
 		// Suppress browser-side console output and JS errors — they are not
@@ -120,10 +118,9 @@ export class PlaywrightHttpClient implements IHttpClient {
 			// this is a direct image fetch (Accept: image/*), in which case
 			// captureImages:true lets it through so fetchImages() can retrieve
 			// the binary via arrayBuffer().
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			await page.route("**/*", (route: any) => {
 				const type: string = route.request().resourceType();
-				const accept: string = route.request().headers()["accept"] ?? "";
+				const accept: string = route.request().headers().accept ?? "";
 				const isImageFetch = accept.startsWith("image/");
 
 				if (type === "font") {
@@ -184,9 +181,7 @@ export class PlaywrightHttpClient implements IHttpClient {
  * Create a PlaywrightHttpClient, returning null if playwright-core is not
  * installed. Useful for graceful degradation in environments without a browser.
  */
-export function createPlaywrightClient(
-	opts?: PlaywrightClientOptions,
-): PlaywrightHttpClient | null {
+export function createPlaywrightClient(opts?: PlaywrightClientOptions): PlaywrightHttpClient | null {
 	try {
 		return new PlaywrightHttpClient(opts);
 	} catch {

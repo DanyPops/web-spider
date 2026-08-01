@@ -10,7 +10,15 @@ function stubClient(routes: Record<string, { status: number; contentType: string
 	return {
 		async fetch(req) {
 			const route = routes[req.url];
-			if (!route) return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+			if (!route)
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			return {
 				ok: route.status >= 200 && route.status < 300,
 				status: route.status,
@@ -72,7 +80,8 @@ describe("spider() — preferLlmsTxt", () => {
 					status: 200,
 					statusText: "OK",
 					headers: { get: (name) => (name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null) },
-					text: async () => "<html><head><title>Hi</title></head><body><article><p>Some real content here, long enough to be treated as a genuine article body by Readability's heuristics.</p></article></body></html>",
+					text: async () =>
+						"<html><head><title>Hi</title></head><body><article><p>Some real content here, long enough to be treated as a genuine article body by Readability's heuristics.</p></article></body></html>",
 					arrayBuffer: async () => new ArrayBuffer(0),
 				};
 			},

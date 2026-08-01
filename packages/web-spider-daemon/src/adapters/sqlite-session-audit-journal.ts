@@ -55,10 +55,14 @@ export class SQLiteSessionAuditJournal implements SessionAuditJournal {
 		const limit = Math.max(1, Math.min(opts.limit ?? 100, this.maxRows));
 		const rows = opts.sessionName
 			? (this.db
-					.query("SELECT ts, session_name, action, snapshot_version, target, outcome, error FROM session_audit_log WHERE session_name = ? ORDER BY id DESC LIMIT ?")
+					.query(
+						"SELECT ts, session_name, action, snapshot_version, target, outcome, error FROM session_audit_log WHERE session_name = ? ORDER BY id DESC LIMIT ?",
+					)
 					.all(opts.sessionName, limit) as AuditRow[])
 			: (this.db
-					.query("SELECT ts, session_name, action, snapshot_version, target, outcome, error FROM session_audit_log ORDER BY id DESC LIMIT ?")
+					.query(
+						"SELECT ts, session_name, action, snapshot_version, target, outcome, error FROM session_audit_log ORDER BY id DESC LIMIT ?",
+					)
 					.all(limit) as AuditRow[]);
 		return rows.map(rowToEntry);
 	}
@@ -71,11 +75,7 @@ export class SQLiteSessionAuditJournal implements SessionAuditJournal {
 		const { count } = this.db.query("SELECT COUNT(*) as count FROM session_audit_log").get() as { count: number };
 		const excess = count - this.maxRows;
 		if (excess <= 0) return 0;
-		this.db
-			.query(
-				"DELETE FROM session_audit_log WHERE id IN (SELECT id FROM session_audit_log ORDER BY id ASC LIMIT ?)",
-			)
-			.run(excess);
+		this.db.query("DELETE FROM session_audit_log WHERE id IN (SELECT id FROM session_audit_log ORDER BY id ASC LIMIT ?)").run(excess);
 		return excess;
 	}
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
 import {
+	type ContrastMeasurement,
 	checkContrast,
 	checkContrastMeasurements,
 	compositeOver,
@@ -8,10 +9,8 @@ import {
 	isLargeText,
 	measureContrastElements,
 	parseCssColor,
-	relativeLuminance,
 	requiredRatio,
 	SelectorNotFoundError,
-	type ContrastMeasurement,
 } from "../src/contrast-check.ts";
 
 const BLACK = { r: 0, g: 0, b: 0, a: 1 };
@@ -123,25 +122,34 @@ describe("checkContrastMeasurements — pure, no browser", () => {
 	});
 
 	test("flags a violation reproducing the real bug: dark-red text on a near-black background", () => {
-		const result = checkContrastMeasurements([measurement({
-			selector: ".observability-label",
-			textSnippet: "sense-bus",
-			foregroundCss: "rgb(139, 0, 0)",
-			backgroundChainCss: ["rgb(26, 26, 26)"],
-			fontSizePx: 14,
-			fontWeight: 400,
-		})]);
+		const result = checkContrastMeasurements([
+			measurement({
+				selector: ".observability-label",
+				textSnippet: "sense-bus",
+				foregroundCss: "rgb(139, 0, 0)",
+				backgroundChainCss: ["rgb(26, 26, 26)"],
+				fontSizePx: 14,
+				fontWeight: 400,
+			}),
+		]);
 		expect(result.passed).toBe(false);
 		expect(result.violations).toHaveLength(1);
-		expect(result.violations[0]).toMatchObject({ selector: ".observability-label", textSnippet: "sense-bus", required: 4.5, isLargeText: false });
+		expect(result.violations[0]).toMatchObject({
+			selector: ".observability-label",
+			textSnippet: "sense-bus",
+			required: 4.5,
+			isLargeText: false,
+		});
 		expect(result.violations[0]!.ratio).toBeLessThan(2);
 	});
 
 	test("resolves a transparent element background by walking up the ancestor chain", () => {
-		const result = checkContrastMeasurements([measurement({
-			foregroundCss: "rgb(139, 0, 0)",
-			backgroundChainCss: ["transparent", "transparent", "rgb(26, 26, 26)"], // element and its parent are transparent; grandparent (e.g. <body>) is the real near-black canvas
-		})]);
+		const result = checkContrastMeasurements([
+			measurement({
+				foregroundCss: "rgb(139, 0, 0)",
+				backgroundChainCss: ["transparent", "transparent", "rgb(26, 26, 26)"], // element and its parent are transparent; grandparent (e.g. <body>) is the real near-black canvas
+			}),
+		]);
 		expect(result.passed).toBe(false);
 		expect(result.violations[0]!.ratio).toBeCloseTo(1.74, 1);
 	});

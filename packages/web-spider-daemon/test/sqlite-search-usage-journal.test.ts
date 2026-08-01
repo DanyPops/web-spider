@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { openWebSpiderDb } from "../src/db.ts";
 import { SQLiteSearchUsageJournal } from "../src/adapters/sqlite-search-usage-journal.ts";
+import { openWebSpiderDb } from "../src/db.ts";
 import type { SearchEngineUsageEntry } from "../src/domain/search-usage.ts";
 
 function entry(overrides: Partial<SearchEngineUsageEntry> = {}): SearchEngineUsageEntry {

@@ -79,10 +79,7 @@ function detectContentType(lines: string[]): string {
 
 // Re-implement the chunker locally to test code-block and table boundary logic.
 const CHUNK_TARGET = 150;
-function chunkMarkdown(
-	markdown: string,
-	_baseUrl = "https://example.com",
-): Array<{ text: string; contentType: string; heading: string }> {
+function chunkMarkdown(markdown: string, _baseUrl = "https://example.com"): Array<{ text: string; contentType: string; heading: string }> {
 	const chunks: Array<{ text: string; contentType: string; heading: string }> = [];
 	const lines = markdown.split("\n");
 	let heading = "";
@@ -190,20 +187,14 @@ describe("extractTags", () => {
 
 	it("extracts article:tag properties", () => {
 		const dom = parseHTML(
-			"<html><head>" +
-				'<meta property="article:tag" content="AI">' +
-				'<meta property="article:tag" content="Web">' +
-				"</head></html>",
+			"<html><head>" + '<meta property="article:tag" content="AI">' + '<meta property="article:tag" content="Web">' + "</head></html>",
 		);
 		expect(extractTags(dom.document)).toEqual(["ai", "web"]);
 	});
 
 	it("deduplicates across sources", () => {
 		const dom = parseHTML(
-			"<html><head>" +
-				'<meta name="keywords" content="ai, web">' +
-				'<meta property="article:tag" content="AI">' +
-				"</head></html>",
+			"<html><head>" + '<meta name="keywords" content="ai, web">' + '<meta property="article:tag" content="AI">' + "</head></html>",
 		);
 		const tags = extractTags(dom.document);
 		// "ai" appears twice (once from keywords, once from article:tag) — should be deduplicated
@@ -238,9 +229,7 @@ function extractCanonicalUrl(doc: Document, fetchedUrl: string): string | undefi
 describe("extractCanonicalUrl", () => {
 	it("extracts link[rel=canonical]", () => {
 		const dom = parseHTML('<html><head><link rel="canonical" href="https://example.com/page"></head></html>');
-		expect(extractCanonicalUrl(dom.document, "https://example.com/page?ref=social")).toBe(
-			"https://example.com/page",
-		);
+		expect(extractCanonicalUrl(dom.document, "https://example.com/page?ref=social")).toBe("https://example.com/page");
 	});
 
 	it("extracts og:url when no canonical link", () => {
@@ -380,12 +369,9 @@ describe("code block splitting", () => {
 	it("contentType is text when a heading precedes the fence in the same chunk", () => {
 		// A heading + code block land in the same chunk.
 		// detectContentType sees the heading line first → 'text'. This is expected.
-		const headingThenCode = [
-			"## My Section",
-			"```typescript",
-			...Array.from({ length: 30 }, (_, i) => `const x${i} = ${i}`),
-			"```",
-		].join("\n");
+		const headingThenCode = ["## My Section", "```typescript", ...Array.from({ length: 30 }, (_, i) => `const x${i} = ${i}`), "```"].join(
+			"\n",
+		);
 		const chunks = chunkMarkdown(headingThenCode);
 		const mixed = chunks.find((c) => c.text.includes("```"));
 		expect(mixed).toBeDefined();
@@ -401,9 +387,7 @@ describe("code block splitting", () => {
 	});
 
 	it("small code blocks (under target) are also kept whole", () => {
-		const small = ["Intro text. ".repeat(5), "", "```ts", "const x = 1", "```", "", "More text. ".repeat(20)].join(
-			"\n",
-		);
+		const small = ["Intro text. ".repeat(5), "", "```ts", "const x = 1", "```", "", "More text. ".repeat(20)].join("\n");
 		const chunks = chunkMarkdown(small);
 		const fenceCount = chunks.reduce((n, c) => n + (c.text.match(/```/g) ?? []).length, 0);
 		expect(fenceCount % 2).toBe(0);
@@ -432,8 +416,8 @@ describe("extended nav classification", () => {
 // IHttpClient injection — spider() without real network
 // ---------------------------------------------------------------------------
 
-import { spider } from "../src/spider.js";
 import type { IHttpClient } from "../src/ports.js";
+import { spider } from "../src/spider.js";
 
 function makeHtmlResponse(html: string, status = 200): ReturnType<IHttpClient["fetch"]> {
 	return Promise.resolve({
@@ -489,9 +473,7 @@ describe("spider() with injected IHttpClient", () => {
 	});
 
 	it("throws FetchError on non-200 response", async () => {
-		await expect(
-			spider("https://example.com", { httpClient: mockClient("", 404) })
-		).rejects.toThrow("404");
+		await expect(spider("https://example.com", { httpClient: mockClient("", 404) })).rejects.toThrow("404");
 	});
 
 	it("throws on non-http URL without touching the client", async () => {
@@ -524,87 +506,73 @@ describe("spider() with injected IHttpClient", () => {
 import { chunk } from "../src/convert.js";
 
 describe("table-aware chunking", () => {
-  const URL = "https://example.com/page";
+	const URL = "https://example.com/page";
 
-  it("keeps a table in a single chunk", () => {
-    const md = [
-      "| Col A | Col B | Col C |",
-      "| ----- | ----- | ----- |",
-      "| one   | two   | three |",
-      "| four  | five  | six   |",
-      "| seven | eight | nine  |",
-    ].join("\n");
-    const chunks = chunk(md, URL);
-    const tableChunks = chunks.filter((c) => c.contentType === "table");
-    expect(tableChunks).toHaveLength(1);
-    expect(tableChunks[0].text).toContain("| Col A");
-    expect(tableChunks[0].text).toContain("| seven");
-  });
+	it("keeps a table in a single chunk", () => {
+		const md = [
+			"| Col A | Col B | Col C |",
+			"| ----- | ----- | ----- |",
+			"| one   | two   | three |",
+			"| four  | five  | six   |",
+			"| seven | eight | nine  |",
+		].join("\n");
+		const chunks = chunk(md, URL);
+		const tableChunks = chunks.filter((c) => c.contentType === "table");
+		expect(tableChunks).toHaveLength(1);
+		expect(tableChunks[0].text).toContain("| Col A");
+		expect(tableChunks[0].text).toContain("| seven");
+	});
 
-  it("does not split a large table across chunk boundaries", () => {
-    // Build a table with enough rows to exceed the 150-word target
-    const rows = Array.from({ length: 30 }, (_, i) =>
-      `| row${i} | description of row ${i} which is quite verbose | value-${i} | extra-${i} |`
-    );
-    const md = [
-      "| Name | Description | Value | Extra |",
-      "| ---- | ----------- | ----- | ----- |",
-      ...rows,
-    ].join("\n");
-    const chunks = chunk(md, URL);
-    const tableChunks = chunks.filter((c) => c.contentType === "table");
-    expect(tableChunks).toHaveLength(1);
-  });
+	it("does not split a large table across chunk boundaries", () => {
+		// Build a table with enough rows to exceed the 150-word target
+		const rows = Array.from(
+			{ length: 30 },
+			(_, i) => `| row${i} | description of row ${i} which is quite verbose | value-${i} | extra-${i} |`,
+		);
+		const md = ["| Name | Description | Value | Extra |", "| ---- | ----------- | ----- | ----- |", ...rows].join("\n");
+		const chunks = chunk(md, URL);
+		const tableChunks = chunks.filter((c) => c.contentType === "table");
+		expect(tableChunks).toHaveLength(1);
+	});
 
-  it("flushes prose before a table so they are in separate chunks", () => {
-    const prose = Array.from({ length: 20 }, (_, i) =>
-      `Word${i} `.repeat(8).trim()
-    ).join(" ");
-    const table = [
-      "| A | B |",
-      "| - | - |",
-      "| 1 | 2 |",
-      "| 3 | 4 |",
-    ].join("\n");
-    const md = prose + "\n\n" + table;
-    const chunks = chunk(md, URL);
-    expect(chunks.length).toBeGreaterThanOrEqual(2);
-    const tableChunks = chunks.filter((c) => c.contentType === "table");
-    const textChunks = chunks.filter((c) => c.contentType === "text");
-    expect(tableChunks).toHaveLength(1);
-    expect(textChunks.length).toBeGreaterThanOrEqual(1);
-    // The table chunk must not contain the prose
-    expect(tableChunks[0].text).not.toContain("Word0");
-  });
+	it("flushes prose before a table so they are in separate chunks", () => {
+		const prose = Array.from({ length: 20 }, (_, i) => `Word${i} `.repeat(8).trim()).join(" ");
+		const table = ["| A | B |", "| - | - |", "| 1 | 2 |", "| 3 | 4 |"].join("\n");
+		const md = `${prose}\n\n${table}`;
+		const chunks = chunk(md, URL);
+		expect(chunks.length).toBeGreaterThanOrEqual(2);
+		const tableChunks = chunks.filter((c) => c.contentType === "table");
+		const textChunks = chunks.filter((c) => c.contentType === "text");
+		expect(tableChunks).toHaveLength(1);
+		expect(textChunks.length).toBeGreaterThanOrEqual(1);
+		// The table chunk must not contain the prose
+		expect(tableChunks[0].text).not.toContain("Word0");
+	});
 
-  it("prose after a table goes into a separate chunk", () => {
-    const table = [
-      "| A | B |",
-      "| - | - |",
-      "| 1 | 2 |",
-    ].join("\n");
-    const after = Array.from({ length: 20 }, (_, i) => `After${i} `.repeat(8).trim()).join(" ");
-    const md = table + "\n\n" + after;
-    const chunks = chunk(md, URL);
-    const tableChunks = chunks.filter((c) => c.contentType === "table");
-    expect(tableChunks).toHaveLength(1);
-    expect(tableChunks[0].text).not.toContain("After0");
-  });
+	it("prose after a table goes into a separate chunk", () => {
+		const table = ["| A | B |", "| - | - |", "| 1 | 2 |"].join("\n");
+		const after = Array.from({ length: 20 }, (_, i) => `After${i} `.repeat(8).trim()).join(" ");
+		const md = `${table}\n\n${after}`;
+		const chunks = chunk(md, URL);
+		const tableChunks = chunks.filter((c) => c.contentType === "table");
+		expect(tableChunks).toHaveLength(1);
+		expect(tableChunks[0].text).not.toContain("After0");
+	});
 
-  it("pipe characters inside code blocks are not treated as table rows", () => {
-    const md = [
-      "```python",
-      "| fake | table | inside | code | block | row | here |",
-      "| another | row | in | code |",
-      "x = 1  # not a table row",
-      "```",
-    ].join("\n");
-    const chunks = chunk(md, URL);
-    // The | lines inside the code block must not produce a table chunk
-    const tableChunks = chunks.filter((c) => c.contentType === "table");
-    expect(tableChunks).toHaveLength(0);
-    // The pipe content must still exist in the output (inside a code chunk)
-    const allText = chunks.map((c) => c.text).join("\n");
-    expect(allText).toContain("| fake | table");
-  });
+	it("pipe characters inside code blocks are not treated as table rows", () => {
+		const md = [
+			"```python",
+			"| fake | table | inside | code | block | row | here |",
+			"| another | row | in | code |",
+			"x = 1  # not a table row",
+			"```",
+		].join("\n");
+		const chunks = chunk(md, URL);
+		// The | lines inside the code block must not produce a table chunk
+		const tableChunks = chunks.filter((c) => c.contentType === "table");
+		expect(tableChunks).toHaveLength(0);
+		// The pipe content must still exist in the output (inside a code chunk)
+		const allText = chunks.map((c) => c.text).join("\n");
+		expect(allText).toContain("| fake | table");
+	});
 });

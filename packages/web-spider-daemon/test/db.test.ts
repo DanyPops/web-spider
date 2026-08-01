@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openWebSpiderDb, schemaVersion } from "../src/db.ts";
 import { SQLITE_SCHEMA_VERSION } from "../src/constants.ts";
+import { openWebSpiderDb, schemaVersion } from "../src/db.ts";
 
 describe("openWebSpiderDb", () => {
 	test("migrates a fresh database to the current schema version", () => {

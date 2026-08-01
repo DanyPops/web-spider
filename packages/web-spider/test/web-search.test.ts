@@ -7,8 +7,38 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, braveLlmContextSearch, braveSearch, defaultAnswerEngine, defaultSearchEngine, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "../src/web-search.js";
 import type { NamedSearchEngine } from "../src/web-search.js";
+import {
+	BraveLlmContextSearchEngine,
+	BraveSearchEngine,
+	braveLlmContextSearch,
+	braveSearch,
+	CapabilityRoutedSearchEngine,
+	defaultAnswerEngine,
+	defaultSearchEngine,
+	ExaSearchEngine,
+	envKeyForEngine,
+	exaSearch,
+	FallbackSearchEngine,
+	InMemorySiteAvailabilityTracker,
+	isLikelyQuotaExceededError,
+	isLikelyRateLimitError,
+	listRegisteredSearchEngines,
+	RoundRobinSearchEngine,
+	registerSearchEngine,
+	resolveSearchEngine,
+	SerpApiSearchEngine,
+	SerperSearchEngine,
+	SiteRoutedSearchEngine,
+	serpApiSearch,
+	serperSearch,
+	TavilySearchEngine,
+	tavilySearch,
+	tavilySearchForAnswer,
+	webSearch,
+	YouComSearchEngine,
+	youComSearch,
+} from "../src/web-search.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,10 +162,7 @@ describe("FallbackSearchEngine — fallbackOnError", () => {
 	});
 
 	it("re-throws last error when all engines fail", async () => {
-		const fb = new FallbackSearchEngine([
-			failEngine("first error"),
-			failEngine("second error"),
-		]);
+		const fb = new FallbackSearchEngine([failEngine("first error"), failEngine("second error")]);
 
 		await expect(fb.search(REQ)).rejects.toThrow("second error");
 	});
@@ -180,13 +207,13 @@ describe("FallbackSearchEngine — composability", () => {
 
 describe("TavilySearchEngine — key guard", () => {
 	it("throws when no API key is provided and env var is absent", async () => {
-		const savedKey = process.env["TAVILY_API_KEY"];
-		delete process.env["TAVILY_API_KEY"];
+		const savedKey = process.env.TAVILY_API_KEY;
+		delete process.env.TAVILY_API_KEY;
 
 		const engine = new TavilySearchEngine(""); // empty string = no key
 		await expect(engine.search(REQ)).rejects.toThrow();
 
-		if (savedKey !== undefined) process.env["TAVILY_API_KEY"] = savedKey;
+		if (savedKey !== undefined) process.env.TAVILY_API_KEY = savedKey;
 	});
 });
 
@@ -363,31 +390,35 @@ describe("FallbackSearchEngine — quota cooldown (separate, longer tier from ra
 });
 
 describe("FallbackSearchEngine — onEngineFailure", () => {
-	it("reports an engine's own index, error, and reason:\"error\" for a non-quota failure", async () => {
+	it('reports an engine\'s own index, error, and reason:"error" for a non-quota failure', async () => {
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("429 rate limit");
 		const secondary = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, secondary], {
-			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
+			onEngineFailure: (index, _error, reason) => {
+				calls.push({ index, reason });
+			},
 		});
 
 		await engine.search(REQ);
 		expect(calls).toEqual([{ index: 0, reason: "error" }]);
 	});
 
-	it("reports reason:\"quota\" for a quota-exhaustion-shaped failure", async () => {
+	it('reports reason:"quota" for a quota-exhaustion-shaped failure', async () => {
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("Tavily API error: 432");
 		const secondary = okEngine([RESULT_B]);
 		const engine = new FallbackSearchEngine([tavily, secondary], {
-			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
+			onEngineFailure: (index, _error, reason) => {
+				calls.push({ index, reason });
+			},
 		});
 
 		await engine.search(REQ);
 		expect(calls).toEqual([{ index: 0, reason: "quota" }]);
 	});
 
-	it("reports reason:\"cooldown\" for an engine skipped without ever being called", async () => {
+	it('reports reason:"cooldown" for an engine skipped without ever being called', async () => {
 		let now = 0;
 		const calls: Array<{ index: number; reason: string }> = [];
 		const tavily = failEngine("Tavily API error: 432");
@@ -395,20 +426,27 @@ describe("FallbackSearchEngine — onEngineFailure", () => {
 		const engine = new FallbackSearchEngine([tavily, secondary], {
 			quotaCooldownMs: 60_000,
 			now: () => now,
-			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
+			onEngineFailure: (index, _error, reason) => {
+				calls.push({ index, reason });
+			},
 		});
 
 		await engine.search(REQ);
 		now += 1_000;
 		await engine.search(REQ);
-		expect(calls).toEqual([{ index: 0, reason: "quota" }, { index: 0, reason: "cooldown" }]);
+		expect(calls).toEqual([
+			{ index: 0, reason: "quota" },
+			{ index: 0, reason: "cooldown" },
+		]);
 		expect(tavily.search).toHaveBeenCalledTimes(1);
 	});
 
 	it("is never called for a genuine empty result", async () => {
 		const calls: unknown[] = [];
 		const engine = new FallbackSearchEngine([okEngine([]), okEngine([])], {
-			onEngineFailure: (...args) => { calls.push(args); },
+			onEngineFailure: (...args) => {
+				calls.push(args);
+			},
 		});
 
 		await engine.search(REQ);
@@ -534,9 +572,7 @@ describe("SearchQuery — timeRange and topic", () => {
 
 		await engine.search({ query: "test", timeRange: "week", topic: "news" });
 
-		expect(spy).toHaveBeenCalledWith(
-			expect.objectContaining({ timeRange: "week", topic: "news" }),
-		);
+		expect(spy).toHaveBeenCalledWith(expect.objectContaining({ timeRange: "week", topic: "news" }));
 	});
 
 	it("TavilySearchEngine.search() sends time_range and topic in the POST body", async () => {
@@ -545,7 +581,7 @@ describe("SearchQuery — timeRange and topic", () => {
 		let capturedBody: Record<string, unknown> | null = null;
 
 		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-			capturedBody = JSON.parse(init?.body as string ?? "{}");
+			capturedBody = JSON.parse((init?.body as string) ?? "{}");
 			return {
 				ok: true,
 				status: 200,
@@ -581,9 +617,11 @@ describe("tavilySearch onUsage", () => {
 		const originalFetch = globalThis.fetch;
 		let capturedBody: Record<string, unknown> | null = null;
 		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-			capturedBody = JSON.parse(init?.body as string ?? "{}");
+			capturedBody = JSON.parse((init?.body as string) ?? "{}");
 			return {
-				ok: true, status: 200, statusText: "OK",
+				ok: true,
+				status: 200,
+				statusText: "OK",
 				headers: { get: () => "application/json" },
 				json: async () => ({ results: [], usage: { credits: 3 } }),
 			};
@@ -602,7 +640,9 @@ describe("tavilySearch onUsage", () => {
 	it("does not call onUsage when the response carries no usage field", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [] }),
 		}) as unknown as typeof fetch;
@@ -620,7 +660,9 @@ describe("exaSearch onUsage", () => {
 	it("reports costDollars.total from the response", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [], costDollars: { total: 0.006, search: { neural: 0.006 } } }),
 		}) as unknown as typeof fetch;
@@ -636,7 +678,9 @@ describe("exaSearch onUsage", () => {
 	it("does not call onUsage when costDollars is absent (Exa only includes non-zero costs)", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [] }),
 		}) as unknown as typeof fetch;
@@ -654,7 +698,9 @@ describe("braveSearch onUsage", () => {
 	it("reports only headers whose name looks rate-limit/quota-shaped, never a blanket header capture", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: new Headers({
 				"content-type": "application/json",
 				"x-ratelimit-remaining": "42",
@@ -676,7 +722,9 @@ describe("braveSearch onUsage", () => {
 	it("does not call onUsage when no response header looks rate-limit-shaped (the real, currently-unconfirmed case)", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: new Headers({ "content-type": "application/json" }),
 			json: async () => ({ web: { results: [] } }),
 		}) as unknown as typeof fetch;
@@ -694,7 +742,9 @@ describe("*SearchEngine classes forward onUsage", () => {
 	it("TavilySearchEngine forwards onUsage into tavilySearch", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [], usage: { credits: 1 } }),
 		}) as unknown as typeof fetch;
@@ -711,7 +761,9 @@ describe("*SearchEngine classes forward onUsage", () => {
 	it("ExaSearchEngine forwards onUsage into exaSearch", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [], costDollars: { total: 0.01 } }),
 		}) as unknown as typeof fetch;
@@ -728,7 +780,9 @@ describe("*SearchEngine classes forward onUsage", () => {
 	it("BraveSearchEngine forwards onUsage into braveSearch", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: new Headers({ "x-ratelimit-remaining": "5" }),
 			json: async () => ({ web: { results: [] } }),
 		}) as unknown as typeof fetch;
@@ -750,12 +804,14 @@ describe("defaultSearchEngine onUsage attribution", () => {
 	});
 
 	it("reports usage tagged with the real engine name (tavily), not a generic label", async () => {
-		process.env["TAVILY_API_KEY"] = "fake-key";
+		process.env.TAVILY_API_KEY = "fake-key";
 		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) delete process.env[key];
 
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			headers: { get: () => "application/json" },
 			json: async () => ({ results: [{ url: "https://a.example", title: "A" }], usage: { credits: 2 } }),
 		}) as unknown as typeof fetch;
@@ -838,14 +894,18 @@ describe("defaultSearchEngine — onEngineFailure engine names", () => {
 	});
 
 	it("reports the failing engine by name (tavily), not by array index", async () => {
-		process.env["TAVILY_API_KEY"] = "fake-key";
-		delete process.env["BRAVE_SEARCH_API_KEY"];
-		delete process.env["EXA_API_KEY"];
-		delete process.env["SERPER_API_KEY"];
-		delete process.env["SERPAPI_API_KEY"];
+		process.env.TAVILY_API_KEY = "fake-key";
+		delete process.env.BRAVE_SEARCH_API_KEY;
+		delete process.env.EXA_API_KEY;
+		delete process.env.SERPER_API_KEY;
+		delete process.env.SERPAPI_API_KEY;
 
 		const calls: Array<{ name: string; reason: string }> = [];
-		const engine = defaultSearchEngine({ onEngineFailure: (name, _error, reason) => { calls.push({ name, reason }); } });
+		const engine = defaultSearchEngine({
+			onEngineFailure: (name, _error, reason) => {
+				calls.push({ name, reason });
+			},
+		});
 
 		// Every provider is unreachable here (fetch always 432s), so the chain
 		// as a whole still rejects; only the first (Tavily) entry matters for this assertion.
@@ -867,7 +927,7 @@ describe("defaultSearchEngine — onEngineFailure engine names", () => {
 
 describe("serperSearch", () => {
 	it("throws when no API key is provided and env var is absent", async () => {
-		delete process.env["SERPER_API_KEY"];
+		delete process.env.SERPER_API_KEY;
 		await expect(serperSearch("test")).rejects.toThrow(/Serper API key required/);
 	});
 
@@ -895,7 +955,7 @@ describe("serperSearch", () => {
 
 		expect(capturedUrl).toBe("https://google.serper.dev/search");
 		expect(capturedInit?.method).toBe("POST");
-		expect((capturedInit?.headers as Record<string, string>)["X-API-KEY"]).toBe("test-key");
+		expect((capturedInit!.headers as Record<string, string>)["X-API-KEY"]).toBe("test-key");
 		expect(JSON.parse(capturedInit?.body as string)).toEqual({ q: "coffee", num: 5 });
 	});
 
@@ -943,7 +1003,7 @@ describe("SerperSearchEngine — port conformance", () => {
 
 describe("serpApiSearch", () => {
 	it("throws when no API key is provided and env var is absent", async () => {
-		delete process.env["SERPAPI_API_KEY"];
+		delete process.env.SERPAPI_API_KEY;
 		await expect(serpApiSearch("test")).rejects.toThrow(/SerpApi key required/);
 	});
 
@@ -1065,21 +1125,26 @@ describe("RoundRobinSearchEngine — per-engine cooldown", () => {
 	});
 
 	it("reports a cooldown skip via onEngineFailure with the real engine index, not the call that eventually succeeds", async () => {
-		let now = 0;
+		const now = 0;
 		const calls: Array<{ index: number; reason: string }> = [];
 		const a = failEngine("Tavily API error: 432");
 		const b = okEngine([RESULT_B]);
 		const engine = new RoundRobinSearchEngine([a, b], {
 			quotaCooldownMs: 60_000,
 			now: () => now,
-			onEngineFailure: (index, _error, reason) => { calls.push({ index, reason }); },
+			onEngineFailure: (index, _error, reason) => {
+				calls.push({ index, reason });
+			},
 		});
 
 		await expect(engine.search(REQ)).rejects.toThrow(); // index 0 fails
 		await engine.search(REQ); // index 1 succeeds
 		await engine.search(REQ); // index 0's turn, but cooling down -- skip to index 1
 
-		expect(calls).toEqual([{ index: 0, reason: "quota" }, { index: 0, reason: "cooldown" }]);
+		expect(calls).toEqual([
+			{ index: 0, reason: "quota" },
+			{ index: 0, reason: "cooldown" },
+		]);
 	});
 });
 
@@ -1101,7 +1166,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 	it("auto-skips serper/serpapi when their env vars are unset -- never throws by itself", () => {
 		clearAllProviderKeys();
-		process.env["TAVILY_API_KEY"] = "fake-key";
+		process.env.TAVILY_API_KEY = "fake-key";
 		expect(() => defaultSearchEngine()).not.toThrow();
 	});
 
@@ -1112,9 +1177,9 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 	it("round-robins across every configured keyed provider (spreads calls instead of always hitting the same one)", async () => {
 		clearAllProviderKeys();
-		process.env["TAVILY_API_KEY"] = "tavily-key";
-		process.env["SERPER_API_KEY"] = "serper-key";
-		process.env["SERPAPI_API_KEY"] = "serpapi-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
+		process.env.SERPER_API_KEY = "serper-key";
+		process.env.SERPAPI_API_KEY = "serpapi-key";
 
 		const originalFetch = globalThis.fetch;
 		const calledHosts: string[] = [];
@@ -1125,7 +1190,11 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 				status: 200,
 				statusText: "OK",
 				headers: { get: () => "application/json" },
-				json: async () => ({ results: [{ url: "https://a.example", title: "A" }], organic: [{ title: "A", link: "https://a.example" }], organic_results: [{ title: "A", link: "https://a.example" }] }),
+				json: async () => ({
+					results: [{ url: "https://a.example", title: "A" }],
+					organic: [{ title: "A", link: "https://a.example" }],
+					organic_results: [{ title: "A", link: "https://a.example" }],
+				}),
 			};
 		}) as typeof fetch;
 
@@ -1145,7 +1214,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 	it("does not wrap a single configured engine in a round-robin group -- behaves exactly as the ungrouped single-engine path", async () => {
 		clearAllProviderKeys();
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 
 		const originalFetch = globalThis.fetch;
 		let callCount = 0;
@@ -1173,8 +1242,8 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 	it("defaultSearchEngine returns the round-robin group directly -- one member's failure never cools down a healthy peer", async () => {
 		clearAllProviderKeys();
-		process.env["TAVILY_API_KEY"] = "tavily-key";
-		process.env["SERPER_API_KEY"] = "serper-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
+		process.env.SERPER_API_KEY = "serper-key";
 
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
@@ -1214,7 +1283,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 
 describe("youComSearch", () => {
 	it("throws when no API key is provided and env var is absent", async () => {
-		delete process.env["YOU_API_KEY"];
+		delete process.env.YOU_API_KEY;
 		await expect(youComSearch("test")).rejects.toThrow(/YOU_API_KEY/);
 	});
 
@@ -1269,7 +1338,13 @@ describe("youComSearch", () => {
 		try {
 			const results = await youComSearch("test", { apiKey: "key" });
 			expect(results).toEqual([
-				{ url: "https://a.example", title: "A", snippet: "desc a", publishedAt: "2025-01-01", highlights: ["first passage", "second passage"] },
+				{
+					url: "https://a.example",
+					title: "A",
+					snippet: "desc a",
+					publishedAt: "2025-01-01",
+					highlights: ["first passage", "second passage"],
+				},
 			]);
 		} finally {
 			globalThis.fetch = originalFetch;
@@ -1279,7 +1354,9 @@ describe("youComSearch", () => {
 	it("falls back to the first snippet when description is absent", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: { web: [{ url: "https://a.example", title: "A", snippets: ["only this"] }] } }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1331,7 +1408,9 @@ describe("exaSearch — highlights field", () => {
 	it("populates WebSearchResult.highlights from Exa's highlights array", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [{ url: "https://a.example", title: "A", highlights: ["h1", "h2"] }] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1346,7 +1425,9 @@ describe("exaSearch — highlights field", () => {
 	it("omits highlights when Exa returns none", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1369,7 +1450,7 @@ describe("exaSearch — highlights field", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedBody["includeDomains"]).toEqual(["reddit.com"]);
+		expect(capturedBody.includeDomains).toEqual(["reddit.com"]);
 	});
 
 	it("includeText requests contents.text and populates WebSearchResult.content; omitted by default", async () => {
@@ -1377,18 +1458,25 @@ describe("exaSearch — highlights field", () => {
 		let capturedBody: Record<string, unknown> = {};
 		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
 			capturedBody = JSON.parse(init?.body as string);
-			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [{ url: "https://a.example", title: "A", text: "full page text" }] }) };
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				json: async () => ({ results: [{ url: "https://a.example", title: "A", text: "full page text" }] }),
+			};
 		}) as typeof fetch;
 		try {
 			const results = await exaSearch("test", { apiKey: "key", includeText: true });
-			expect((capturedBody["contents"] as Record<string, unknown>)["text"]).toBe(true);
+			expect((capturedBody.contents as Record<string, unknown>).text).toBe(true);
 			expect(results[0]?.content).toBe("full page text");
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
 
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }), // Exa omits `text` entirely when contents.text wasn't requested
 		}) as unknown as typeof fetch;
 		try {
@@ -1415,7 +1503,7 @@ describe("exaSearch — type parameter", () => {
 			} finally {
 				globalThis.fetch = originalFetch;
 			}
-			expect(capturedBody["type"]).toBe(type);
+			expect(capturedBody.type).toBe(type);
 		},
 	);
 
@@ -1431,7 +1519,7 @@ describe("exaSearch — type parameter", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedBody["type"]).toBe("auto");
+		expect(capturedBody.type).toBe("auto");
 	});
 });
 
@@ -1446,8 +1534,13 @@ describe("braveSearch — extra_snippets field", () => {
 		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
 			capturedUrl = url;
 			return {
-				ok: true, status: 200, statusText: "OK", headers: new Headers(),
-				json: async () => ({ web: { results: [{ url: "https://a.example", title: "A", description: "d", extra_snippets: ["e1", "e2"] }] } }),
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				headers: new Headers(),
+				json: async () => ({
+					web: { results: [{ url: "https://a.example", title: "A", description: "d", extra_snippets: ["e1", "e2"] }] },
+				}),
 			};
 		}) as typeof fetch;
 		try {
@@ -1465,7 +1558,10 @@ describe("braveSearch — extra_snippets field", () => {
 		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
 			capturedUrl = url;
 			return {
-				ok: true, status: 200, statusText: "OK", headers: new Headers(),
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				headers: new Headers(),
 				json: async () => ({ web: { results: [{ url: "https://a.example", title: "A", description: "d" }] } }),
 			};
 		}) as typeof fetch;
@@ -1522,12 +1618,13 @@ describe("braveLlmContextSearch", () => {
 	it("maps grounding.generic[] to WebSearchResult, first snippet as snippet, rest as highlights", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK", headers: new Headers(),
+			ok: true,
+			status: 200,
+			statusText: "OK",
+			headers: new Headers(),
 			json: async () => ({
 				grounding: {
-					generic: [
-						{ url: "https://example.com/page", title: "Page Title", snippets: ["first chunk", "second chunk"] },
-					],
+					generic: [{ url: "https://example.com/page", title: "Page Title", snippets: ["first chunk", "second chunk"] }],
 				},
 				sources: { "https://example.com/page": { title: "Page Title", hostname: "example.com", age: ["2024-01-15"] } },
 			}),
@@ -1535,7 +1632,13 @@ describe("braveLlmContextSearch", () => {
 		try {
 			const results = await braveLlmContextSearch("q", { apiKey: "key" });
 			expect(results).toEqual([
-				{ url: "https://example.com/page", title: "Page Title", snippet: "first chunk", publishedAt: "2024-01-15", highlights: ["second chunk"] },
+				{
+					url: "https://example.com/page",
+					title: "Page Title",
+					snippet: "first chunk",
+					publishedAt: "2024-01-15",
+					highlights: ["second chunk"],
+				},
 			]);
 		} finally {
 			globalThis.fetch = originalFetch;
@@ -1545,7 +1648,10 @@ describe("braveLlmContextSearch", () => {
 	it("returns an empty snippet and no highlights for a single-snippet result, matching a missing source entry gracefully", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK", headers: new Headers(),
+			ok: true,
+			status: 200,
+			statusText: "OK",
+			headers: new Headers(),
 			json: async () => ({ grounding: { generic: [{ url: "https://a.example", title: "A", snippets: ["only chunk"] }] } }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1604,11 +1710,11 @@ describe("braveLlmContextSearch", () => {
 	});
 
 	it("throws a descriptive error when no API key is configured", async () => {
-		delete process.env["BRAVE_SEARCH_API_KEY"];
+		delete process.env.BRAVE_SEARCH_API_KEY;
 		await expect(braveLlmContextSearch("q")).rejects.toThrow(/Brave Search API key required/);
 	});
 
-	it("is registered as \"brave-llm\" and resolvable via resolveSearchEngine", () => {
+	it('is registered as "brave-llm" and resolvable via resolveSearchEngine', () => {
 		expect(listRegisteredSearchEngines()).toContain("brave-llm");
 		expect(envKeyForEngine("brave-llm")).toBe("BRAVE_SEARCH_API_KEY");
 		expect(resolveSearchEngine("brave-llm", "key")).toBeInstanceOf(BraveLlmContextSearchEngine);
@@ -1632,13 +1738,15 @@ describe("tavilySearch — content field and siteFilter", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedBody["include_raw_content"]).toBe(false);
+		expect(capturedBody.include_raw_content).toBe(false);
 	});
 
 	it("populates WebSearchResult.content when includeRawContent is set and Tavily returns raw_content", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [{ url: "https://a.example", title: "A", content: "snippet", raw_content: "full page text" }] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1661,7 +1769,7 @@ describe("tavilySearch — content field and siteFilter", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedBody["include_domains"]).toEqual(["reddit.com"]);
+		expect(capturedBody.include_domains).toEqual(["reddit.com"]);
 	});
 
 	it("sends excludeDomains, includeFavicon, country, startDate/endDate only when set", async () => {
@@ -1740,7 +1848,7 @@ describe("tavilySearch — auth", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedHeaders["Authorization"]).toBe("Bearer tvly-test-key");
+		expect(capturedHeaders.Authorization).toBe("Bearer tvly-test-key");
 		expect(capturedBody).not.toHaveProperty("api_key");
 	});
 
@@ -1758,7 +1866,7 @@ describe("tavilySearch — auth", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
-		expect(capturedHeaders["Authorization"]).toBe("Bearer tvly-test-key");
+		expect(capturedHeaders.Authorization).toBe("Bearer tvly-test-key");
 		expect(capturedBody).not.toHaveProperty("api_key");
 	});
 });
@@ -1770,7 +1878,9 @@ describe("tavilySearchForAnswer", () => {
 		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
 			capturedBody = JSON.parse(init?.body as string);
 			return {
-				ok: true, status: 200, statusText: "OK",
+				ok: true,
+				status: 200,
+				statusText: "OK",
 				json: async () => ({
 					answer: "The answer is 42.",
 					results: [{ url: "https://a.example", title: "A", content: "snippet" }],
@@ -1780,7 +1890,7 @@ describe("tavilySearchForAnswer", () => {
 
 		try {
 			const result = await tavilySearchForAnswer("test", { apiKey: "key" });
-			expect(capturedBody["include_answer"]).toBe(true);
+			expect(capturedBody.include_answer).toBe(true);
 			expect(result).toEqual({
 				answer: "The answer is 42.",
 				sources: [{ url: "https://a.example", title: "A", snippet: "snippet" }],
@@ -1793,7 +1903,9 @@ describe("tavilySearchForAnswer", () => {
 	it("returns an empty answer string (not a throw) when Tavily reports none", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1805,7 +1917,7 @@ describe("tavilySearchForAnswer", () => {
 	});
 
 	it("throws when no API key is provided and env var is absent", async () => {
-		delete process.env["TAVILY_API_KEY"];
+		delete process.env.TAVILY_API_KEY;
 		await expect(tavilySearchForAnswer("test")).rejects.toThrow(/Tavily API key required/);
 	});
 });
@@ -1814,7 +1926,9 @@ describe("TavilySearchEngine.searchForAnswer", () => {
 	it("implements IAnswerSearchEngine and delegates to tavilySearchForAnswer", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ answer: "42", results: [] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -1930,18 +2044,12 @@ describe("SiteRoutedSearchEngine", () => {
 	});
 
 	it("returns empty (not a throw) when every named engine has zero on-domain matches", async () => {
-		const routed = new SiteRoutedSearchEngine(
-			[named("a", okEngine([RESULT_A])), named("b", okEngine([RESULT_B]))],
-			okEngine([]),
-		);
+		const routed = new SiteRoutedSearchEngine([named("a", okEngine([RESULT_A])), named("b", okEngine([RESULT_B]))], okEngine([]));
 		await expect(routed.search({ query: "q", siteFilter: "reddit.com" })).resolves.toEqual([]);
 	});
 
 	it("throws the last error when every named engine fails and none ever matched", async () => {
-		const routed = new SiteRoutedSearchEngine(
-			[named("a", failEngine("a down")), named("b", failEngine("b down"))],
-			okEngine([]),
-		);
+		const routed = new SiteRoutedSearchEngine([named("a", failEngine("a down")), named("b", failEngine("b down"))], okEngine([]));
 		await expect(routed.search({ query: "q", siteFilter: "reddit.com" })).rejects.toThrow("b down");
 	});
 
@@ -2041,30 +2149,32 @@ describe("defaultAnswerEngine", () => {
 		process.env = { ...originalEnv };
 	});
 
-	for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+	for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"])
+		delete process.env[key];
 
 	it("throws the no-engine-configured error when zero keys are set", () => {
-		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"])
+			delete process.env[key];
 		expect(() => defaultAnswerEngine()).toThrow(/No search engine API key configured/);
 	});
 
 	it("throws a distinct error naming the configured (but answer-incapable) engines", () => {
 		for (const key of ["TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
+		process.env.BRAVE_SEARCH_API_KEY = "brave-key";
 		expect(() => defaultAnswerEngine()).toThrow(/brave.*don't support answer synthesis/);
 	});
 
 	it("resolves Tavily by capability when it's the only answer-capable engine configured, alongside a non-capable one", () => {
 		for (const key of ["EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.BRAVE_SEARCH_API_KEY = "brave-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 		const engine = defaultAnswerEngine();
 		expect(engine).toBeInstanceOf(TavilySearchEngine);
 	});
 
 	it("never depends on declaration order -- Tavily configured alone still resolves", () => {
 		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 		expect(defaultAnswerEngine()).toBeInstanceOf(TavilySearchEngine);
 	});
 });
@@ -2081,11 +2191,13 @@ describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
 
 	it("wantAnswer:true returns an AnswerResult without the caller naming an engine", async () => {
 		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ answer: "a synthesized answer", results: [] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -2097,17 +2209,19 @@ describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
 	});
 
 	it("wantAnswer:true with an explicitly forced non-capable engine throws a clear error", async () => {
-		process.env["BRAVE_SEARCH_API_KEY"] = "brave-key";
+		process.env.BRAVE_SEARCH_API_KEY = "brave-key";
 		await expect(webSearch("who won", { wantAnswer: true, engine: "brave" })).rejects.toThrow(/does not support wantAnswer/);
 	});
 
 	it("omitting wantAnswer returns a plain WebSearchResult[]", async () => {
 		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn().mockResolvedValue({
-			ok: true, status: 200, statusText: "OK",
+			ok: true,
+			status: 200,
+			statusText: "OK",
 			json: async () => ({ results: [{ url: "https://a.example", title: "A", content: "c" }] }),
 		}) as unknown as typeof fetch;
 		try {
@@ -2120,7 +2234,7 @@ describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
 
 	it("wantFullContent forwards through to SearchQuery.wantFullContent on the plain path", async () => {
 		for (const key of ["BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) delete process.env[key];
-		process.env["TAVILY_API_KEY"] = "tavily-key";
+		process.env.TAVILY_API_KEY = "tavily-key";
 
 		const originalFetch = globalThis.fetch;
 		let capturedBody: Record<string, unknown> = {};
@@ -2130,7 +2244,7 @@ describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
 		}) as typeof fetch;
 		try {
 			await webSearch("test", { wantFullContent: true });
-			expect(capturedBody["include_raw_content"]).toBe(true);
+			expect(capturedBody.include_raw_content).toBe(true);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
@@ -2148,16 +2262,19 @@ describe("defaultSearchEngine — you.com wiring", () => {
 	});
 
 	it("includes you.com in the rotation when YOU_API_KEY is set alongside another provider", async () => {
-		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) delete process.env[key];
-		process.env["TAVILY_API_KEY"] = "tavily-key";
-		process.env["YOU_API_KEY"] = "you-key";
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"])
+			delete process.env[key];
+		process.env.TAVILY_API_KEY = "tavily-key";
+		process.env.YOU_API_KEY = "you-key";
 
 		const originalFetch = globalThis.fetch;
 		const calledHosts: string[] = [];
 		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
 			calledHosts.push(new URL(url).host);
 			return {
-				ok: true, status: 200, statusText: "OK",
+				ok: true,
+				status: 200,
+				statusText: "OK",
 				json: async () => ({ results: [{ url: "https://a.example", title: "A" }], web: [] }),
 			};
 		}) as typeof fetch;

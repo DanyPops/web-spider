@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { type CliDependencies, renderSystemdUnit, runCli } from "../src/cli.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "../src/service.ts";
-import { renderSystemdUnit, runCli, type CliDependencies } from "../src/cli.ts";
 
-interface RecordedCall { op: OperationName; input: unknown }
+interface RecordedCall {
+	op: OperationName;
+	input: unknown;
+}
 
-function fakeDeps(overrides: {
-	call?: (op: OperationName, input: unknown) => unknown;
-} & Partial<Omit<CliDependencies, "client">> = {}): { deps: CliDependencies; calls: string[]; operations: RecordedCall[] } {
+function fakeDeps(
+	overrides: {
+		call?: (op: OperationName, input: unknown) => unknown;
+	} & Partial<Omit<CliDependencies, "client">> = {},
+): { deps: CliDependencies; calls: string[]; operations: RecordedCall[] } {
 	const calls: string[] = [];
 	const operations: RecordedCall[] = [];
 	const deps: CliDependencies = {
@@ -20,7 +25,9 @@ function fakeDeps(overrides: {
 		stderr: (line) => calls.push(`stderr:${line}`),
 		systemctl: (...args) => calls.push(`systemctl:${args.join(" ")}`),
 		installService: () => calls.push("install"),
-		serve: () => { calls.push("serve"); },
+		serve: () => {
+			calls.push("serve");
+		},
 		readEvalScript: () => "1+1",
 		...overrides,
 	};
@@ -52,7 +59,8 @@ describe("renderSystemdUnit", () => {
 
 	test("omits a key's own Environment= line when its value is undefined or empty", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			searchApiKeys: { BRAVE_SEARCH_API_KEY: undefined, TAVILY_API_KEY: "", EXA_API_KEY: undefined },
 		});
 		expect(unit).not.toContain("BRAVE_SEARCH_API_KEY");
@@ -62,7 +70,8 @@ describe("renderSystemdUnit", () => {
 
 	test("renders one Environment= line per configured key, between ExecStart and Restart", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			searchApiKeys: { TAVILY_API_KEY: "test-tavily-key", EXA_API_KEY: "test-exa-key" },
 		});
 		expect(unit).toContain('Environment="TAVILY_API_KEY=test-tavily-key"');
@@ -77,7 +86,8 @@ describe("renderSystemdUnit", () => {
 
 	test("escapes backslashes and double quotes in a key value", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			searchApiKeys: { BRAVE_SEARCH_API_KEY: 'weird"value\\with-escapes' },
 		});
 		expect(unit).toContain('Environment="BRAVE_SEARCH_API_KEY=weird\\"value\\\\with-escapes"');
@@ -85,7 +95,8 @@ describe("renderSystemdUnit", () => {
 
 	test("forwards SERPER_API_KEY and SERPAPI_API_KEY, same as the other providers", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			searchApiKeys: { SERPER_API_KEY: "test-serper-key", SERPAPI_API_KEY: "test-serpapi-key" },
 		});
 		expect(unit).toContain('Environment="SERPER_API_KEY=test-serper-key"');
@@ -94,7 +105,8 @@ describe("renderSystemdUnit", () => {
 
 	test("forwards WEB_SPIDER_USE_ENIGMA and ENIGMA_CLIENT_TOKEN, same as the search API keys", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1", ENIGMA_CLIENT_TOKEN: "test-enigma-token" },
 		});
 		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
@@ -103,7 +115,8 @@ describe("renderSystemdUnit", () => {
 
 	test("omits ENIGMA_CLIENT_TOKEN when WEB_SPIDER_USE_ENIGMA is set but no token is supplied (e.g. relying on Enigma's shared admin-token file)", () => {
 		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts",
+			bunBin: "/usr/bin/bun",
+			cliPath: "/opt/web-spider/cli.ts",
 			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1" },
 		});
 		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
@@ -174,7 +187,10 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 
 	test("--format/--query/--enhanced/--token-budget/--path/--top-n are all forwarded", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ tag: "code", path: "a.b", text: "x" }) });
-		await runCli(["fetch", "https://x.test", "--format", "tree", "--path", "a.b", "--top-n", "3", "--enhanced", "--token-budget", "500"], deps);
+		await runCli(
+			["fetch", "https://x.test", "--format", "tree", "--path", "a.b", "--top-n", "3", "--enhanced", "--token-budget", "500"],
+			deps,
+		);
 		expect(operations[0]?.input).toMatchObject({ format: "tree", path: "a.b", topN: 3, enhanced: true, tokenBudget: 500 });
 	});
 
@@ -185,7 +201,7 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 
 		const { deps: withoutFlag, operations: withoutFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test"], withoutFlag);
-		expect((withoutFlagOps[0]?.input as { ignoreRobots?: boolean }).ignoreRobots).toBeUndefined();
+		expect((withoutFlagOps[0]!.input as { ignoreRobots?: boolean }).ignoreRobots).toBeUndefined();
 	});
 
 	test("--ignore-robots also forwards to a crawl (depth > 0), same shared flag", async () => {
@@ -201,7 +217,9 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 	});
 
 	test("without --json, a human-readable summary is printed instead of raw JSON", async () => {
-		const { deps, calls } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X Article", markdown: "hello", wordCount: 1, cache: "miss" }) });
+		const { deps, calls } = fakeDeps({
+			call: () => ({ url: "https://x.test", title: "X Article", markdown: "hello", wordCount: 1, cache: "miss" }),
+		});
 		await runCli(["fetch", "https://x.test"], deps);
 		expect(calls[0]).toContain("X Article");
 		expect(calls[0]).not.toBe(JSON.stringify({ url: "https://x.test" }));
@@ -220,7 +238,11 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 	});
 
 	test("a client/daemon error is reported to stderr with exit code 1, not thrown", async () => {
-		const { deps, calls } = fakeDeps({ call: () => { throw new Error("Web Spider daemon is not running; install or start web-spider.service"); } });
+		const { deps, calls } = fakeDeps({
+			call: () => {
+				throw new Error("Web Spider daemon is not running; install or start web-spider.service");
+			},
+		});
 		expect(await runCli(["fetch", "https://x.test"], deps)).toBe(1);
 		expect(calls).toEqual(["stderr:Web Spider daemon is not running; install or start web-spider.service"]);
 	});
@@ -230,7 +252,12 @@ describe("runCli search", () => {
 	test("forwards query and flags to the search operation", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ query: "q", results: [] }) });
 		await runCli(["search", "rate limiting", "--num-results", "5", "--engine", "serper", "--time-range", "month"], deps);
-		expect(operations).toEqual([{ op: "search", input: expect.objectContaining({ query: "rate limiting", numResults: 5, searchEngine: "serper", timeRange: "month" }) }]);
+		expect(operations).toEqual([
+			{
+				op: "search",
+				input: expect.objectContaining({ query: "rate limiting", numResults: 5, searchEngine: "serper", timeRange: "month" }),
+			},
+		]);
 	});
 
 	test("forwards --site-filter to the search operation", async () => {
@@ -326,7 +353,7 @@ describe("runCli papyrus ingest", () => {
 	test("supports multiple urls in one call", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ ingested: [], skipped: [] }) });
 		await runCli(["papyrus", "ingest", "https://a.test", "https://b.test"], deps);
-		expect((operations[0]?.input as { urls: string[] }).urls).toEqual(["https://a.test", "https://b.test"]);
+		expect((operations[0]!.input as { urls: string[] }).urls).toEqual(["https://a.test", "https://b.test"]);
 	});
 
 	test("missing url prints usage", async () => {
@@ -342,14 +369,23 @@ describe("runCli papyrus ingest", () => {
 	});
 
 	test("human output reports ingested and skipped urls", async () => {
-		const { deps, calls } = fakeDeps({ call: () => ({ ingested: [{ url: "https://x.test", docId: "doc-1" }], skipped: [{ url: "https://y.test", reason: "not cached — fetch it first, then ingest" }] }) });
+		const { deps, calls } = fakeDeps({
+			call: () => ({
+				ingested: [{ url: "https://x.test", docId: "doc-1" }],
+				skipped: [{ url: "https://y.test", reason: "not cached — fetch it first, then ingest" }],
+			}),
+		});
 		await runCli(["papyrus", "ingest", "https://x.test", "https://y.test"], deps);
 		expect(calls[0]).toContain("doc-1");
 		expect(calls[0]).toContain("not cached");
 	});
 
 	test("a Papyrus-unreachable error is reported to stderr with exit code 1", async () => {
-		const { deps, calls } = fakeDeps({ call: () => { throw new Error("Papyrus daemon is not running; install/start papyrus.service"); } });
+		const { deps, calls } = fakeDeps({
+			call: () => {
+				throw new Error("Papyrus daemon is not running; install/start papyrus.service");
+			},
+		});
 		expect(await runCli(["papyrus", "ingest", "https://x.test"], deps)).toBe(1);
 		expect(calls).toEqual(["stderr:Papyrus daemon is not running; install/start papyrus.service"]);
 	});
@@ -357,15 +393,19 @@ describe("runCli papyrus ingest", () => {
 
 describe("runCli session create/list/close", () => {
 	test("create forwards the name and forceChromeChannel:undefined by default", async () => {
-		const { deps, operations } = fakeDeps({ call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }) });
+		const { deps, operations } = fakeDeps({
+			call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }),
+		});
 		await runCli(["session", "create", "agent1"], deps);
 		expect(operations).toEqual([{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined } }]);
 	});
 
 	test("create forwards forceChromeChannel:true with --force-chrome-channel", async () => {
-		const { deps, operations } = fakeDeps({ call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }) });
+		const { deps, operations } = fakeDeps({
+			call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }),
+		});
 		await runCli(["session", "create", "agent1", "--force-chrome-channel"], deps);
-		expect((operations[0]?.input as { forceChromeChannel: boolean }).forceChromeChannel).toBe(true);
+		expect((operations[0]!.input as { forceChromeChannel: boolean }).forceChromeChannel).toBe(true);
 	});
 
 	test("create missing name prints usage", async () => {
@@ -405,13 +445,32 @@ describe("runCli session act", () => {
 	test("navigate forwards url/snapshotVersion/action, with no script/text/select fields at all", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "navigate", snapshotVersion: 1 }) });
 		await runCli(["session", "act", "a", "--action", "navigate", "--snapshot-version", "0", "--url", "https://x.test"], deps);
-		expect(operations).toEqual([{ op: "session.act", input: { name: "a", action: "navigate", snapshotVersion: 0, timeoutMs: undefined, url: "https://x.test", selector: undefined, script: undefined, text: undefined, clear: undefined, value: undefined, label: undefined, loadState: undefined, state: undefined } }]);
+		expect(operations).toEqual([
+			{
+				op: "session.act",
+				input: {
+					name: "a",
+					action: "navigate",
+					snapshotVersion: 0,
+					timeoutMs: undefined,
+					url: "https://x.test",
+					selector: undefined,
+					script: undefined,
+					text: undefined,
+					clear: undefined,
+					value: undefined,
+					label: undefined,
+					loadState: undefined,
+					state: undefined,
+				},
+			},
+		]);
 	});
 
 	test("click forwards the selector", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "click", snapshotVersion: 0 }) });
 		await runCli(["session", "act", "a", "--action", "click", "--snapshot-version", "0", "--selector", "#go"], deps);
-		expect((operations[0]?.input as { selector: string }).selector).toBe("#go");
+		expect((operations[0]!.input as { selector: string }).selector).toBe("#go");
 	});
 
 	test("hover forwards the selector", async () => {
@@ -425,7 +484,10 @@ describe("runCli session act", () => {
 		await runCli(["session", "act", "a", "--action", "pressKey", "--snapshot-version", "0", "--key", "Enter"], deps);
 		expect(operations[0]?.input).toMatchObject({ key: "Enter", selector: undefined });
 
-		await runCli(["session", "act", "a", "--action", "pressKey", "--snapshot-version", "0", "--key", "Escape", "--selector", "#modal"], deps);
+		await runCli(
+			["session", "act", "a", "--action", "pressKey", "--snapshot-version", "0", "--key", "Escape", "--selector", "#modal"],
+			deps,
+		);
 		expect(operations[1]?.input).toMatchObject({ key: "Escape", selector: "#modal" });
 	});
 
@@ -437,7 +499,10 @@ describe("runCli session act", () => {
 
 	test("type with --no-clear forwards clear:false", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "type", snapshotVersion: 0 }) });
-		await runCli(["session", "act", "a", "--action", "type", "--snapshot-version", "0", "--selector", "#search", "--text", "E2", "--no-clear"], deps);
+		await runCli(
+			["session", "act", "a", "--action", "type", "--snapshot-version", "0", "--selector", "#search", "--text", "E2", "--no-clear"],
+			deps,
+		);
 		expect(operations[0]?.input).toMatchObject({ clear: false });
 	});
 
@@ -469,22 +534,46 @@ describe("runCli session act", () => {
 	});
 
 	test("queryText forwards the selector; human output prints the result", async () => {
-		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "queryText", snapshotVersion: 0, result: ["foo", "bar"] }) });
+		const { deps, operations, calls } = fakeDeps({
+			call: () => ({ name: "a", action: "queryText", snapshotVersion: 0, result: ["foo", "bar"] }),
+		});
 		await runCli(["session", "act", "a", "--action", "queryText", "--snapshot-version", "0", "--selector", "li"], deps);
 		expect(operations[0]?.input).toMatchObject({ selector: "li" });
 		expect(calls.some((c) => c.includes('["foo","bar"]'))).toBe(true);
 	});
 
 	test("readTable forwards the selector; human output prints the result", async () => {
-		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "readTable", snapshotVersion: 0, result: [["a", "b"]] }) });
+		const { deps, operations, calls } = fakeDeps({
+			call: () => ({ name: "a", action: "readTable", snapshotVersion: 0, result: [["a", "b"]] }),
+		});
 		await runCli(["session", "act", "a", "--action", "readTable", "--snapshot-version", "0", "--selector", "table"], deps);
 		expect(operations[0]?.input).toMatchObject({ selector: "table" });
 		expect(calls.some((c) => c.includes('[["a","b"]]'))).toBe(true);
 	});
 
 	test("snapshot forwards selector/depth/boxes/mode; human output prints the result", async () => {
-		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "snapshot", snapshotVersion: 0, result: '- heading "Title"' }) });
-		await runCli(["session", "act", "a", "--action", "snapshot", "--snapshot-version", "0", "--selector", "nav", "--depth", "2", "--boxes", "--mode", "ai"], deps);
+		const { deps, operations, calls } = fakeDeps({
+			call: () => ({ name: "a", action: "snapshot", snapshotVersion: 0, result: '- heading "Title"' }),
+		});
+		await runCli(
+			[
+				"session",
+				"act",
+				"a",
+				"--action",
+				"snapshot",
+				"--snapshot-version",
+				"0",
+				"--selector",
+				"nav",
+				"--depth",
+				"2",
+				"--boxes",
+				"--mode",
+				"ai",
+			],
+			deps,
+		);
 		expect(operations[0]?.input).toMatchObject({ selector: "nav", depth: 2, boxes: true, mode: "ai" });
 		expect(calls.some((c) => c.includes('heading \\"Title\\"'))).toBe(true);
 	});
@@ -515,13 +604,17 @@ describe("runCli session act", () => {
 
 	test("handleDialog with both --accept and --dismiss prints usage", async () => {
 		const { deps, calls } = fakeDeps();
-		expect(await runCli(["session", "act", "a", "--action", "handleDialog", "--snapshot-version", "0", "--accept", "--dismiss"], deps)).toBe(2);
+		expect(
+			await runCli(["session", "act", "a", "--action", "handleDialog", "--snapshot-version", "0", "--accept", "--dismiss"], deps),
+		).toBe(2);
 		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
 	});
 
 	test("downloads requires no extra flags; human output prints the result", async () => {
 		const record = { filename: "spec.pdf", path: "/tmp/spec.pdf", url: "https://x.test/spec.pdf", failure: null };
-		const { deps, operations, calls } = fakeDeps({ call: () => ({ name: "a", action: "downloads", snapshotVersion: 0, result: [record] }) });
+		const { deps, operations, calls } = fakeDeps({
+			call: () => ({ name: "a", action: "downloads", snapshotVersion: 0, result: [record] }),
+		});
 		await runCli(["session", "act", "a", "--action", "downloads", "--snapshot-version", "0"], deps);
 		expect(operations).toHaveLength(1);
 		expect(calls.some((c) => c.includes("spec.pdf"))).toBe(true);
@@ -544,40 +637,59 @@ describe("runCli session act", () => {
 
 	test("tabs forwards --tab-operation and --tab-index", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "tabs", snapshotVersion: 0, result: [] }) });
-		await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "1"], deps);
+		await runCli(
+			["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "1"],
+			deps,
+		);
 		expect(operations[0]?.input).toMatchObject({ tabOperation: "select", tabIndex: 1 });
 	});
 
 	test("tabs new forwards --url for the new tab", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "tabs", snapshotVersion: 0, result: {} }) });
-		await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "new", "--url", "https://x.test"], deps);
+		await runCli(
+			["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "new", "--url", "https://x.test"],
+			deps,
+		);
 		expect(operations[0]?.input).toMatchObject({ tabOperation: "new", url: "https://x.test" });
 	});
 
 	test("a non-numeric --tab-index prints usage", async () => {
 		const { deps, calls } = fakeDeps();
-		expect(await runCli(["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "nope"], deps)).toBe(2);
+		expect(
+			await runCli(
+				["session", "act", "a", "--action", "tabs", "--snapshot-version", "0", "--tab-operation", "select", "--tab-index", "nope"],
+				deps,
+			),
+		).toBe(2);
 		expect(calls.some((c) => c.startsWith("stderr:Usage:"))).toBe(true);
 	});
 
 	test("eval reads the script via deps.readEvalScript(scriptFile), never as a plain --script flag", async () => {
-		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }), readEvalScript: (file) => `script-from:${file}` });
+		const { deps, operations } = fakeDeps({
+			call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: 42 }),
+			readEvalScript: (file) => `script-from:${file}`,
+		});
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0", "--script-file", "/tmp/s.js"], deps);
-		expect((operations[0]?.input as { script: string }).script).toBe("script-from:/tmp/s.js");
+		expect((operations[0]!.input as { script: string }).script).toBe("script-from:/tmp/s.js");
 	});
 
 	test("eval with no --script-file reads from stdin via deps.readEvalScript(undefined)", async () => {
 		let seenArg: string | undefined = "unset";
 		const { deps } = fakeDeps({
 			call: () => ({ name: "a", action: "eval", snapshotVersion: 0 }),
-			readEvalScript: (file) => { seenArg = file; return "1+1"; },
+			readEvalScript: (file) => {
+				seenArg = file;
+				return "1+1";
+			},
 		});
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0"], deps);
 		expect(seenArg).toBeUndefined();
 	});
 
 	test("screenshot requires no url/selector/script", async () => {
-		const { deps, operations } = fakeDeps({ call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGk=" }) });
+		const { deps, operations } = fakeDeps({
+			call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGk=" }),
+		});
 		await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], deps);
 		expect(operations).toHaveLength(1);
 	});
@@ -601,17 +713,25 @@ describe("runCli session act", () => {
 	});
 
 	test("a stale-snapshot rejection from the daemon is reported to stderr with exit code 1", async () => {
-		const { deps, calls } = fakeDeps({ call: () => { throw new Error('session "a" snapshot version mismatch: caller supplied 0, current is 1'); } });
+		const { deps, calls } = fakeDeps({
+			call: () => {
+				throw new Error('session "a" snapshot version mismatch: caller supplied 0, current is 1');
+			},
+		});
 		expect(await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], deps)).toBe(1);
-		expect(calls).toEqual(["stderr:session \"a\" snapshot version mismatch: caller supplied 0, current is 1"]);
+		expect(calls).toEqual(['stderr:session "a" snapshot version mismatch: caller supplied 0, current is 1']);
 	});
 
 	test("human output for eval includes the result; for screenshot includes only a byte-length hint, never the image data", async () => {
-		const { deps: evalDeps, calls: evalCalls } = fakeDeps({ call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: { ok: true } }) });
+		const { deps: evalDeps, calls: evalCalls } = fakeDeps({
+			call: () => ({ name: "a", action: "eval", snapshotVersion: 0, result: { ok: true } }),
+		});
 		await runCli(["session", "act", "a", "--action", "eval", "--snapshot-version", "0"], evalDeps);
 		expect(evalCalls[0]).toContain('{"ok":true}');
 
-		const { deps: shotDeps, calls: shotCalls } = fakeDeps({ call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGVsbG8=" }) });
+		const { deps: shotDeps, calls: shotCalls } = fakeDeps({
+			call: () => ({ name: "a", action: "screenshot", snapshotVersion: 0, screenshotBase64: "aGVsbG8=" }),
+		});
 		await runCli(["session", "act", "a", "--action", "screenshot", "--snapshot-version", "0"], shotDeps);
 		expect(shotCalls[0]).not.toContain("aGVsbG8=");
 		expect(shotCalls[0]).toContain("base64 characters");

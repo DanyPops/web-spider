@@ -12,8 +12,8 @@ import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { resolveSearchEnv } from "./search-env.ts";
-import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
+import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
 
 const logger = createLogger("web-spider-daemon");
 

@@ -13,9 +13,16 @@
  *     — see domain/session-audit.ts's journalTargetFor()/boundedJournalError().
  */
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { SESSION_ACT_DEFAULT_TIMEOUT_MS, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH, SESSION_ACT_EXTRACT_MAX_ITEMS, SESSION_ACT_SCRIPT_MAX_LENGTH, SESSION_ACT_SNAPSHOT_MAX_LENGTH, SESSION_ACT_TEXT_MAX_LENGTH } from "./constants.ts";
-import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
+import {
+	SESSION_ACT_DEFAULT_TIMEOUT_MS,
+	SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH,
+	SESSION_ACT_EXTRACT_MAX_ITEMS,
+	SESSION_ACT_SCRIPT_MAX_LENGTH,
+	SESSION_ACT_SNAPSHOT_MAX_LENGTH,
+	SESSION_ACT_TEXT_MAX_LENGTH,
+} from "./constants.ts";
 import type { SessionInfo } from "./domain/session.ts";
+import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
 import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry } from "./ports/session-registry.ts";
 
@@ -87,7 +94,9 @@ export interface SessionActOutput {
 
 /** queryText/readTable: never an unbounded page dump — caps item count and per-item length. */
 function boundExtractedItems<T extends string | string[]>(items: T[]): T[] {
-	return items.slice(0, SESSION_ACT_EXTRACT_MAX_ITEMS).map((item) => (typeof item === "string" ? item.slice(0, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH) : item) as T);
+	return items
+		.slice(0, SESSION_ACT_EXTRACT_MAX_ITEMS)
+		.map((item) => (typeof item === "string" ? item.slice(0, SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH) : item) as T);
 }
 
 interface ActionRunResult {
@@ -206,7 +215,8 @@ const ACTION_HANDLERS: Record<SessionAction, ActionHandler> = {
 	},
 	snapshot: {
 		validate(input) {
-			if (input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0)) throw new Error("depth must be a non-negative integer");
+			if (input.depth !== undefined && (!Number.isInteger(input.depth) || input.depth < 0))
+				throw new Error("depth must be a non-negative integer");
 		},
 		async run(page, input) {
 			// Playwright's own default timeout for ariaSnapshot is 0 (no timeout) —
@@ -220,7 +230,9 @@ const ACTION_HANDLERS: Record<SessionAction, ActionHandler> = {
 				mode: input.mode,
 				timeoutMs: input.timeoutMs ?? SESSION_ACT_DEFAULT_TIMEOUT_MS,
 			});
-			return { result: tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree };
+			return {
+				result: tree.length > SESSION_ACT_SNAPSHOT_MAX_LENGTH ? `${tree.slice(0, SESSION_ACT_SNAPSHOT_MAX_LENGTH)}\n... [truncated]` : tree,
+			};
 		},
 	},
 	handleDialog: {
@@ -271,18 +283,24 @@ const ACTION_HANDLERS: Record<SessionAction, ActionHandler> = {
 		// replaces — left as a plain switch rather than a second registry.
 		async run(_page, input, registry, name) {
 			switch (input.tabOperation) {
-				case "list": return { result: await registry.listTabs(name) };
-				case "new": return { result: await registry.newTab(name, input.url) };
-				case "close": return { result: await registry.closeTab(name, input.tabIndex) };
-				case "select": return { result: await registry.selectTab(name, input.tabIndex as number) };
-				default: return {};
+				case "list":
+					return { result: await registry.listTabs(name) };
+				case "new":
+					return { result: await registry.newTab(name, input.url) };
+				case "close":
+					return { result: await registry.closeTab(name, input.tabIndex) };
+				case "select":
+					return { result: await registry.selectTab(name, input.tabIndex as number) };
+				default:
+					return {};
 			}
 		},
 	},
 	eval: {
 		validate(input) {
 			if (!input.script) throw new Error("script is required for an eval action");
-			if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH) throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
+			if (input.script.length > SESSION_ACT_SCRIPT_MAX_LENGTH)
+				throw new Error(`script exceeds ${SESSION_ACT_SCRIPT_MAX_LENGTH} characters`);
 		},
 		async run(page, input) {
 			return { result: await page.evaluate(input.script as string) };
@@ -315,7 +333,12 @@ export class SessionService {
 			this.logger?.debug("session_create", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
 			return info;
 		} catch (error) {
-			this.logger?.warn("session_create", { sessionName: input.name, outcome: "error", error: boundedJournalError(error), durationMs: this.now() - start });
+			this.logger?.warn("session_create", {
+				sessionName: input.name,
+				outcome: "error",
+				error: boundedJournalError(error),
+				durationMs: this.now() - start,
+			});
 			throw error;
 		}
 	}
@@ -331,14 +354,28 @@ export class SessionService {
 			this.logger?.debug("session_close", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
 			return { name: input.name, closed: true };
 		} catch (error) {
-			this.logger?.warn("session_close", { sessionName: input.name, outcome: "error", error: boundedJournalError(error), durationMs: this.now() - start });
+			this.logger?.warn("session_close", {
+				sessionName: input.name,
+				outcome: "error",
+				error: boundedJournalError(error),
+				durationMs: this.now() - start,
+			});
 			throw error;
 		}
 	}
 
 	async act(input: SessionActInput): Promise<SessionActOutput> {
 		const start = this.now();
-		const target = journalTargetFor(input.action, { url: input.url, selector: input.selector, loadState: input.loadState, text: input.action === "waitFor" ? input.text : undefined, accept: input.accept, key: input.key, tabOperation: input.tabOperation, tabIndex: input.tabIndex });
+		const target = journalTargetFor(input.action, {
+			url: input.url,
+			selector: input.selector,
+			loadState: input.loadState,
+			text: input.action === "waitFor" ? input.text : undefined,
+			accept: input.accept,
+			key: input.key,
+			tabOperation: input.tabOperation,
+			tabIndex: input.tabIndex,
+		});
 		// One structured event per act() call, success or failure — the counterpart
 		// to the audit journal below, which is deliberately content-free and not a
 		// substitute for operational logging. target/error are already redacted/

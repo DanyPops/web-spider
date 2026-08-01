@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PlaywrightHttpClient, createPlaywrightClient } from "../src/playwright.js";
+import { createPlaywrightClient, PlaywrightHttpClient } from "../src/playwright.js";
 import type { IHttpClient } from "../src/ports.js";
 
 // ---------------------------------------------------------------------------
@@ -16,11 +16,7 @@ import type { IHttpClient } from "../src/ports.js";
 // launching a browser. Mirrors the logic in playwright.ts fetch().
 // ---------------------------------------------------------------------------
 
-function shouldAbort(
-	resourceType: string,
-	acceptHeader: string,
-	captureImages: boolean,
-): boolean {
+function shouldAbort(resourceType: string, acceptHeader: string, captureImages: boolean): boolean {
 	const isImageFetch = acceptHeader.startsWith("image/");
 	if (resourceType === "font") return true;
 	if (["image", "media"].includes(resourceType) && !(captureImages && isImageFetch)) return true;
@@ -75,13 +71,10 @@ describe("Playwright route abort logic", () => {
 	});
 
 	describe("other resource types — never aborted", () => {
-		it.each(["document", "stylesheet", "script", "xhr", "fetch", "websocket"])(
-			"allows %s regardless of captureImages",
-			(type) => {
-				expect(shouldAbort(type, "", false)).toBe(false);
-				expect(shouldAbort(type, "", true)).toBe(false);
-			},
-		);
+		it.each(["document", "stylesheet", "script", "xhr", "fetch", "websocket"])("allows %s regardless of captureImages", (type) => {
+			expect(shouldAbort(type, "", false)).toBe(false);
+			expect(shouldAbort(type, "", true)).toBe(false);
+		});
 	});
 });
 

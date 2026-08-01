@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
-import { openWebSpiderDb } from "../src/db.ts";
 import { pageKey, SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { openWebSpiderDb } from "../src/db.ts";
 
 function page(overrides: Partial<SpideredPage> = {}): SpideredPage {
 	// Chunk ids are always "<url>#chunk-N" in production (spider.ts derives them
@@ -63,7 +63,9 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		store.set("https://a.example/1", page());
 		const hydrated = store.get("https://a.example/1");
 		expect(hydrated?.title).toBe("One");
-		expect(hydrated?.chunks).toEqual([{ id: "https://a.example/1#chunk-0", index: 0, heading: "One", text: "hello world", wordCount: 2, contentType: "text" }]);
+		expect(hydrated?.chunks).toEqual([
+			{ id: "https://a.example/1#chunk-0", index: 0, heading: "One", text: "hello world", wordCount: 2, contentType: "text" },
+		]);
 		expect(hydrated?.headings).toEqual([{ level: 1, text: "One" }]);
 		expect(store.has("https://a.example/1")).toBe(true);
 	});
@@ -78,7 +80,10 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 	test("set() on the same URL replaces chunks rather than accumulating them", () => {
 		const { store } = storeWithTmpDir();
 		store.set("https://a.example/1", page());
-		store.set("https://a.example/1", page({ chunks: [{ id: "x", index: 0, heading: "New", text: "new text", wordCount: 2, contentType: "text" }] }));
+		store.set(
+			"https://a.example/1",
+			page({ chunks: [{ id: "x", index: 0, heading: "New", text: "new text", wordCount: 2, contentType: "text" }] }),
+		);
 		const hydrated = store.get("https://a.example/1");
 		expect(hydrated?.chunks).toHaveLength(1);
 		expect(hydrated?.chunks[0]?.text).toBe("new text");
@@ -103,13 +108,16 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		const { store, imagesDir } = storeWithTmpDir();
 		const smallBase64 = Buffer.from("tiny").toString("base64");
 		const largeBase64 = Buffer.alloc(64 * 1024, 1).toString("base64"); // exceeds the 32 KB threshold
-		store.set("https://a.example/img", page({
-			url: "https://a.example/img",
-			images: [
-				{ src: "https://a.example/small.png", mimeType: "image/png", alt: "small", base64: smallBase64 },
-				{ src: "https://a.example/large.png", mimeType: "image/png", alt: "large", base64: largeBase64 },
-			],
-		}));
+		store.set(
+			"https://a.example/img",
+			page({
+				url: "https://a.example/img",
+				images: [
+					{ src: "https://a.example/small.png", mimeType: "image/png", alt: "small", base64: smallBase64 },
+					{ src: "https://a.example/large.png", mimeType: "image/png", alt: "large", base64: largeBase64 },
+				],
+			}),
+		);
 		const hydrated = store.get("https://a.example/img");
 		expect(hydrated?.images).toHaveLength(2);
 		const small = hydrated?.images?.find((i) => i.src === "https://a.example/small.png");
@@ -125,7 +133,13 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 	test("re-setting a page with images cleans up the previous spilled files", () => {
 		const { store, imagesDir } = storeWithTmpDir();
 		const largeBase64 = Buffer.alloc(64 * 1024, 2).toString("base64");
-		store.set("https://a.example/img", page({ url: "https://a.example/img", images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }] }));
+		store.set(
+			"https://a.example/img",
+			page({
+				url: "https://a.example/img",
+				images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
+			}),
+		);
 		const firstPath = store.get("https://a.example/img")?.images?.[0]?.filePath;
 		expect(firstPath).toBeDefined();
 		store.set("https://a.example/img", page({ url: "https://a.example/img" })); // no images this time
@@ -140,7 +154,10 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		store.set("https://a.example/1", page({ url: "https://a.example/1", fetchedAt: new Date(Date.now() - 3_000).toISOString() }));
 		store.set("https://a.example/2", page({ url: "https://a.example/2", fetchedAt: new Date(Date.now() - 2_000).toISOString() }));
 		store.set("https://a.example/3", page({ url: "https://a.example/3", fetchedAt: new Date(Date.now() - 1_000).toISOString() }));
-		const urls = store.values().map((p) => p.url).sort();
+		const urls = store
+			.values()
+			.map((p) => p.url)
+			.sort();
 		expect(urls).toEqual(["https://a.example/2", "https://a.example/3"]);
 	});
 
@@ -160,11 +177,14 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
 		const store = new SQLiteCacheStore(db, { imagesDir, maxSize: 2 });
 		const largeBase64 = Buffer.alloc(64 * 1024, 3).toString("base64");
-		store.set("https://a.example/1", page({
-			url: "https://a.example/1",
-			fetchedAt: new Date(Date.now() - 3_000).toISOString(),
-			images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
-		}));
+		store.set(
+			"https://a.example/1",
+			page({
+				url: "https://a.example/1",
+				fetchedAt: new Date(Date.now() - 3_000).toISOString(),
+				images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
+			}),
+		);
 		const evictedPath = store.get("https://a.example/1")?.images?.[0]?.filePath as string;
 		expect(evictedPath).toBeDefined();
 		expect(readFileSync(evictedPath)).toBeDefined(); // exists before eviction
@@ -182,10 +202,13 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
 		const store = new SQLiteCacheStore(db, { imagesDir, ttlMs: -1 }); // expires immediately
 		const largeBase64 = Buffer.alloc(64 * 1024, 4).toString("base64");
-		store.set("https://a.example/img", page({
-			url: "https://a.example/img",
-			images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
-		}));
+		store.set(
+			"https://a.example/img",
+			page({
+				url: "https://a.example/img",
+				images: [{ src: "https://a.example/large.png", mimeType: "image/png", alt: "", base64: largeBase64 }],
+			}),
+		);
 		// Read the spilled path directly from the DB (get() already excludes the
 		// already-expired row, so it can't be read back through the public API).
 		const filePathRow = db.query("SELECT file_path FROM images LIMIT 1").get() as { file_path: string };
@@ -222,11 +245,14 @@ describe("SQLiteCacheStore — list()", () => {
 		// Locks in the tool-contract requirement (design doc §3): cache.list must match
 		// today's pi-extension handleCacheListing() exactly, not a bare summary row.
 		const { store } = storeWithTmpDir();
-		store.set("https://a.example/1", page({
-			url: "https://a.example/1",
-			headings: [{ level: 1, text: "One" }],
-			links: [{ href: "https://a.example/body", text: "Body link", isExternal: false, rel: "body" }],
-		}));
+		store.set(
+			"https://a.example/1",
+			page({
+				url: "https://a.example/1",
+				headings: [{ level: 1, text: "One" }],
+				links: [{ href: "https://a.example/body", text: "Body link", isExternal: false, rel: "body" }],
+			}),
+		);
 		const result = store.list({});
 		const row = result.pages[0] as Record<string, unknown>;
 		expect(row.headings).toEqual(["# One"]);
@@ -341,8 +367,40 @@ describe("SQLiteCacheStore — search()", () => {
 		// Query text that appears only in chunk body text, not in either page's
 		// title/description/headings — isolates a chunk-body hit from a
 		// (correctly higher-ranked) metadata-field hit on the same terms.
-		store.set("https://a.example/1", page({ url: "https://a.example/1", title: "Rate limiting guide", chunks: [{ id: "https://a.example/1#chunk-0", index: 0, heading: "Throttling", text: "Requests are rate-limited per domain with exponential backoff.", wordCount: 9, contentType: "text" }] }));
-		store.set("https://a.example/2", page({ url: "https://a.example/2", title: "Unrelated", chunks: [{ id: "https://a.example/2#chunk-0", index: 0, heading: "Other", text: "Nothing to do with the query at all.", wordCount: 8, contentType: "text" }] }));
+		store.set(
+			"https://a.example/1",
+			page({
+				url: "https://a.example/1",
+				title: "Rate limiting guide",
+				chunks: [
+					{
+						id: "https://a.example/1#chunk-0",
+						index: 0,
+						heading: "Throttling",
+						text: "Requests are rate-limited per domain with exponential backoff.",
+						wordCount: 9,
+						contentType: "text",
+					},
+				],
+			}),
+		);
+		store.set(
+			"https://a.example/2",
+			page({
+				url: "https://a.example/2",
+				title: "Unrelated",
+				chunks: [
+					{
+						id: "https://a.example/2#chunk-0",
+						index: 0,
+						heading: "Other",
+						text: "Nothing to do with the query at all.",
+						wordCount: 8,
+						contentType: "text",
+					},
+				],
+			}),
+		);
 		const result = store.search("exponential backoff");
 		expect(result.pagesSearched).toBe(2);
 		expect(result.hits[0]?.url).toBe("https://a.example/1");

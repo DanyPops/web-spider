@@ -17,7 +17,15 @@ import { createLogger } from "@danypops/vehicle-server/logging";
 
 function capture() {
 	const lines: string[] = [];
-	return { lines, destination: { write: (chunk: string) => { lines.push(chunk); return true; } } };
+	return {
+		lines,
+		destination: {
+			write: (chunk: string) => {
+				lines.push(chunk);
+				return true;
+			},
+		},
+	};
 }
 
 describe("Web Spider daemon logging (via @danypops/vehicle-server's createLogger)", () => {
@@ -27,7 +35,7 @@ describe("Web Spider daemon logging (via @danypops/vehicle-server's createLogger
 		logger.error("checkpoint_failed", { message: "disk full" });
 		const event = JSON.parse(lines[0]!) as Record<string, unknown>;
 		expect(event).toMatchObject({ level: "error", component: "web-spider-daemon", msg: "checkpoint_failed", message: "disk full" });
-		expect(typeof event["timestamp"]).toBe("string");
+		expect(typeof event.timestamp).toBe("string");
 		expect(lines[0]).not.toContain("token");
 	});
 

@@ -31,15 +31,16 @@
  *   await h.shutdown();
  */
 
-import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { JITI_NATIVE_MODULES } from "./jiti-native-modules.ts";
 import type {
+	ExecOptions,
+	ExecResult,
 	ExtensionAPI,
 	ExtensionContext,
 	ExtensionFactory,
 	ExtensionHandler,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { JITI_NATIVE_MODULES } from "./jiti-native-modules.ts";
 
 // ── Jiti loader ───────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export async function loadExtensionViaJiti(
 }
 
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+
 // ReadonlySessionManager is not exported publicly; the harness only needs a stub.
 type ReadonlySessionManager = unknown;
 
@@ -232,10 +234,7 @@ export interface ExtensionHarness {
  * The factory is called immediately (synchronously) with a stub ExtensionAPI,
  * registering hooks and tools. boot() then fires "session_start".
  */
-export function createExtensionHarness(
-	factory: ExtensionFactory,
-	options: ExtensionHarnessOptions = {},
-): ExtensionHarness {
+export function createExtensionHarness(factory: ExtensionFactory, options: ExtensionHarnessOptions = {}): ExtensionHarness {
 	const cwd = options.cwd ?? process.cwd();
 
 	// ── Mutable state ────────────────────────────────────────────────────────

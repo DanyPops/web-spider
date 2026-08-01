@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { boundedJournalError, isSessionAction, journalTargetFor, sanitizeUrlForJournal, SESSION_ACTIONS } from "../src/domain/session-audit.ts";
+import {
+	boundedJournalError,
+	isSessionAction,
+	journalTargetFor,
+	SESSION_ACTIONS,
+	sanitizeUrlForJournal,
+} from "../src/domain/session-audit.ts";
 
 describe("sanitizeUrlForJournal", () => {
 	test("redacts sensitive query parameter values, keeps the rest of the URL intact", () => {

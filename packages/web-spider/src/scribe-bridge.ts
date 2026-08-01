@@ -1,4 +1,4 @@
-import type { SpideredPage, Chunk, Link } from "./types.js";
+import type { Chunk, SpideredPage } from "./types.js";
 
 export interface NDJSONRecord {
 	type: "node" | "edge" | "meta";

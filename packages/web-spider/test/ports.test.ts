@@ -73,13 +73,8 @@ describe("arrayBuffer() byte content", () => {
 	});
 
 	it("returns correct bytes from a known fixture", async () => {
-		const tinyPng = readFileSync(
-			join(import.meta.dirname, "../fixtures/images/tiny.png"),
-		);
-		const expected = tinyPng.buffer.slice(
-			tinyPng.byteOffset,
-			tinyPng.byteOffset + tinyPng.byteLength,
-		) as ArrayBuffer;
+		const tinyPng = readFileSync(join(import.meta.dirname, "../fixtures/images/tiny.png"));
+		const expected = tinyPng.buffer.slice(tinyPng.byteOffset, tinyPng.byteOffset + tinyPng.byteLength) as ArrayBuffer;
 
 		const response = makeStubResponse({
 			arrayBuffer: async () => expected,
@@ -111,18 +106,12 @@ describe("arrayBuffer() byte content", () => {
 
 describe("default fetch adapter arrayBuffer() via mock client", () => {
 	it("mock client that returns tiny.png bytes produces correct ArrayBuffer", async () => {
-		const tinyPng = readFileSync(
-			join(import.meta.dirname, "../fixtures/images/tiny.png"),
-		);
+		const tinyPng = readFileSync(join(import.meta.dirname, "../fixtures/images/tiny.png"));
 
 		const client: IHttpClient = {
 			fetch: async (_req) =>
 				makeStubResponse({
-					arrayBuffer: async () =>
-						tinyPng.buffer.slice(
-							tinyPng.byteOffset,
-							tinyPng.byteOffset + tinyPng.byteLength,
-						) as ArrayBuffer,
+					arrayBuffer: async () => tinyPng.buffer.slice(tinyPng.byteOffset, tinyPng.byteOffset + tinyPng.byteLength) as ArrayBuffer,
 				}),
 		};
 
@@ -135,18 +124,12 @@ describe("default fetch adapter arrayBuffer() via mock client", () => {
 	});
 
 	it("base64-encoding an ArrayBuffer from mock produces correct data URL prefix", async () => {
-		const tinyPng = readFileSync(
-			join(import.meta.dirname, "../fixtures/images/tiny.png"),
-		);
+		const tinyPng = readFileSync(join(import.meta.dirname, "../fixtures/images/tiny.png"));
 
 		const client: IHttpClient = {
 			fetch: async (_req) =>
 				makeStubResponse({
-					arrayBuffer: async () =>
-						tinyPng.buffer.slice(
-							tinyPng.byteOffset,
-							tinyPng.byteOffset + tinyPng.byteLength,
-						) as ArrayBuffer,
+					arrayBuffer: async () => tinyPng.buffer.slice(tinyPng.byteOffset, tinyPng.byteOffset + tinyPng.byteLength) as ArrayBuffer,
 				}),
 		};
 

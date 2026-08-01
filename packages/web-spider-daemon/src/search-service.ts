@@ -5,7 +5,15 @@
  * @danypops/web-spider's existing defaultSearchEngine()/resolveSearchEngine()
  * adapters rather than re-implementing provider calls.
  */
-import { defaultSearchEngine, resolveSearchEngine, type EngineFailureReason, type EngineUsage, type ISearchEngine, type SearchEngine, type WebSearchResult } from "@danypops/web-spider";
+import {
+	defaultSearchEngine,
+	type EngineFailureReason,
+	type EngineUsage,
+	type ISearchEngine,
+	resolveSearchEngine,
+	type SearchEngine,
+	type WebSearchResult,
+} from "@danypops/web-spider";
 import { SEARCH_DEFAULT_NUM_RESULTS, SEARCH_MAX_NUM_RESULTS_CEILING } from "./constants.ts";
 
 export interface WebSearchInput {
@@ -54,7 +62,11 @@ export type EngineUsageHandler = (engineName: string, usage: EngineUsage) => voi
  * (fallback, cooldown, usage reporting alike), same existing asymmetry as
  * onEngineFailure already has.
  */
-export function createEngineResolver(env: Record<string, string | undefined> = process.env, onEngineFailure?: EngineFailureHandler, onUsage?: EngineUsageHandler): EngineResolver {
+export function createEngineResolver(
+	env: Record<string, string | undefined> = process.env,
+	onEngineFailure?: EngineFailureHandler,
+	onUsage?: EngineUsageHandler,
+): EngineResolver {
 	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
 		if (!name) {

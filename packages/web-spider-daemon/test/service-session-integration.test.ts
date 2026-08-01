@@ -11,11 +11,13 @@ import { createApp, createWebSpiderService } from "../src/service.ts";
 const TOKEN = "test-token";
 
 async function post(app: { fetch(request: Request): Promise<Response> }, op: string, input: Record<string, unknown>) {
-	const response = await app.fetch(new Request("http://x/api/v1/ops", {
-		method: "POST",
-		headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-		body: JSON.stringify({ op, input }),
-	}));
+	const response = await app.fetch(
+		new Request("http://x/api/v1/ops", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+			body: JSON.stringify({ op, input }),
+		}),
+	);
 	return { status: response.status, body: (await response.json()) as { result?: unknown; error?: string } };
 }
 
@@ -30,7 +32,10 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			expect(info).toMatchObject({ name: "e2e", snapshotVersion: 0 });
 
 			const navigate = await post(app, "session.act", {
-				name: "e2e", snapshotVersion: 0, action: "navigate", url: "data:text/html,<button id='b'>hi</button>",
+				name: "e2e",
+				snapshotVersion: 0,
+				action: "navigate",
+				url: "data:text/html,<button id='b'>hi</button>",
 			});
 			expect(navigate.status).toBe(200);
 			expect((navigate.body.result as { snapshotVersion: number }).snapshotVersion).toBe(1);
@@ -45,7 +50,10 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			expect((click.body.result as { snapshotVersion: number }).snapshotVersion).toBe(1); // click never bumps it
 
 			const evalResult = await post(app, "session.act", {
-				name: "e2e", snapshotVersion: 1, action: "eval", script: "document.getElementById('b').textContent",
+				name: "e2e",
+				snapshotVersion: 1,
+				action: "eval",
+				script: "document.getElementById('b').textContent",
 			});
 			expect(evalResult.status).toBe(200);
 			expect((evalResult.body.result as { result: unknown }).result).toBe("hi");
@@ -83,11 +91,13 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 		const service = createWebSpiderService(":memory:");
 		const app = createApp({ service, token: TOKEN });
 		try {
-			const response = await app.fetch(new Request("http://x/api/v1/ops", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ op: "session.create", input: { name: "e2e" } }),
-			}));
+			const response = await app.fetch(
+				new Request("http://x/api/v1/ops", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ op: "session.create", input: { name: "e2e" } }),
+				}),
+			);
 			expect(response.status).toBe(401);
 			const list = await post(app, "session.list", {});
 			expect((list.body.result as { sessions: unknown[] }).sessions).toHaveLength(0);

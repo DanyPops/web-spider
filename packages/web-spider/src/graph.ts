@@ -94,18 +94,16 @@ export class PageGraph {
 
 	/** Pages with no inbound links — entry points to the graph. */
 	roots(): PageNode[] {
-		return Object.values(this.nodes)
-			.filter((n): n is PageNode => n !== undefined && (this.in_[n.url] ?? []).length === 0);
+		return Object.values(this.nodes).filter((n): n is PageNode => n !== undefined && (this.in_[n.url] ?? []).length === 0);
 	}
 
 	/** Pages with no outbound links to other spidered nodes. */
 	sinks(): PageNode[] {
-		return Object.values(this.nodes)
-			.filter((n): n is PageNode => {
-				if (!n) return false;
-				const edges = this.out[n.url] ?? [];
-				return !edges.some((e) => e.to in this.nodes);
-			});
+		return Object.values(this.nodes).filter((n): n is PageNode => {
+			if (!n) return false;
+			const edges = this.out[n.url] ?? [];
+			return !edges.some((e) => e.to in this.nodes);
+		});
 	}
 
 	/** BFS shortest path between two page URLs. Returns null if unreachable. */

@@ -60,10 +60,7 @@ describe("toMarkdown() keepImages flag", () => {
 	});
 
 	it("8. absolute URL src is preserved as-is", () => {
-		const md = toMarkdown(
-			'<img src="https://example.com/photo.jpg" alt="Remote">',
-			{ keepImages: true },
-		);
+		const md = toMarkdown('<img src="https://example.com/photo.jpg" alt="Remote">', { keepImages: true });
 		expect(md).toContain("https://example.com/photo.jpg");
 	});
 });

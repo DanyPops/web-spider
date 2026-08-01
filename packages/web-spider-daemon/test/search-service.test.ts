@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "@danypops/web-spider";
-import { createEngineResolver, WebSearchService } from "../src/search-service.ts";
 import { SEARCH_MAX_NUM_RESULTS_CEILING } from "../src/constants.ts";
+import { createEngineResolver, WebSearchService } from "../src/search-service.ts";
 
 class FakeEngine implements ISearchEngine {
 	public lastQuery?: SearchQuery;
@@ -44,7 +44,10 @@ describe("WebSearchService", () => {
 	test("passes the requested engine name to the resolver", async () => {
 		const engine = new FakeEngine();
 		const requestedNames: Array<string | undefined> = [];
-		const service = new WebSearchService((name) => { requestedNames.push(name); return engine; });
+		const service = new WebSearchService((name) => {
+			requestedNames.push(name);
+			return engine;
+		});
 		await service.search({ query: "x", searchEngine: "tavily" });
 		expect(requestedNames).toEqual(["tavily"]);
 	});
@@ -84,14 +87,14 @@ describe("createEngineResolver", () => {
 		// Guards the trust-boundary note: an explicit env object is authoritative.
 		// Prove it by planting a real key in process.env and confirming an
 		// explicit empty env still resolves as unconfigured.
-		const previous = process.env["BRAVE_SEARCH_API_KEY"];
-		process.env["BRAVE_SEARCH_API_KEY"] = "ambient-key-should-be-ignored";
+		const previous = process.env.BRAVE_SEARCH_API_KEY;
+		process.env.BRAVE_SEARCH_API_KEY = "ambient-key-should-be-ignored";
 		try {
 			const resolver = createEngineResolver({});
 			expect(() => resolver("brave")).toThrow(/BRAVE_SEARCH_API_KEY not set/);
 		} finally {
-			if (previous === undefined) delete process.env["BRAVE_SEARCH_API_KEY"];
-			else process.env["BRAVE_SEARCH_API_KEY"] = previous;
+			if (previous === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+			else process.env.BRAVE_SEARCH_API_KEY = previous;
 		}
 	});
 
@@ -122,20 +125,23 @@ describe("createEngineResolver", () => {
 		// isolation in exactly this case (caught by a real CI failure: a test
 		// planting only TAVILY_API_KEY in an explicit env object still picked up
 		// whatever the ambient process.env happened to have configured).
-		const previousBrave = process.env["BRAVE_SEARCH_API_KEY"];
-		const previousTavily = process.env["TAVILY_API_KEY"];
-		process.env["BRAVE_SEARCH_API_KEY"] = "ambient-key-should-be-ignored";
-		delete process.env["TAVILY_API_KEY"];
+		const previousBrave = process.env.BRAVE_SEARCH_API_KEY;
+		const previousTavily = process.env.TAVILY_API_KEY;
+		process.env.BRAVE_SEARCH_API_KEY = "ambient-key-should-be-ignored";
+		delete process.env.TAVILY_API_KEY;
 		try {
 			// If the ambient BRAVE key leaked in, the auto-detect chain would include
 			// two engines (brave + tavily) and report a "rotation-group" failure
 			// instead of staying on the single explicitly-configured tavily engine.
 			const calls: Array<{ name: string }> = [];
-			const resolver = createEngineResolver({ TAVILY_API_KEY: "explicit-key" }, (name) => { calls.push({ name }); });
+			const resolver = createEngineResolver({ TAVILY_API_KEY: "explicit-key" }, (name) => {
+				calls.push({ name });
+			});
 			const engine = resolver();
 
 			const originalFetch = globalThis.fetch;
-			globalThis.fetch = (async (_input: string | URL | Request) => new Response("error", { status: 500, statusText: "Internal Server Error" })) as typeof fetch;
+			globalThis.fetch = (async (_input: string | URL | Request) =>
+				new Response("error", { status: 500, statusText: "Internal Server Error" })) as typeof fetch;
 			try {
 				await expect(engine.search({ query: "x" })).rejects.toThrow();
 			} finally {
@@ -144,21 +150,24 @@ describe("createEngineResolver", () => {
 
 			expect(calls[0]).toEqual({ name: "tavily" });
 		} finally {
-			if (previousBrave === undefined) delete process.env["BRAVE_SEARCH_API_KEY"];
-			else process.env["BRAVE_SEARCH_API_KEY"] = previousBrave;
-			if (previousTavily !== undefined) process.env["TAVILY_API_KEY"] = previousTavily;
+			if (previousBrave === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+			else process.env.BRAVE_SEARCH_API_KEY = previousBrave;
+			if (previousTavily !== undefined) process.env.TAVILY_API_KEY = previousTavily;
 		}
 	});
 
 	test("forwards onEngineFailure so a degraded engine is reported with its real name", async () => {
 		const calls: Array<{ name: string; reason: string }> = [];
-		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, (name, _error, reason) => { calls.push({ name, reason }); });
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, (name, _error, reason) => {
+			calls.push({ name, reason });
+		});
 		const engine = resolver();
 
 		const originalFetch = globalThis.fetch;
 		// 432 is Tavily's quota-exhaustion status, not a short-lived rate limit --
 		// classified as reason "quota" (isLikelyQuotaExceededError), not "error".
-		globalThis.fetch = (async (_input: string | URL | Request) => new Response("rate limited", { status: 432, statusText: "Usage Limit Exceeded" })) as typeof fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) =>
+			new Response("rate limited", { status: 432, statusText: "Usage Limit Exceeded" })) as typeof fetch;
 		try {
 			await expect(engine.search({ query: "x" })).rejects.toThrow();
 		} finally {
@@ -170,11 +179,14 @@ describe("createEngineResolver", () => {
 
 	test("forwards onUsage so a successful call's own usage is reported with its real engine name", async () => {
 		const calls: Array<{ name: string; usage: unknown }> = [];
-		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, undefined, (name, usage) => { calls.push({ name, usage }); });
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "fake-key" }, undefined, (name, usage) => {
+			calls.push({ name, usage });
+		});
 		const engine = resolver();
 
 		const originalFetch = globalThis.fetch;
-		globalThis.fetch = (async (_input: string | URL | Request) => new Response(JSON.stringify({ results: [], usage: { credits: 1 } }), { status: 200 })) as typeof fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) =>
+			new Response(JSON.stringify({ results: [], usage: { credits: 1 } }), { status: 200 })) as typeof fetch;
 		try {
 			await engine.search({ query: "x" });
 		} finally {

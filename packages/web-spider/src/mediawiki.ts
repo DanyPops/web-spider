@@ -64,7 +64,11 @@ async function fetchJson<T>(url: string, httpClient: IHttpClient, timeoutMs: num
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		const res = await httpClient.fetch({ url, signal: controller.signal, headers: { "User-Agent": userAgent, Accept: "application/json" } });
+		const res = await httpClient.fetch({
+			url,
+			signal: controller.signal,
+			headers: { "User-Agent": userAgent, Accept: "application/json" },
+		});
 		if (!res.ok) return null;
 		const contentType = res.headers.get("content-type");
 		if (contentType && !contentType.toLowerCase().includes("json")) return null;
@@ -114,7 +118,11 @@ export function extractWikiPageTitle(url: string): string | null {
  * unrelated api.php file, or a soft-404 that returns 200 with something
  * that isn't valid siteinfo JSON at all).
  */
-export async function detectMediaWiki(url: string, httpClient: IHttpClient, options: MediaWikiProbeOptions = {}): Promise<MediaWikiSiteInfo | null> {
+export async function detectMediaWiki(
+	url: string,
+	httpClient: IHttpClient,
+	options: MediaWikiProbeOptions = {},
+): Promise<MediaWikiSiteInfo | null> {
 	let origin: string;
 	try {
 		origin = new URL(url).origin;

@@ -161,9 +161,7 @@ export class DiskCache implements ICache<string, SpideredPage> {
 		for (const [k, v] of Object.entries(this.store)) {
 			if (!v || v.expiresAt <= now) continue;
 			const page = v.page;
-			const serialised: SpideredPage = page.images
-				? { ...page, images: this.spill(page.images) }
-				: page;
+			const serialised: SpideredPage = page.images ? { ...page, images: this.spill(page.images) } : page;
 			entries[k] = { page: serialised, expiresAt: v.expiresAt };
 		}
 		const payload: DiskPayload = { v: SCHEMA_VERSION, entries };
@@ -177,11 +175,7 @@ export class DiskCache implements ICache<string, SpideredPage> {
 
 			// Reject files from incompatible schema versions (including old
 			// unversioned files that lack the "v" field entirely).
-			if (
-				typeof raw !== "object" ||
-				raw === null ||
-				(raw as { v?: unknown }).v !== SCHEMA_VERSION
-			) {
+			if (typeof raw !== "object" || raw === null || (raw as { v?: unknown }).v !== SCHEMA_VERSION) {
 				return; // stale schema — start fresh, do not throw
 			}
 

@@ -10,24 +10,24 @@
  * the first connection attempt), drops the stale cache entry, and retries
  * once against a freshly re-resolved client.
  */
-import { createRetryingClient } from "@danypops/vehicle-client/daemon-client"
-import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js"
+import { createRetryingClient } from "@danypops/vehicle-client/daemon-client";
+import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js";
 
-type ClientConnector = () => Promise<WebSpiderClient>
+type ClientConnector = () => Promise<WebSpiderClient>;
 
-let connector: ClientConnector = () => connectOrStartWebSpiderClient()
-const retryingClient = createRetryingClient<WebSpiderClient>(() => connector(), { label: "Web Spider" })
+let connector: ClientConnector = () => connectOrStartWebSpiderClient();
+const retryingClient = createRetryingClient<WebSpiderClient>(() => connector(), { label: "Web Spider" });
 
 export async function callWebSpider<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
-  return retryingClient.call((client) => client.call<T>(operation, input))
+	return retryingClient.call((client) => client.call<T>(operation, input));
 }
 
 export function setWebSpiderClientConnectorForTests(value: ClientConnector): void {
-  connector = value
-  retryingClient.reset()
+	connector = value;
+	retryingClient.reset();
 }
 
 export function resetWebSpiderClientConnectorForTests(): void {
-  connector = () => connectOrStartWebSpiderClient()
-  retryingClient.reset()
+	connector = () => connectOrStartWebSpiderClient();
+	retryingClient.reset();
 }

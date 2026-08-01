@@ -35,9 +35,7 @@ describe("deriveMarkdownVariantUrl", () => {
 	});
 
 	it("preserves query strings and hash fragments", () => {
-		expect(deriveMarkdownVariantUrl("https://example.com/page.html?foo=bar#section")).toBe(
-			"https://example.com/page.md?foo=bar#section",
-		);
+		expect(deriveMarkdownVariantUrl("https://example.com/page.html?foo=bar#section")).toBe("https://example.com/page.md?foo=bar#section");
 	});
 
 	it("returns null for an invalid URL rather than throwing", () => {
@@ -49,7 +47,15 @@ function stubClient(routes: Record<string, { status: number; contentType: string
 	return {
 		async fetch(req) {
 			const route = routes[req.url];
-			if (!route) return { ok: false, status: 404, statusText: "Not Found", headers: { get: () => null }, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) };
+			if (!route)
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: { get: () => null },
+					text: async () => "",
+					arrayBuffer: async () => new ArrayBuffer(0),
+				};
 			return {
 				ok: route.status >= 200 && route.status < 300,
 				status: route.status,
@@ -65,7 +71,11 @@ function stubClient(routes: Record<string, { status: number; contentType: string
 describe("probeMarkdownVariant", () => {
 	it("finds a real .md sibling of the requested page", async () => {
 		const httpClient = stubClient({
-			"https://docs.aws.amazon.com/x/Welcome.md": { status: 200, contentType: "text/markdown; charset=utf-8", body: "# Welcome\n\nReal markdown content." },
+			"https://docs.aws.amazon.com/x/Welcome.md": {
+				status: 200,
+				contentType: "text/markdown; charset=utf-8",
+				body: "# Welcome\n\nReal markdown content.",
+			},
 		});
 		const result = await probeMarkdownVariant("https://docs.aws.amazon.com/x/Welcome.html", httpClient);
 		expect(result?.url).toBe("https://docs.aws.amazon.com/x/Welcome.md");
@@ -74,7 +84,12 @@ describe("probeMarkdownVariant", () => {
 
 	it("returns null when there is no sensible .md variant to try (no network call made)", async () => {
 		let called = false;
-		const httpClient: IHttpClient = { async fetch() { called = true; throw new Error("should not be called"); } };
+		const httpClient: IHttpClient = {
+			async fetch() {
+				called = true;
+				throw new Error("should not be called");
+			},
+		};
 		expect(await probeMarkdownVariant("https://example.com/file.pdf", httpClient)).toBeNull();
 		expect(called).toBe(false);
 	});

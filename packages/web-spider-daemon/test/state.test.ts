@@ -16,7 +16,12 @@ function tempEnv() {
 	return {
 		root,
 		paths: resolveWebSpiderPaths({
-			env: { XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_RUNTIME_DIR: join(root, "run"), XDG_CONFIG_HOME: join(root, "config") },
+			env: {
+				XDG_DATA_HOME: join(root, "data"),
+				XDG_STATE_HOME: join(root, "state"),
+				XDG_RUNTIME_DIR: join(root, "run"),
+				XDG_CONFIG_HOME: join(root, "config"),
+			},
 			home: root,
 			uid: 1000,
 		}),
@@ -86,6 +91,8 @@ describe("resolveLegacyCachePath", () => {
 	});
 
 	test("honors WEB_SPIDER_CACHE_PATH when set, matching the pi-extension's existing override", () => {
-		expect(resolveLegacyCachePath({ env: { WEB_SPIDER_CACHE_PATH: "/custom/pages.json" }, home: "/home/example" })).toBe("/custom/pages.json");
+		expect(resolveLegacyCachePath({ env: { WEB_SPIDER_CACHE_PATH: "/custom/pages.json" }, home: "/home/example" })).toBe(
+			"/custom/pages.json",
+		);
 	});
 });

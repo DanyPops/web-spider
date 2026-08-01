@@ -25,7 +25,7 @@ describe("createApp — authentication", () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/health", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		expect(response.status).toBe(200);
-		const body = await response.json() as { ok: boolean; version: string };
+		const body = (await response.json()) as { ok: boolean; version: string };
 		expect(body.ok).toBe(true);
 		expect(typeof body.version).toBe("string");
 	});
@@ -35,63 +35,73 @@ describe("createApp — operation discovery and dispatch", () => {
 	test("GET /api/v1/ops lists the registered operations", async () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/api/v1/ops", { headers: { authorization: `Bearer ${TOKEN}` } }));
-		const body = await response.json() as { operations: string[] };
+		const body = (await response.json()) as { operations: string[] };
 		expect(body.operations).toContain("cache.list");
 		expect(body.operations).toContain("cache.search");
 	});
 
 	test("POST /api/v1/ops executes a real operation end-to-end (cache.list on an empty store)", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: "cache.list", input: {} }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ op: "cache.list", input: {} }),
+			}),
+		);
 		expect(response.status).toBe(200);
-		const body = await response.json() as { result: { total: number; pages: unknown[] } };
+		const body = (await response.json()) as { result: { total: number; pages: unknown[] } };
 		expect(body.result.total).toBe(0);
 		expect(body.result.pages).toEqual([]);
 	});
 
 	test("POST /api/v1/ops executes cache.search end-to-end (empty store, no hits)", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: "cache.search", input: { query: "anything" } }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ op: "cache.search", input: { query: "anything" } }),
+			}),
+		);
 		expect(response.status).toBe(200);
-		const body = await response.json() as { result: { query: string; pagesSearched: number; hits: unknown[] } };
+		const body = (await response.json()) as { result: { query: string; pagesSearched: number; hits: unknown[] } };
 		expect(body.result).toEqual({ query: "anything", pagesSearched: 0, hits: [] });
 	});
 
 	test("POST /api/v1/ops rejects cache.search with a missing query as a 400", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: "cache.search", input: {} }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ op: "cache.search", input: {} }),
+			}),
+		);
 		expect(response.status).toBe(400);
 	});
 
 	test("POST /api/v1/ops rejects an unknown operation with 404", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: "does.not.exist", input: {} }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ op: "does.not.exist", input: {} }),
+			}),
+		);
 		expect(response.status).toBe(404);
 	});
 
 	test("POST /api/v1/ops rejects a missing op with 400", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ input: {} }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ input: {} }),
+			}),
+		);
 		expect(response.status).toBe(400);
 	});
 
@@ -112,18 +122,20 @@ describe("WebSpiderService.execute", () => {
 describe("createApp — search", () => {
 	test("POST /api/v1/ops rejects search with a missing query as a 400", async () => {
 		const { app: server } = app();
-		const response = await server.fetch(new Request("http://x/api/v1/ops", {
-			method: "POST",
-			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-			body: JSON.stringify({ op: "search", input: {} }),
-		}));
+		const response = await server.fetch(
+			new Request("http://x/api/v1/ops", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ op: "search", input: {} }),
+			}),
+		);
 		expect(response.status).toBe(400);
 	});
 
 	test("GET /api/v1/ops lists search alongside cache.list/cache.search", async () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/api/v1/ops", { headers: { authorization: `Bearer ${TOKEN}` } }));
-		const body = await response.json() as { operations: string[] };
+		const body = (await response.json()) as { operations: string[] };
 		expect(body.operations).toContain("search");
 	});
 });

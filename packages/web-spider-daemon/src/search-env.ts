@@ -34,7 +34,7 @@
  * search-key ...` takes effect on the daemon's next restart, same as an
  * Enigma registration change.
  */
-import { tryEnigmaCredential, tryEnigmaWhoAmI, type TryEnigmaCredential, type TryEnigmaWhoAmI } from "@danypops/enigma-client";
+import { type TryEnigmaCredential, type TryEnigmaWhoAmI, tryEnigmaCredential, tryEnigmaWhoAmI } from "@danypops/enigma-client";
 import { envKeyForEngine, listRegisteredSearchEngines } from "@danypops/web-spider";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
 import { resolveWebSpiderPaths } from "./state.ts";

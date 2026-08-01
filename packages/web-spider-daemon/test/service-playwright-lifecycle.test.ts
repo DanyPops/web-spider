@@ -11,10 +11,11 @@
  * Playwright's browser makes real network requests of its own, not routed
  * through the Node/Bun global fetch.
  */
-import { createServer, type Server } from "node:http";
+
 import { describe, expect, test } from "bun:test";
-import { PlaywrightHttpClient } from "@danypops/web-spider";
+import { createServer, type Server } from "node:http";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { PlaywrightHttpClient } from "@danypops/web-spider";
 import { createWebSpiderService } from "../src/service.ts";
 
 function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {
@@ -23,7 +24,9 @@ function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Recor
 		warnCalls,
 		debug: () => {},
 		info: () => {},
-		warn: (msg, fields) => { warnCalls.push({ msg, fields }); },
+		warn: (msg, fields) => {
+			warnCalls.push({ msg, fields });
+		},
 		error: () => {},
 	};
 }
@@ -45,7 +48,9 @@ function startFixtureServer(html: string): Promise<{ url: string; close: () => P
 describe("createWebSpiderService — Playwright client lifecycle", () => {
 	test("close() releases a real enhanced:true-launched browser rather than leaking it, and never throws", async () => {
 		const service = createWebSpiderService(":memory:");
-		const fixture = await startFixtureServer("<html><head><title>Enhanced</title></head><body><article><h1>Enhanced</h1><p>Real browser fetch content, long enough for readability to treat it as the main article body text here.</p></article></body></html>");
+		const fixture = await startFixtureServer(
+			"<html><head><title>Enhanced</title></head><body><article><h1>Enhanced</h1><p>Real browser fetch content, long enough for readability to treat it as the main article body text here.</p></article></body></html>",
+		);
 		try {
 			const result = (await service.execute("fetch", { url: fixture.url, enhanced: true })) as { markdown?: string };
 			expect(result.markdown).toContain("Real browser fetch content");
@@ -65,10 +70,14 @@ describe("createWebSpiderService — Playwright client lifecycle", () => {
 
 	test("a rejecting playwrightClient.close() during shutdown is logged, not silently swallowed", async () => {
 		const originalClose = PlaywrightHttpClient.prototype.close;
-		PlaywrightHttpClient.prototype.close = async () => { throw new Error("simulated browser.close() failure"); };
+		PlaywrightHttpClient.prototype.close = async () => {
+			throw new Error("simulated browser.close() failure");
+		};
 		const logger = fakeLogger();
 		const service = createWebSpiderService(":memory:", { logger });
-		const fixture = await startFixtureServer("<html><head><title>T</title></head><body><article><h1>T</h1><p>Enough real article body text for readability to treat this as the main content here.</p></article></body></html>");
+		const fixture = await startFixtureServer(
+			"<html><head><title>T</title></head><body><article><h1>T</h1><p>Enough real article body text for readability to treat this as the main content here.</p></article></body></html>",
+		);
 		try {
 			await service.execute("fetch", { url: fixture.url, enhanced: true });
 		} finally {
@@ -82,6 +91,9 @@ describe("createWebSpiderService — Playwright client lifecycle", () => {
 		await Promise.resolve();
 
 		PlaywrightHttpClient.prototype.close = originalClose;
-		expect(logger.warnCalls).toContainEqual({ msg: "playwright_close_failed", fields: { error: "Error: simulated browser.close() failure" } });
+		expect(logger.warnCalls).toContainEqual({
+			msg: "playwright_close_failed",
+			fields: { error: "Error: simulated browser.close() failure" },
+		});
 	}, 30_000);
 });

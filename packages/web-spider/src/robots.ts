@@ -39,7 +39,7 @@ function parse(text: string): ParsedRobots {
 				directives.push({ allow: true, path: value });
 			} else if (key === "crawl-delay") {
 				const s = parseFloat(value);
-				if (!isNaN(s) && s > 0) crawlDelayMs = Math.min(s * 1_000, 60_000);
+				if (!Number.isNaN(s) && s > 0) crawlDelayMs = Math.min(s * 1_000, 60_000);
 			}
 		}
 	}

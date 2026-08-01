@@ -5,8 +5,9 @@
  * documented as client-side defaults — a CLI or any other future caller must
  * not be able to request an unbounded crawl.
  */
-import { crawl, searchPages, type IHttpClient, type IRobotsChecker, type IThrottle } from "@danypops/web-spider";
+
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, searchPages } from "@danypops/web-spider";
 import {
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,
@@ -92,7 +93,10 @@ export class CrawlService {
 
 		if (format === "highlights") {
 			if (!input.query?.trim()) throw new Error("highlights format requires a query");
-			const hits = searchPages(pages, input.query, { topN: CRAWL_HIGHLIGHTS_DEFAULT_TOP_N, snippetRadius: FETCH_HIGHLIGHTS_SNIPPET_RADIUS });
+			const hits = searchPages(pages, input.query, {
+				topN: CRAWL_HIGHLIGHTS_DEFAULT_TOP_N,
+				snippetRadius: FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
+			});
 			return {
 				query: input.query,
 				pagesSearched: pages.length,
@@ -112,7 +116,9 @@ export class CrawlService {
 		return {
 			pagesFound: result.pages.size,
 			...errorsObj,
-			pages: pages.map((page) => omitEmpty({ url: page.url, title: page.title, description: page.description, wordCount: page.wordCount, tags: page.tags })),
+			pages: pages.map((page) =>
+				omitEmpty({ url: page.url, title: page.title, description: page.description, wordCount: page.wordCount, tags: page.tags }),
+			),
 		};
 	}
 }

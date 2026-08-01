@@ -14,7 +14,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { canonicalizeUrl, searchPages, type ImageRef, type SpideredPage } from "@danypops/web-spider";
+import { canonicalizeUrl, type ImageRef, type SpideredPage, searchPages } from "@danypops/web-spider";
 import {
 	CACHE_DEFAULT_INLINE_IMAGE_THRESHOLD,
 	CACHE_DEFAULT_MAX_ENTRIES,
@@ -24,11 +24,17 @@ import {
 	CACHE_SEARCH_DEFAULT_LIMIT,
 	CACHE_SEARCH_SNIPPET_RADIUS,
 } from "../constants.ts";
-import { leanOutput } from "../format.ts";
 import type {
-	CachedPageListFilter, CachedPageListResult, CachedPageSearchResult, CachedPageSortField, CachedPageSortOrder,
-	CategoryAssignmentResult, CategoryListResult, CategoryRenameResult,
+	CachedPageListFilter,
+	CachedPageListResult,
+	CachedPageSearchResult,
+	CachedPageSortField,
+	CachedPageSortOrder,
+	CategoryAssignmentResult,
+	CategoryListResult,
+	CategoryRenameResult,
 } from "../domain/page.ts";
+import { leanOutput } from "../format.ts";
 import type { CacheStore } from "../ports/cache-store.ts";
 
 export interface SQLiteCacheStoreOptions {
@@ -147,7 +153,10 @@ export class SQLiteCacheStore implements CacheStore {
 	private readonly imagesDir: string;
 	private readonly inlineImageThreshold: number;
 
-	constructor(private readonly db: Database, options: SQLiteCacheStoreOptions) {
+	constructor(
+		private readonly db: Database,
+		options: SQLiteCacheStoreOptions,
+	) {
 		this.ttlMs = options.ttlMs ?? CACHE_DEFAULT_TTL_MS;
 		this.maxSize = options.maxSize ?? CACHE_DEFAULT_MAX_ENTRIES;
 		this.imagesDir = options.imagesDir;
@@ -171,7 +180,8 @@ export class SQLiteCacheStore implements CacheStore {
 		const now = Date.now();
 		const expiresAt = now + this.ttlMs;
 		const tx = this.db.transaction(() => {
-			const row = this.db.query(`
+			const row = this.db
+				.query(`
 				INSERT INTO pages (
 					url_key, url, canonical_url, domain, title, description, author, published_at, lang,
 					tags, word_count, reading_time_minutes, headings, links, markdown, js_rendered, fetched_at, expires_at
@@ -184,28 +194,47 @@ export class SQLiteCacheStore implements CacheStore {
 					headings = excluded.headings, links = excluded.links, markdown = excluded.markdown,
 					js_rendered = excluded.js_rendered, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at
 				RETURNING id
-			`).get(
-				key, page.url, page.canonicalUrl ?? null, page.domain, page.title, page.description, page.author,
-				page.publishedAt, page.lang, JSON.stringify(page.tags), page.wordCount, page.readingTimeMinutes,
-				JSON.stringify(page.headings), JSON.stringify(page.links), page.markdown, page.jsRendered ? 1 : 0,
-				now, expiresAt,
-			) as { id: number };
+			`)
+				.get(
+					key,
+					page.url,
+					page.canonicalUrl ?? null,
+					page.domain,
+					page.title,
+					page.description,
+					page.author,
+					page.publishedAt,
+					page.lang,
+					JSON.stringify(page.tags),
+					page.wordCount,
+					page.readingTimeMinutes,
+					JSON.stringify(page.headings),
+					JSON.stringify(page.links),
+					page.markdown,
+					page.jsRendered ? 1 : 0,
+					now,
+					expiresAt,
+				) as { id: number };
 
 			this.db.query("DELETE FROM chunks WHERE page_id = ?").run(row.id);
 			for (const chunk of page.chunks) {
-				this.db.query(`
+				this.db
+					.query(`
 					INSERT INTO chunks (id, page_id, idx, heading, text, word_count, content_type)
 					VALUES (?, ?, ?, ?, ?, ?, ?)
-				`).run(chunk.id, row.id, chunk.index, chunk.heading, chunk.text, chunk.wordCount, chunk.contentType);
+				`)
+					.run(chunk.id, row.id, chunk.index, chunk.heading, chunk.text, chunk.wordCount, chunk.contentType);
 			}
 
 			this.removePageImageFiles([row.id]);
 			this.db.query("DELETE FROM images WHERE page_id = ?").run(row.id);
 			for (const image of this.spill(page.images ?? [])) {
-				this.db.query(`
+				this.db
+					.query(`
 					INSERT INTO images (page_id, src, mime_type, alt, base64, file_path)
 					VALUES (?, ?, ?, ?, ?, ?)
-				`).run(row.id, image.src, image.mimeType, image.alt, image.base64 ?? null, image.filePath ?? null);
+				`)
+					.run(row.id, image.src, image.mimeType, image.alt, image.base64 ?? null, image.filePath ?? null);
 			}
 
 			this.evict();
@@ -222,7 +251,9 @@ export class SQLiteCacheStore implements CacheStore {
 	}
 
 	values(): SpideredPage[] {
-		const rows = this.db.query("SELECT * FROM pages WHERE expires_at > ? ORDER BY fetched_at DESC LIMIT ?").all(Date.now(), this.maxSize) as PageRow[];
+		const rows = this.db
+			.query("SELECT * FROM pages WHERE expires_at > ? ORDER BY fetched_at DESC LIMIT ?")
+			.all(Date.now(), this.maxSize) as PageRow[];
 		return rows.map((row) => this.hydratePage(row));
 	}
 
@@ -248,7 +279,9 @@ export class SQLiteCacheStore implements CacheStore {
 			parameters.push(filter.tag.trim());
 		}
 		if (filter.category?.trim()) {
-			conditions.push("EXISTS (SELECT 1 FROM page_categories pc JOIN categories c ON c.id = pc.category_id WHERE pc.page_id = pages.id AND LOWER(c.name) = LOWER(?))");
+			conditions.push(
+				"EXISTS (SELECT 1 FROM page_categories pc JOIN categories c ON c.id = pc.category_id WHERE pc.page_id = pages.id AND LOWER(c.name) = LOWER(?))",
+			);
 			parameters.push(filter.category.trim());
 		}
 		if (filter.fetchedAfter !== undefined) {
@@ -273,13 +306,15 @@ export class SQLiteCacheStore implements CacheStore {
 		const offset = Math.max(0, Math.floor(filter.offset ?? 0));
 		const limit = Math.max(1, Math.min(CACHE_LIST_MAX_LIMIT, Math.floor(filter.limit ?? CACHE_LIST_DEFAULT_LIMIT)));
 		const orderBy = resolveOrderBy(filter.sortBy, filter.sortOrder);
-		const rows = this.db.query(`
+		const rows = this.db
+			.query(`
 			SELECT url, title, description, author, published_at, tags, word_count, headings, links, js_rendered
 			FROM pages
 			${where}
 			ORDER BY ${orderBy}
 			LIMIT ? OFFSET ?
-		`).all(...parameters, limit, offset) as PageListRow[];
+		`)
+			.all(...parameters, limit, offset) as PageListRow[];
 
 		return { total, filtered, offset, limit, pages: rows.map((row) => leanOutput(toLeanInput(row))) };
 	}
@@ -289,7 +324,10 @@ export class SQLiteCacheStore implements CacheStore {
 		if (!query.trim() || pages.length === 0) {
 			return { query, pagesSearched: pages.length, hits: [] };
 		}
-		const hits = searchPages(pages, query, { topN: opts.topN ?? CACHE_SEARCH_DEFAULT_LIMIT, snippetRadius: opts.snippetRadius ?? CACHE_SEARCH_SNIPPET_RADIUS });
+		const hits = searchPages(pages, query, {
+			topN: opts.topN ?? CACHE_SEARCH_DEFAULT_LIMIT,
+			snippetRadius: opts.snippetRadius ?? CACHE_SEARCH_SNIPPET_RADIUS,
+		});
 		return {
 			query,
 			pagesSearched: pages.length,
@@ -314,7 +352,9 @@ export class SQLiteCacheStore implements CacheStore {
 	// ── Categories ─────────────────────────────────────────────────────────────────────
 
 	private requirePageId(url: string): number {
-		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as { id: number } | null;
+		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as {
+			id: number;
+		} | null;
 		if (!row) throw new Error(`page not cached: ${url}`);
 		return row.id;
 	}
@@ -360,7 +400,11 @@ export class SQLiteCacheStore implements CacheStore {
 			// Merge: repoint every association from the old id to the surviving id, then drop the old row.
 			// INSERT OR IGNORE avoids a primary-key collision when a page already has both categories assigned.
 			const tx = this.db.transaction(() => {
-				this.db.query("INSERT OR IGNORE INTO page_categories (page_id, category_id) SELECT page_id, ? FROM page_categories WHERE category_id = ?").run(collision, categoryId);
+				this.db
+					.query(
+						"INSERT OR IGNORE INTO page_categories (page_id, category_id) SELECT page_id, ? FROM page_categories WHERE category_id = ?",
+					)
+					.run(collision, categoryId);
 				this.db.query("DELETE FROM categories WHERE id = ?").run(categoryId);
 			});
 			tx.immediate();
@@ -372,23 +416,29 @@ export class SQLiteCacheStore implements CacheStore {
 	}
 
 	listCategories(): CategoryListResult {
-		const rows = this.db.query(`
+		const rows = this.db
+			.query(`
 			SELECT c.id AS id, c.name AS name, COUNT(pc.page_id) AS page_count
 			FROM categories c
 			LEFT JOIN page_categories pc ON pc.category_id = c.id
 			GROUP BY c.id
 			ORDER BY c.name ASC
-		`).all() as Array<{ id: number; name: string; page_count: number }>;
+		`)
+			.all() as Array<{ id: number; name: string; page_count: number }>;
 		return { categories: rows.map((row) => ({ id: row.id, name: row.name, pageCount: row.page_count })) };
 	}
 
 	categoriesForUrl(url: string): string[] {
-		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as { id: number } | null;
+		const row = this.db.query("SELECT id FROM pages WHERE url_key = ? AND expires_at > ?").get(pageKey(url), Date.now()) as {
+			id: number;
+		} | null;
 		if (!row) return [];
-		const rows = this.db.query(`
+		const rows = this.db
+			.query(`
 			SELECT c.name AS name FROM page_categories pc JOIN categories c ON c.id = pc.category_id
 			WHERE pc.page_id = ? ORDER BY c.name ASC
-		`).all(row.id) as Array<{ name: string }>;
+		`)
+			.all(row.id) as Array<{ name: string }>;
 		return rows.map((r) => r.name);
 	}
 
@@ -400,7 +450,9 @@ export class SQLiteCacheStore implements CacheStore {
 
 	private evict(): void {
 		const idsToEvict = (
-			this.db.query("SELECT id FROM pages WHERE id NOT IN (SELECT id FROM pages ORDER BY fetched_at DESC LIMIT ?)").all(this.maxSize) as Array<{ id: number }>
+			this.db
+				.query("SELECT id FROM pages WHERE id NOT IN (SELECT id FROM pages ORDER BY fetched_at DESC LIMIT ?)")
+				.all(this.maxSize) as Array<{ id: number }>
 		).map((r) => r.id);
 		this.removePageImageFiles(idsToEvict);
 		this.db.query("DELETE FROM pages WHERE id NOT IN (SELECT id FROM pages ORDER BY fetched_at DESC LIMIT ?)").run(this.maxSize);
@@ -410,9 +462,15 @@ export class SQLiteCacheStore implements CacheStore {
 	private removePageImageFiles(pageIds: number[]): void {
 		if (pageIds.length === 0) return;
 		const placeholders = pageIds.map(() => "?").join(",");
-		const rows = this.db.query(`SELECT file_path FROM images WHERE page_id IN (${placeholders}) AND file_path IS NOT NULL`).all(...pageIds) as Array<{ file_path: string }>;
+		const rows = this.db
+			.query(`SELECT file_path FROM images WHERE page_id IN (${placeholders}) AND file_path IS NOT NULL`)
+			.all(...pageIds) as Array<{ file_path: string }>;
 		for (const row of rows) {
-			try { rmSync(row.file_path, { force: true }); } catch { /* best-effort */ }
+			try {
+				rmSync(row.file_path, { force: true });
+			} catch {
+				/* best-effort */
+			}
 		}
 	}
 
@@ -441,7 +499,13 @@ export class SQLiteCacheStore implements CacheStore {
 			if (row.base64) return { src: row.src, mimeType: row.mime_type, alt: row.alt, base64: row.base64 };
 			if (row.file_path && existsSync(row.file_path)) {
 				try {
-					return { src: row.src, mimeType: row.mime_type, alt: row.alt, base64: readFileSync(row.file_path).toString("base64"), filePath: row.file_path };
+					return {
+						src: row.src,
+						mimeType: row.mime_type,
+						alt: row.alt,
+						base64: readFileSync(row.file_path).toString("base64"),
+						filePath: row.file_path,
+					};
 				} catch {
 					return { src: row.src, mimeType: row.mime_type, alt: row.alt, filePath: row.file_path };
 				}
@@ -451,8 +515,12 @@ export class SQLiteCacheStore implements CacheStore {
 	}
 
 	private hydratePage(row: PageRow): SpideredPage {
-		const chunkRows = this.db.query("SELECT id, idx, heading, text, word_count, content_type FROM chunks WHERE page_id = ? ORDER BY idx").all(row.id) as ChunkRow[];
-		const imageRows = this.db.query("SELECT src, mime_type, alt, base64, file_path FROM images WHERE page_id = ?").all(row.id) as ImageRow[];
+		const chunkRows = this.db
+			.query("SELECT id, idx, heading, text, word_count, content_type FROM chunks WHERE page_id = ? ORDER BY idx")
+			.all(row.id) as ChunkRow[];
+		const imageRows = this.db
+			.query("SELECT src, mime_type, alt, base64, file_path FROM images WHERE page_id = ?")
+			.all(row.id) as ImageRow[];
 		return {
 			url: row.url,
 			domain: row.domain,
@@ -467,7 +535,14 @@ export class SQLiteCacheStore implements CacheStore {
 			wordCount: row.word_count,
 			readingTimeMinutes: row.reading_time_minutes,
 			headings: JSON.parse(row.headings) as SpideredPage["headings"],
-			chunks: chunkRows.map((c) => ({ id: c.id, index: c.idx, heading: c.heading, text: c.text, wordCount: c.word_count, contentType: c.content_type as SpideredPage["chunks"][number]["contentType"] })),
+			chunks: chunkRows.map((c) => ({
+				id: c.id,
+				index: c.idx,
+				heading: c.heading,
+				text: c.text,
+				wordCount: c.word_count,
+				contentType: c.content_type as SpideredPage["chunks"][number]["contentType"],
+			})),
 			links: JSON.parse(row.links) as SpideredPage["links"],
 			...(imageRows.length > 0 ? { images: this.hydrateImages(imageRows) } : {}),
 			markdown: row.markdown,

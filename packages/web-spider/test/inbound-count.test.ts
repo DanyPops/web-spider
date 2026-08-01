@@ -65,17 +65,16 @@ describe("LeanPage.inboundCount via PageGraph", () => {
 		const a = makePage("https://example.com/a", ["https://example.com/popular"]);
 		const b = makePage("https://example.com/b", ["https://example.com/popular"]);
 		const c = makePage("https://example.com/c", ["https://example.com/popular"]);
-		[target, a, b, c].forEach((p) => graph.addPage(p));
+		[target, a, b, c].forEach((p) => {
+			graph.addPage(p);
+		});
 		const lean = toLean(target, graph);
 		expect(lean.inboundCount).toBe(3);
 	});
 
 	it("inboundCount on a hub page is 0 (only outbound)", () => {
 		const graph = new PageGraph();
-		const hub = makePage("https://example.com", [
-			"https://example.com/a",
-			"https://example.com/b",
-		]);
+		const hub = makePage("https://example.com", ["https://example.com/a", "https://example.com/b"]);
 		graph.addPage(hub);
 		const lean = toLean(hub, graph);
 		expect(lean.inboundCount).toBe(0);
@@ -88,7 +87,9 @@ describe("LeanPage.inboundCount via PageGraph", () => {
 		const a = makePage("https://example.com/a", ["https://example.com/popular"]);
 		const b = makePage("https://example.com/b", ["https://example.com/popular"]);
 		const c = makePage("https://example.com/c", ["https://example.com/normal"]);
-		[popular, normal, a, b, c].forEach((p) => graph.addPage(p));
+		[popular, normal, a, b, c].forEach((p) => {
+			graph.addPage(p);
+		});
 
 		const popularLean = toLean(popular, graph);
 		const normalLean = toLean(normal, graph);

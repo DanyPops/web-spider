@@ -38,6 +38,7 @@ jobs:
           bun-version: latest
 
       - run: npm ci
+      - run: npm run lint:ci
 
       # Several tests (web-spider's lightpanda.test.ts, web-spider-daemon's
       # session/layout-check/contrast-check/service-playwright-lifecycle

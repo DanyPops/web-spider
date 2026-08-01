@@ -1,15 +1,14 @@
 import { Readability } from "@mozilla/readability";
 import { classifyContentType } from "./content-type.js";
 import { chunk, toMarkdown } from "./convert.js";
+import { queryGitHub } from "./github.js";
 import { probeLlmsTxt } from "./llms-txt.js";
 import { probeMarkdownVariant } from "./markdown-suffix.js";
 import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
-import { queryGitHub } from "./github.js";
-import type { ImageRef } from "./types.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "./parse.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "./ports.js";
 import { buildTree } from "./tree.js";
-import type { DOMNode, LeanPage, SpideredPage } from "./types.js";
+import type { DOMNode, ImageRef, LeanPage, SpideredPage } from "./types.js";
 import { toLean } from "./views.js";
 
 // ---------------------------------------------------------------------------
@@ -38,8 +37,6 @@ const defaultHttpClient: IHttpClient = {
 		};
 	},
 };
-
-
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -336,10 +333,14 @@ function buildNonHtmlPage(params: {
 	if (view === "lean") {
 		return {
 			view: "lean",
-			url, domain, fetchedAt, title,
+			url,
+			domain,
+			fetchedAt,
+			title,
 			lang: "",
 			tags: [],
-			wordCount, readingTimeMinutes,
+			wordCount,
+			readingTimeMinutes,
 			chunkCount: Math.max(0, Math.floor(wordCount / 150)),
 			headings: headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
 			links: [],
@@ -349,11 +350,20 @@ function buildNonHtmlPage(params: {
 
 	const chunks = chunk(text, url);
 	const base = {
-		url, domain, fetchedAt, title,
-		description: "", author: "", publishedAt: "", lang: "",
+		url,
+		domain,
+		fetchedAt,
+		title,
+		description: "",
+		author: "",
+		publishedAt: "",
+		lang: "",
 		tags: [],
-		wordCount, readingTimeMinutes,
-		headings, chunks, links: [],
+		wordCount,
+		readingTimeMinutes,
+		headings,
+		chunks,
+		links: [],
 		markdown: text,
 		...contentTypeField,
 	};
@@ -655,9 +665,7 @@ export async function spider(
 		const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
 		const wordCount = markdown.split(/\s+/).filter(Boolean).length;
 		const chunks = chunk(markdown, url);
-		const images = captureImages
-			? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
-			: undefined;
+		const images = captureImages ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle) : undefined;
 		return {
 			view: "tree",
 			url,
@@ -709,13 +717,9 @@ export async function spider(
 	}
 
 	// Reconstruct markdown from selected chunks for full-page consumers.
-	const finalMarkdown = tokenBudget !== undefined
-		? allChunks.map((c) => c.text).join("\n\n")
-		: markdown;
+	const finalMarkdown = tokenBudget !== undefined ? allChunks.map((c) => c.text).join("\n\n") : markdown;
 
-	const images = captureImages
-		? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle)
-		: undefined;
+	const images = captureImages ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle) : undefined;
 
 	return {
 		url,

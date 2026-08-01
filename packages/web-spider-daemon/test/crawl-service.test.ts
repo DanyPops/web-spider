@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
-import { openWebSpiderDb } from "../src/db.ts";
+import type { IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
-import { CrawlService } from "../src/crawl-service.ts";
 import { CRAWL_MAX_DEPTH_CEILING, CRAWL_MAX_PAGES_CEILING } from "../src/constants.ts";
+import { CrawlService } from "../src/crawl-service.ts";
+import { openWebSpiderDb } from "../src/db.ts";
 import { articleWithLinks, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const ROOT = "https://fixture.test/";
@@ -111,18 +111,31 @@ describe("CrawlService — robots.txt", () => {
 		const db = openWebSpiderDb(":memory:");
 		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
 		const cache = new SQLiteCacheStore(db, { imagesDir });
-		return new CrawlService({ cache, throttle: noopThrottle(), robotsCache, defaultHttpClient: httpClient, getPlaywrightClient: () => httpClient, logger });
+		return new CrawlService({
+			cache,
+			throttle: noopThrottle(),
+			robotsCache,
+			defaultHttpClient: httpClient,
+			getPlaywrightClient: () => httpClient,
+			logger,
+		});
 	}
 
 	test("a robots-blocked root page is recorded as a crawl error, not a crashed request", async () => {
-		const service = makeBlockedService(fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))), blockRobots());
+		const service = makeBlockedService(
+			fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))),
+			blockRobots(),
+		);
 		const result = await service.crawl({ url: ROOT, format: "lean", depth: 1 });
 		expect(result.pagesFound).toBe(0);
 		expect(result.errors).toBe(1);
 	});
 
 	test("ignoreRobots:true bypasses robots.txt for every page the crawl visits", async () => {
-		const service = makeBlockedService(fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))), blockRobots());
+		const service = makeBlockedService(
+			fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))),
+			blockRobots(),
+		);
 		const result = await service.crawl({ url: ROOT, format: "lean", depth: 2, maxPages: 10, ignoreRobots: true });
 		expect(result.pagesFound).toBeGreaterThanOrEqual(3);
 		expect(result.errors).toBeUndefined();
@@ -130,8 +143,20 @@ describe("CrawlService — robots.txt", () => {
 
 	test("ignoreRobots:true is logged (audited, not silent)", async () => {
 		const lines: string[] = [];
-		const logger = createLogger("test", { level: "debug", destination: { write: (chunk: string) => { lines.push(chunk); return true; } } });
-		const service = makeBlockedService(fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))), allowRobots(), logger);
+		const logger = createLogger("test", {
+			level: "debug",
+			destination: {
+				write: (chunk: string) => {
+					lines.push(chunk);
+					return true;
+				},
+			},
+		});
+		const service = makeBlockedService(
+			fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))),
+			allowRobots(),
+			logger,
+		);
 
 		await service.crawl({ url: ROOT, format: "lean", depth: 1 }); // no ignoreRobots -- must not log
 		expect(lines).toHaveLength(0);
