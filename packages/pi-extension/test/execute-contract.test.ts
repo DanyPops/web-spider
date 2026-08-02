@@ -1,3 +1,4 @@
+import { registerActivityBroker, unregisterActivityBroker } from "@danypops/vehicle-client-pi/activity-broker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import piFactory from "../src/index.js";
 import { type IsolatedDaemonEnv, isolatedDaemonEnv } from "./daemon-isolation.js";
@@ -181,5 +182,24 @@ describe("web_category: curated relevance categories, end to end", () => {
 		await expect(
 			h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/never-fetched`, category: "Code" }),
 		).rejects.toThrow(/web_category failed/);
+	});
+
+	it("real Vehicle cross-cutting policy (Activity Broker) fires for a real call -- the gap a bare client.invoke() would have missed", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			server.set(
+				"/activity-check",
+				"<html><body><article><h1>Activity check</h1><p>Proving the decorator fires.</p></article></body></html>",
+			);
+			await h.invokeTool("web_fetch", { url: `${server.baseUrl}/activity-check` });
+
+			await h.invokeTool("web_category", { operation: "assign", url: `${server.baseUrl}/activity-check`, category: "Activity Test" });
+
+			const assignEvents = events.filter((e) => e.refs.operation === "category.assign");
+			expect(assignEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+		} finally {
+			unregisterActivityBroker();
+		}
 	});
 });

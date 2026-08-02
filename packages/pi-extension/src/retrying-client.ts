@@ -13,6 +13,8 @@
 
 import { createRetryingClient } from "@danypops/vehicle-client/daemon-client";
 import type { RemoteVehicleClient } from "@danypops/vehicle-client/http";
+import { invokeVehicleOperation, type VehicleOperationInvocationResult } from "@danypops/vehicle-client-pi";
+import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { connectOrStartWebSpiderClient, connectOrStartWebSpiderVehicleClient, type WebSpiderClient } from "./daemon-client.js";
 
 type ClientConnector = () => Promise<WebSpiderClient>;
@@ -46,10 +48,6 @@ const retryingVehicleClient = createRetryingClient<RemoteVehicleClient>(() => ve
 
 const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write"];
 
-export async function invokeWebSpiderVehicle<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
-	return retryingVehicleClient.call((client) => client.invoke<T>(operation, 1, input, { permissions: VEHICLE_PERMISSIONS }));
-}
-
 export function setWebSpiderVehicleClientConnectorForTests(value: VehicleClientConnector): void {
 	vehicleConnector = value;
 	retryingVehicleClient.reset();
@@ -58,4 +56,48 @@ export function setWebSpiderVehicleClientConnectorForTests(value: VehicleClientC
 export function resetWebSpiderVehicleClientConnectorForTests(): void {
 	vehicleConnector = () => connectOrStartWebSpiderVehicleClient();
 	retryingVehicleClient.reset();
+}
+
+/**
+ * A consolidated multi-action tool (web_category today) dispatching one of
+ * its own sub-actions through the same cross-cutting policy layer a
+ * registerVehicleTools()-registered tool gets automatically -- activity
+ * broadcasting, the local /safety "ask" gate, the server approval-required
+ * retry dance, idempotency-key/correlationId derivation -- instead of a bare
+ * client.invoke() call, which would forfeit all of the above. See
+ * invokeVehicleOperation() in @danypops/vehicle-client-pi for what this adds.
+ *
+ * Fetches the manifest on every call rather than caching it: category.* are
+ * low-frequency, user-driven actions (not a hot path), and a fresh manifest
+ * fetch is one cheap extra round trip that also self-heals if the daemon's
+ * own operation set ever changes between calls.
+ */
+export async function invokeWebSpiderVehicleOperation(
+	operationName: string,
+	input: Record<string, unknown>,
+	call: {
+		toolName: string;
+		toolCallId: string;
+		signal?: AbortSignal;
+		onUpdate?: AgentToolUpdateCallback<VehicleOperationInvocationResult["details"]>;
+		context: ExtensionContext;
+	},
+): Promise<VehicleOperationInvocationResult> {
+	return retryingVehicleClient.call(async (client) => {
+		const manifest = await client.manifest();
+		const descriptor = manifest.operations.find((op) => op.name === operationName);
+		if (!descriptor) throw new Error(`Web Spider Vehicle manifest has no operation named '${operationName}'`);
+		return invokeVehicleOperation({
+			client,
+			manifest,
+			descriptor,
+			toolName: call.toolName,
+			toolCallId: call.toolCallId,
+			input,
+			context: call.context,
+			signal: call.signal,
+			onUpdate: call.onUpdate,
+			options: { permissions: VEHICLE_PERMISSIONS },
+		});
+	});
 }

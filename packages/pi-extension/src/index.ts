@@ -29,7 +29,7 @@ import {
 	renderWebFetchResult,
 	type WebPresentationDetails,
 } from "./presentation.js";
-import { callWebSpider, invokeWebSpiderVehicle } from "./retrying-client.js";
+import { callWebSpider, invokeWebSpiderVehicleOperation } from "./retrying-client.js";
 import {
 	createSessionActDetails,
 	createSessionLifecycleDetails,
@@ -1177,15 +1177,25 @@ export default async function (pi: ExtensionAPI) {
 			"Curated relevance categories for cached pages: assign/remove/rename/list, with overlap (a page can belong to more than one)",
 		parameters: categoryParamsSchema,
 		// category.* has migrated onto the real Vehicle protocol (see web-spider-daemon's
-		// category-vehicle.ts) -- invokeWebSpiderVehicle() calls /vehicle/invoke instead of
-		// call()'s /api/v1/ops, same daemon, same retry-once-on-stale-connection policy.
-		async execute(_id, params: CategoryParams, _signal, _onUpdate, _ctx) {
+		// category-vehicle.ts) -- invokeWebSpiderVehicleOperation() runs each sub-action
+		// through the same cross-cutting policy layer (activity broadcasting, the /safety
+		// ask gate, the approval-required retry dance) a registerVehicleTools()-registered
+		// tool gets automatically, while keeping this tool's own consolidated
+		// operation=assign/remove/rename/list shape unchanged.
+		async execute(toolCallId, params: CategoryParams, signal, _onUpdate, context) {
 			try {
+				async function invoke<T>(operationName: string, input: Record<string, unknown>): Promise<T> {
+					const result = await invokeWebSpiderVehicleOperation(operationName, input, {
+						toolName: "web_category",
+						toolCallId,
+						signal,
+						context,
+					});
+					return result.details.output as T;
+				}
+
 				if (params.operation === "list") {
-					const result = await invokeWebSpiderVehicle<{ categories: Array<{ id: number; name: string; pageCount: number }> }>(
-						"category.list",
-						{},
-					);
+					const result = await invoke<{ categories: Array<{ id: number; name: string; pageCount: number }> }>("category.list", {});
 					const rows = result.categories.map((c) => `${c.name}  (${c.pageCount} page(s))`);
 					return {
 						content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -1199,7 +1209,7 @@ export default async function (pi: ExtensionAPI) {
 				if (params.operation === "assign") {
 					if (!params.url) throw new Error("url is required for operation=assign");
 					if (!params.category) throw new Error("category is required for operation=assign");
-					const result = await invokeWebSpiderVehicle<{ url: string; category: string; categoryId: number }>("category.assign", {
+					const result = await invoke<{ url: string; category: string; categoryId: number }>("category.assign", {
 						url: params.url,
 						category: params.category,
 					});
@@ -1211,7 +1221,7 @@ export default async function (pi: ExtensionAPI) {
 				if (params.operation === "remove") {
 					if (!params.url) throw new Error("url is required for operation=remove");
 					if (!params.category) throw new Error("category is required for operation=remove");
-					const result = await invokeWebSpiderVehicle<{ url: string; category: string; removed: true }>("category.remove", {
+					const result = await invoke<{ url: string; category: string; removed: true }>("category.remove", {
 						url: params.url,
 						category: params.category,
 					});
@@ -1223,7 +1233,7 @@ export default async function (pi: ExtensionAPI) {
 				// rename
 				if (!params.category) throw new Error("category is required for operation=rename");
 				if (!params.newName) throw new Error("newName is required for operation=rename");
-				const result = await invokeWebSpiderVehicle<{ categoryId: number; name: string; merged: boolean }>("category.rename", {
+				const result = await invoke<{ categoryId: number; name: string; merged: boolean }>("category.rename", {
 					category: params.category,
 					newName: params.newName,
 				});
