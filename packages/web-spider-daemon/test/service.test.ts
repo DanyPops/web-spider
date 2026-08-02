@@ -1,8 +1,8 @@
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
-import { afterEach, describe, expect, test } from "bun:test";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
 import { createApp, createWebSpiderService, UnknownOperationError } from "../src/service.ts";
@@ -195,9 +195,7 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as { operations: Array<{ name: string }> };
 		const names = body.operations.map((operation) => operation.name);
-		expect(names).toEqual(
-			expect.arrayContaining(["category.assign", "category.remove", "category.rename", "category.list"]),
-		);
+		expect(names).toEqual(expect.arrayContaining(["category.assign", "category.remove", "category.rename", "category.list"]));
 	});
 
 	test("category.list, category.assign, and category.remove round-trip through the real Vehicle wire protocol", async () => {

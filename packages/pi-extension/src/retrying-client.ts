@@ -10,8 +10,9 @@
  * the first connection attempt), drops the stale cache entry, and retries
  * once against a freshly re-resolved client.
  */
-import type { RemoteVehicleClient } from "@danypops/vehicle-client/http";
+
 import { createRetryingClient } from "@danypops/vehicle-client/daemon-client";
+import type { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { connectOrStartWebSpiderClient, connectOrStartWebSpiderVehicleClient, type WebSpiderClient } from "./daemon-client.js";
 
 type ClientConnector = () => Promise<WebSpiderClient>;

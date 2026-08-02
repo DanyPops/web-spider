@@ -17,11 +17,11 @@ import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type WebSearchResult } from "@danypops/web-spider";
 import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
-import { createCategoryVehicleRegistry } from "./category-vehicle.ts";
 import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
 import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
+import { createCategoryVehicleRegistry } from "./category-vehicle.ts";
 import {
 	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 	SERVICE_MAX_BODY_BYTES,
