@@ -30,7 +30,7 @@ export async function serveMain(): Promise<void> {
 		daemonLabel: "Web Spider",
 		handlePath: paths.handle,
 		logger,
-		buildApp: () => createApp({ service, token }),
+		buildApp: () => createApp({ service, token }, { logger }),
 		maintenanceTasks: [
 			{ name: "checkpoint", intervalMs: WAL_CHECKPOINT_INTERVAL_MS, run: () => service.checkpoint() },
 			{ name: "optimize", intervalMs: DB_OPTIMIZE_INTERVAL_MS, run: () => service.optimize() },

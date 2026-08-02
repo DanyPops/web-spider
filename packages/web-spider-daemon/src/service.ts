@@ -11,10 +11,13 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type WebSearchResult } from "@danypops/web-spider";
 import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
+import { createCategoryVehicleRegistry } from "./category-vehicle.ts";
 import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
@@ -322,6 +325,8 @@ export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
+	/** category.* projected as a real Vehicle operation registry -- see category-vehicle.ts. The first slice of this daemon's Vehicle protocol migration, served alongside (not replacing) the /api/v1/ops route above. */
+	vehicleRegistry: VehicleRegistry;
 	/** Best-effort, one-time import of a pre-daemon JSON DiskCache. No-op once the store already has rows. */
 	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
 	checkpoint(): void;
@@ -393,9 +398,11 @@ export function createWebSpiderService(
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
 	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
+	const vehicleRegistry = createCategoryVehicleRegistry(store);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
+		vehicleRegistry,
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
@@ -454,13 +461,22 @@ async function readOperationBody(request: Request): Promise<{ op?: unknown; inpu
 	return JSON.parse(new TextDecoder().decode(bytes)) as { op?: unknown; input?: unknown };
 }
 
-export function createApp(deps: { service: WebSpiderService; token: string }): { fetch(request: Request): Promise<Response> } {
+export function createApp(
+	deps: { service: WebSpiderService; token: string },
+	options: { logger?: Logger } = {},
+): { fetch(request: Request): Promise<Response> } {
+	// A real second transport for whatever operations createCategoryVehicleRegistry
+	// has migrated so far -- composed here rather than replacing /api/v1/ops, so the
+	// rest of this daemon's operations keep working unchanged while the migration
+	// proceeds operation-by-operation (see category-vehicle.ts's own doc comment).
+	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicleRegistry, token: deps.token, logger: options.logger });
 	return {
 		async fetch(request: Request): Promise<Response> {
+			const url = new URL(request.url);
+			if (url.pathname.startsWith("/vehicle/")) return vehicleApp.fetch(request);
 			if (!requireBearerToken(request, deps.token)) {
 				return errorResponse("missing or invalid bearer token", 401);
 			}
-			const url = new URL(request.url);
 			if (request.method === "GET" && url.pathname === "/health") {
 				return healthResponse(VERSION, { schema: deps.service.schemaState() });
 			}

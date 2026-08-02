@@ -32,6 +32,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const WEB_SPIDER_STATE_DIRECTORY = "web-spider";
@@ -183,33 +184,63 @@ export async function connectOrStartWebSpiderClient(
 		readHandle: () => readDaemonHandle(paths),
 		buildClient: (handle) => new WebSpiderClient(`http://${handle.host}:${handle.port}`, ensureAuthToken(paths)),
 		autoStart: true,
-		spawn: () => {
-			let cliPath: string;
-			try {
-				cliPath = resolveDaemonCliPath();
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				throw new Error(
-					`Web Spider daemon package not found (${message}); run \`packed install npm:@danypops/web-spider-daemon\` then \`web-spider service install\`.`,
-				);
-			}
-			// spawnDetachedDaemon centralizes platform-correct spawn options (Windows
-			// console-hiding, DAEMON_KIT_LAUNCH_PROVENANCE="auto-spawn" for daemon-kit's
-			// idle-shutdown default) that this file's own hand-rolled spawn call
-			// didn't have -- the actual node:child_process.spawn() call still
-			// happens here, daemon-kit only shapes its options.
-			spawnDetachedDaemon({
-				binPath: cliPath,
-				args: ["serve"],
-				env: options.env ?? process.env,
-				spawn: (command, args, spawnOptions) => {
-					const child = spawnProcess(command, args, spawnOptions);
-					child.unref();
-				},
-			});
-		},
+		spawn: () => spawnWebSpiderDaemon(options.env),
 		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
 		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
 		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
+	});
+}
+
+/**
+ * Same auto-spawn policy as connectOrStartWebSpiderClient (same daemon,
+ * same handle file) but builds a RemoteVehicleClient against the daemon's
+ * /vehicle/* routes instead of a WebSpiderClient against /api/v1/ops --
+ * used by whichever tool operations have migrated onto the real Vehicle
+ * protocol so far (see web-spider-daemon's category-vehicle.ts).
+ */
+export async function connectOrStartWebSpiderVehicleClient(
+	paths: WebSpiderPaths = resolveWebSpiderPaths(),
+	options: ConnectOrStartOptions = {},
+): Promise<RemoteVehicleClient> {
+	return connectWithPolicy({
+		readHandle: () => readDaemonHandle(paths),
+		buildClient: (handle) => new RemoteVehicleClient({ baseUrl: `http://${handle.host}:${handle.port}`, token: ensureAuthToken(paths) }),
+		autoStart: true,
+		spawn: () => spawnWebSpiderDaemon(options.env),
+		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
+		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
+		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
+	});
+}
+
+/**
+ * Shared by both connect-or-start functions above -- the exact same spawn
+ * behavior (resolve the installed daemon package's cli.ts, spawn it
+ * detached via spawnDetachedDaemon), only the resulting client type
+ * differs between the two callers.
+ */
+function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefined): void {
+	let cliPath: string;
+	try {
+		cliPath = resolveDaemonCliPath();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`Web Spider daemon package not found (${message}); run \`packed install npm:@danypops/web-spider-daemon\` then \`web-spider service install\`.`,
+		);
+	}
+	// spawnDetachedDaemon centralizes platform-correct spawn options (Windows
+	// console-hiding, DAEMON_KIT_LAUNCH_PROVENANCE="auto-spawn" for daemon-kit's
+	// idle-shutdown default) that this file's own hand-rolled spawn call
+	// didn't have -- the actual node:child_process.spawn() call still
+	// happens here, daemon-kit only shapes its options.
+	spawnDetachedDaemon({
+		binPath: cliPath,
+		args: ["serve"],
+		env: env ?? process.env,
+		spawn: (command, args, spawnOptions) => {
+			const child = spawnProcess(command, args, spawnOptions);
+			child.unref();
+		},
 	});
 }

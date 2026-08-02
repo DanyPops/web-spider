@@ -10,8 +10,9 @@
  * the first connection attempt), drops the stale cache entry, and retries
  * once against a freshly re-resolved client.
  */
+import type { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { createRetryingClient } from "@danypops/vehicle-client/daemon-client";
-import { connectOrStartWebSpiderClient, type WebSpiderClient } from "./daemon-client.js";
+import { connectOrStartWebSpiderClient, connectOrStartWebSpiderVehicleClient, type WebSpiderClient } from "./daemon-client.js";
 
 type ClientConnector = () => Promise<WebSpiderClient>;
 
@@ -30,4 +31,30 @@ export function setWebSpiderClientConnectorForTests(value: ClientConnector): voi
 export function resetWebSpiderClientConnectorForTests(): void {
 	connector = () => connectOrStartWebSpiderClient();
 	retryingClient.reset();
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle-protocol path -- used by whichever tool operations have migrated
+// so far (category.* today; see category-vehicle.ts). Same retry-once-on-
+// stale-connection policy, same daemon, a different route/client shape.
+// ---------------------------------------------------------------------------
+type VehicleClientConnector = () => Promise<RemoteVehicleClient>;
+
+let vehicleConnector: VehicleClientConnector = () => connectOrStartWebSpiderVehicleClient();
+const retryingVehicleClient = createRetryingClient<RemoteVehicleClient>(() => vehicleConnector(), { label: "Web Spider (Vehicle)" });
+
+const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write"];
+
+export async function invokeWebSpiderVehicle<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
+	return retryingVehicleClient.call((client) => client.invoke<T>(operation, 1, input, { permissions: VEHICLE_PERMISSIONS }));
+}
+
+export function setWebSpiderVehicleClientConnectorForTests(value: VehicleClientConnector): void {
+	vehicleConnector = value;
+	retryingVehicleClient.reset();
+}
+
+export function resetWebSpiderVehicleClientConnectorForTests(): void {
+	vehicleConnector = () => connectOrStartWebSpiderVehicleClient();
+	retryingVehicleClient.reset();
 }
