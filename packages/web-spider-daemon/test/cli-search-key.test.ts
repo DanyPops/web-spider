@@ -11,10 +11,38 @@ import { join } from "node:path";
 
 const CLI_PATH = join(import.meta.dir, "..", "src", "cli.ts");
 
+/**
+ * Bun.spawn()'s piped stdout/stderr intermittently comes back empty when run
+ * inside `bun test`, even though the child process ran and exited normally --
+ * a confirmed, still-open upstream bug (https://github.com/oven-sh/bun/issues/24690),
+ * not anything in this file or cli.ts. Every real invocation of this CLI writes
+ * to at least one of stdout/stderr, so both empty despite a real exit is exactly
+ * that bug's signature -- retry (bounded) rather than fail on a lost pipe read.
+ */
+const MAX_SPAWN_ATTEMPTS = 3;
+
+async function spawnCli(
+	args: string[],
+	env: Record<string, string>,
+	opts: { stdin?: Blob } = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+	let result!: { code: number; stdout: string; stderr: string };
+	for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS; attempt++) {
+		const proc = Bun.spawn(["bun", CLI_PATH, ...args], {
+			env,
+			stdout: "pipe",
+			stderr: "pipe",
+			...(opts.stdin ? { stdin: opts.stdin } : {}),
+		});
+		const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+		result = { code, stdout, stderr };
+		if (stdout.length > 0 || stderr.length > 0 || attempt === MAX_SPAWN_ATTEMPTS) break;
+	}
+	return result;
+}
+
 async function runCliProcess(args: string[], env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
-	const proc = Bun.spawn(["bun", CLI_PATH, ...args], { env, stdout: "pipe", stderr: "pipe" });
-	const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-	return { code, stdout, stderr };
+	return spawnCli(args, env);
 }
 
 function tempXdgEnv(dir: string): Record<string, string> {
@@ -69,13 +97,7 @@ describe("web-spider search-key set (real subprocess)", () => {
 	it("exits non-zero with a clear message when no value is provided and stdin has nothing piped in", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
 		try {
-			const proc = Bun.spawn(["bun", CLI_PATH, "search-key", "set", "brave"], {
-				env: tempXdgEnv(dir),
-				stdin: new Blob([""]),
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+			const { code, stderr } = await spawnCli(["search-key", "set", "brave"], tempXdgEnv(dir), { stdin: new Blob([""]) });
 			expect(code).not.toBe(0);
 			expect(stderr).toContain("no API key value provided");
 		} finally {
