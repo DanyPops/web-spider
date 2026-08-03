@@ -418,9 +418,12 @@ export function createWebSpiderService(
 	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
 	const vehicleRegistry = new VehicleRegistry({
 		name: "web-spider",
-		version: "1.0.0",
+		version: VERSION,
 		description: "Web fetch/search/crawl, curated page categories, and a disk-backed cache, behind a supervised daemon.",
 	});
+	// withVehicleErrorParity() already converts every real handler error into a well-formed
+	// VehicleError, so this only affects a genuine registration/binding bug.
+	vehicleRegistry.setExposeHandlerFailureDetails(true);
 	registerCategoryVehicleOperations(vehicleRegistry, store);
 	registerCacheVehicleOperations(vehicleRegistry, store);
 	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage);

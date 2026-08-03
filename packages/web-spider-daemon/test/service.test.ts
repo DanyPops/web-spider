@@ -6,6 +6,7 @@ import type { SpideredPage } from "@danypops/web-spider";
 import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
 import { createApp, createWebSpiderService, UnknownOperationError } from "../src/service.ts";
+import { VERSION } from "../src/version.ts";
 
 const TOKEN = "test-token";
 
@@ -187,6 +188,13 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/vehicle/manifest"));
 		expect(response.status).toBe(401);
+	});
+
+	test("GET /vehicle/manifest reports the real package version, not a hardcoded placeholder", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }));
+		const body = (await response.json()) as { version: string };
+		expect(body.version).toBe(VERSION);
 	});
 
 	test("GET /vehicle/manifest lists every operation migrated onto the real Vehicle protocol", async () => {

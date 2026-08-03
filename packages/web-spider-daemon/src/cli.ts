@@ -41,6 +41,7 @@ import { isSessionAction } from "./domain/session-audit.ts";
 import { promptMaskedSecret } from "./masked-prompt.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
+import { VERSION } from "./version.ts";
 
 /** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
 const SEARCH_API_KEY_VARS = [
@@ -93,10 +94,11 @@ function webSpiderServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 	return {
 		name: "web-spider",
 		displayName: "Web Spider search, query, and scraping daemon",
+		version: VERSION,
 		binPath: options.bunBin,
 		args: [options.cliPath, "serve"],
 		env,
-		descriptorPath: resolveWebSpiderPaths().systemdUnit,
+		handlePath: resolveWebSpiderPaths().handle,
 		// The Pi extension's own daemon-client auto-spawns (connectWithPolicy), but the bare
 		// CLI client fails closed -- kept as Restart=always/RestartSec=2 to preserve this
 		// unit's existing, already-shipped behavior rather than silently weakening it.
