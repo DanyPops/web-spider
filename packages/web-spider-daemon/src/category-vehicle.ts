@@ -1,19 +1,18 @@
 /**
- * category.* projected as a real VehicleRegistry -- the first slice of
+ * category.* projected as real VehicleOperations -- the first slice of
  * web-spider's own Vehicle protocol migration (walking skeleton). Wraps the
  * exact same CacheStore methods service.ts's own hand-rolled dispatcher
  * calls for these four operations; no behavior change, only a second real
  * transport (served alongside the existing /api/v1/ops route, not replacing
  * it yet) with standardized error taxonomy and effect classification.
  *
- * Deliberately scoped to category.* only: the remaining eleven operations
- * (fetch, crawl, search, the session actions, papyrus.ingest) either need
- * Vehicle Jobs (crawl, fetch with enhanced:true) or carry stateful session
- * semantics (session.act's snapshotVersion contract) that deserve their own
- * dedicated conversion pass, not a mechanical bulk port.
+ * Registers onto a shared VehicleRegistry (service.ts owns construction and
+ * identity) rather than creating its own -- every migrated slice
+ * (category-vehicle.ts, cache-vehicle.ts, ...) is one manifest, one
+ * /vehicle/* transport, not one per concern.
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
-import { VehicleRegistry } from "@danypops/vehicle-server";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { CacheStore } from "./ports/cache-store.ts";
 
 const OWNER = "web-spider";
@@ -25,13 +24,7 @@ function requireString(input: Record<string, unknown>, key: string): string {
 	return value;
 }
 
-export function createCategoryVehicleRegistry(store: CacheStore): VehicleRegistry {
-	const registry = new VehicleRegistry({
-		name: "web-spider",
-		version: "1.0.0",
-		description: "Curated, agent/user-assignable relevance categories for cached pages.",
-	});
-
+export function registerCategoryVehicleOperations(registry: VehicleRegistry, store: CacheStore): void {
 	const define = (
 		action: "assign" | "remove" | "rename" | "list",
 		description: string,
@@ -90,6 +83,4 @@ export function createCategoryVehicleRegistry(store: CacheStore): VehicleRegistr
 	);
 
 	define("list", "Lists every known category with how many pages use it.", "read", {}, [], () => store.listCategories());
-
-	return registry;
 }

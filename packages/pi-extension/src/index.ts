@@ -18,7 +18,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
 import { DETAILS_MAX_ITEMS, DETAILS_VERSION } from "./constants.js";
@@ -67,6 +67,28 @@ export default async function (pi: ExtensionAPI) {
 	async function call<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
 		try {
 			return await callWebSpider<T>(operation, input);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			log("error", "daemon operation failed", { operation, error: message });
+			throw error;
+		}
+	}
+
+	/**
+	 * Like call(), but for whichever operations have migrated onto the real
+	 * Vehicle protocol (cache.list/cache.search today; see cache-vehicle.ts) --
+	 * routes through invokeWebSpiderVehicleOperation() instead, so web_fetch's
+	 * cache-view branches get the same cross-cutting policy (activity
+	 * broadcasting, the /safety gate, approval retry) web_category already has.
+	 */
+	async function invokeVehicle<T = unknown>(
+		operation: string,
+		input: Record<string, unknown>,
+		callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext },
+	): Promise<T> {
+		try {
+			const result = await invokeWebSpiderVehicleOperation(operation, input, { toolName: "web_fetch", ...callMeta });
+			return result.details.output as T;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			log("error", "daemon operation failed", { operation, error: message });
@@ -162,8 +184,14 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleCacheListing(params: Params) {
-		const result = await call<{ total: number; filtered: number; offset: number; limit: number; pages: Array<Record<string, unknown>> }>(
+	async function handleCacheListing(params: Params, callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext }) {
+		const result = await invokeVehicle<{
+			total: number;
+			filtered: number;
+			offset: number;
+			limit: number;
+			pages: Array<Record<string, unknown>>;
+		}>(
 			"cache.list",
 			{
 				grep: params.grep,
@@ -179,6 +207,7 @@ export default async function (pi: ExtensionAPI) {
 				offset: params.offset,
 				limit: params.limit,
 			},
+			callMeta,
 		);
 		const remaining = result.filtered - result.offset - result.pages.length;
 		const meta = omitEmpty({
@@ -204,15 +233,19 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleCacheSearch(params: Params) {
-		const result = await call<{
+	async function handleCacheSearch(params: Params, callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext }) {
+		const result = await invokeVehicle<{
 			query: string;
 			pagesSearched: number;
 			hits: Array<{ url: string; title: string; score: number; heading: string; text: string }>;
-		}>("cache.search", {
-			query: params.query ?? "",
-			limit: params.limit ?? 10,
-		});
+		}>(
+			"cache.search",
+			{
+				query: params.query ?? "",
+				limit: params.limit ?? 10,
+			},
+			callMeta,
+		);
 
 		if (result.pagesSearched === 0) {
 			return output(
@@ -774,13 +807,14 @@ export default async function (pi: ExtensionAPI) {
 		// logic. Business logic lives in the daemon; this file's handlers only
 		// shape daemon operation results into the tool's historical contract.
 		// -------------------------------------------------------------------------
-		async execute(_id, params, _signal, _onUpdate, _ctx) {
+		async execute(toolCallId, params, signal, _onUpdate, context) {
 			try {
 				if (params.searchQuery?.trim()) return await handleSearch(params);
 
 				if (!params.url) {
-					if (params.query?.trim()) return await handleCacheSearch(params);
-					return await handleCacheListing(params);
+					const callMeta = { toolCallId, signal, context };
+					if (params.query?.trim()) return await handleCacheSearch(params, callMeta);
+					return await handleCacheListing(params, callMeta);
 				}
 
 				if ((params.depth ?? 0) > 0) return await handleCrawl(params);

@@ -11,7 +11,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
@@ -21,7 +21,8 @@ import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registr
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
 import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
-import { createCategoryVehicleRegistry } from "./category-vehicle.ts";
+import { registerCacheVehicleOperations } from "./cache-vehicle.ts";
+import { registerCategoryVehicleOperations } from "./category-vehicle.ts";
 import {
 	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 	SERVICE_MAX_BODY_BYTES,
@@ -325,7 +326,7 @@ export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
-	/** category.* projected as a real Vehicle operation registry -- see category-vehicle.ts. The first slice of this daemon's Vehicle protocol migration, served alongside (not replacing) the /api/v1/ops route above. */
+	/** Every operation migrated onto the real Vehicle protocol so far -- see category-vehicle.ts/cache-vehicle.ts. Served alongside (not replacing) the /api/v1/ops route above. */
 	vehicleRegistry: VehicleRegistry;
 	/** Best-effort, one-time import of a pre-daemon JSON DiskCache. No-op once the store already has rows. */
 	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
@@ -398,7 +399,13 @@ export function createWebSpiderService(
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
 	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
-	const vehicleRegistry = createCategoryVehicleRegistry(store);
+	const vehicleRegistry = new VehicleRegistry({
+		name: "web-spider",
+		version: "1.0.0",
+		description: "Web fetch/search/crawl, curated page categories, and a disk-backed cache, behind a supervised daemon.",
+	});
+	registerCategoryVehicleOperations(vehicleRegistry, store);
+	registerCacheVehicleOperations(vehicleRegistry, store);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),

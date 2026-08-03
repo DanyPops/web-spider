@@ -101,6 +101,28 @@ describe("execute() result and failure channels", () => {
 		expect(text.pages).toHaveLength(1);
 		expect(text.pages[0].url).toBe(`${server.baseUrl}/rust-ptp`);
 	});
+
+	it("cache.list/cache.search now route through the real Vehicle protocol -- Activity Broker fires for both", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			server.set(
+				"/vehicle-cache-check",
+				"<html><body><article><h1>Vehicle cache check</h1><p>Proving the swap.</p></article></body></html>",
+			);
+			await h.invokeTool("web_fetch", { url: `${server.baseUrl}/vehicle-cache-check` });
+
+			await h.invokeTool("web_fetch", {});
+			await h.invokeTool("web_fetch", { query: "Vehicle cache check" });
+
+			const listEvents = events.filter((e) => e.refs.operation === "cache.list");
+			const searchEvents = events.filter((e) => e.refs.operation === "cache.search");
+			expect(listEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+			expect(searchEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+		} finally {
+			unregisterActivityBroker();
+		}
+	});
 });
 
 describe("ingest: explicit opt-in Papyrus wiring", () => {

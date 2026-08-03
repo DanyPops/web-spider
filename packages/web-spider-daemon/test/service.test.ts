@@ -189,13 +189,39 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		expect(response.status).toBe(401);
 	});
 
-	test("GET /vehicle/manifest lists the four category.* operations", async () => {
+	test("GET /vehicle/manifest lists the four category.* operations plus cache.list/cache.search", async () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as { operations: Array<{ name: string }> };
 		const names = body.operations.map((operation) => operation.name);
-		expect(names).toEqual(expect.arrayContaining(["category.assign", "category.remove", "category.rename", "category.list"]));
+		expect(names).toEqual(
+			expect.arrayContaining(["category.assign", "category.remove", "category.rename", "category.list", "cache.list", "cache.search"]),
+		);
+	});
+
+	test("cache.list and cache.search round-trip through the real Vehicle wire protocol, matching the /api/v1/ops shape", async () => {
+		const { app: server } = appWithCachedPage("https://example.test/a");
+
+		const listed = await invoke(server, "cache.list", {});
+		expect(listed.status).toBe(200);
+		const listedBody = (await listed.json()) as { output: { total: number; pages: Array<{ url: string }> } };
+		expect(listedBody.output.total).toBe(1);
+		expect(listedBody.output.pages).toEqual([expect.objectContaining({ url: "https://example.test/a" })]);
+
+		const searched = await invoke(server, "cache.search", { query: "Example" });
+		expect(searched.status).toBe(200);
+		const searchedBody = (await searched.json()) as { output: { query: string; hits: Array<{ url: string }> } };
+		expect(searchedBody.output.query).toBe("Example");
+		expect(searchedBody.output.hits).toEqual([expect.objectContaining({ url: "https://example.test/a" })]);
+	});
+
+	test("cache.search with a missing query fails with a real Vehicle validation error, not a crash", async () => {
+		const { app: server } = app();
+		const response = await invoke(server, "cache.search", {});
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: { category: string } };
+		expect(body.error.category).toBe("validation");
 	});
 
 	test("category.list, category.assign, and category.remove round-trip through the real Vehicle wire protocol", async () => {
