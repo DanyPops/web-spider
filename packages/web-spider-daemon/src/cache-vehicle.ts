@@ -12,6 +12,7 @@ import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, 
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { CachedPageListFilter } from "./domain/page.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
+import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 15_000, maxRequestBytes: 16_384, maxResponseBytes: 65_536 };
@@ -52,7 +53,10 @@ export function registerCacheVehicleOperations(registry: VehicleRegistry, store:
 	});
 	registry.register(
 		OWNER,
-		bindVehicleOperation(listOperation, () => async (context) => store.list(context.input as CachedPageListFilter)),
+		bindVehicleOperation(
+			listOperation,
+			() => async (context) => withVehicleErrorParity(() => store.list(context.input as CachedPageListFilter)),
+		),
 	);
 
 	const searchOperation = defineVehicleOperation({
@@ -68,10 +72,14 @@ export function registerCacheVehicleOperations(registry: VehicleRegistry, store:
 	});
 	registry.register(
 		OWNER,
-		bindVehicleOperation(searchOperation, () => async (context) => {
-			const input = context.input as Record<string, unknown>;
-			const limit = input.limit;
-			return store.search(requireString(input, "query"), { topN: typeof limit === "number" ? limit : undefined });
-		}),
+		bindVehicleOperation(
+			searchOperation,
+			() => async (context) =>
+				withVehicleErrorParity(() => {
+					const input = context.input as Record<string, unknown>;
+					const limit = input.limit;
+					return store.search(requireString(input, "query"), { topN: typeof limit === "number" ? limit : undefined });
+				}),
+		),
 	);
 }

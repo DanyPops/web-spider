@@ -29,7 +29,7 @@ import {
 	renderWebFetchResult,
 	type WebPresentationDetails,
 } from "./presentation.js";
-import { callWebSpider, invokeWebSpiderVehicleOperation } from "./retrying-client.js";
+import { invokeWebSpiderVehicleOperation } from "./retrying-client.js";
 import {
 	createSessionActDetails,
 	createSessionLifecycleDetails,
@@ -60,34 +60,17 @@ export default async function (pi: ExtensionAPI) {
 
 	type Params = Static<typeof paramsSchema>;
 
-	// callWebSpider() auto-starts the daemon transparently on first use if it
-	// isn't already running, and retries once against a freshly re-resolved
-	// client if a cached connection turns out stale (the daemon restarted on
-	// a new port since it was cached) -- see retrying-client.ts.
-	async function call<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
-		try {
-			return await callWebSpider<T>(operation, input);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			log("error", "daemon operation failed", { operation, error: message });
-			throw error;
-		}
-	}
+	/** Every operation goes through invokeVehicle() below -- every web-spider operation has migrated onto the real Vehicle protocol (task 4057390d), carrying whichever tool actually dispatched it (web_fetch/web_session/web_category), its toolCallId, abort signal, and ExtensionContext. */
+	type CallMeta = { toolName: string; toolCallId: string; signal?: AbortSignal; context: ExtensionContext };
 
 	/**
-	 * Like call(), but for whichever operations have migrated onto the real
-	 * Vehicle protocol (cache.list/cache.search today; see cache-vehicle.ts) --
-	 * routes through invokeWebSpiderVehicleOperation() instead, so web_fetch's
-	 * cache-view branches get the same cross-cutting policy (activity
-	 * broadcasting, the /safety gate, approval retry) web_category already has.
+	 * Routes an operation through invokeWebSpiderVehicleOperation(), giving
+	 * every caller the same cross-cutting policy (activity broadcasting, the
+	 * /safety gate, approval retry) uniformly.
 	 */
-	async function invokeVehicle<T = unknown>(
-		operation: string,
-		input: Record<string, unknown>,
-		callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext },
-	): Promise<T> {
+	async function invokeVehicle<T = unknown>(operation: string, input: Record<string, unknown>, callMeta: CallMeta): Promise<T> {
 		try {
-			const result = await invokeWebSpiderVehicleOperation(operation, input, { toolName: "web_fetch", ...callMeta });
+			const result = await invokeWebSpiderVehicleOperation(operation, input, callMeta);
 			return result.details.output as T;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -122,18 +105,27 @@ export default async function (pi: ExtensionAPI) {
 		skipped: Array<{ url: string; reason: string }>;
 	};
 
-	async function maybeIngestPage(params: Params, url: string): Promise<PapyrusIngestOutcome | undefined> {
+	async function maybeIngestPage(params: Params, url: string, callMeta: CallMeta): Promise<PapyrusIngestOutcome | undefined> {
 		if (params.ingest !== true) return undefined;
-		return await call<PapyrusIngestOutcome>("papyrus.ingest", { kind: "pages", urls: [url], relatesTo: params.relatesTo });
+		return await invokeVehicle<PapyrusIngestOutcome>(
+			"papyrus.ingest",
+			{ kind: "pages", urls: [url], relatesTo: params.relatesTo },
+			callMeta,
+		);
 	}
 
 	async function maybeIngestSearch(
 		params: Params,
 		query: string,
 		results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }>,
+		callMeta: CallMeta,
 	): Promise<PapyrusIngestOutcome | undefined> {
 		if (params.ingest !== true) return undefined;
-		return await call<PapyrusIngestOutcome>("papyrus.ingest", { kind: "search", query, results, relatesTo: params.relatesTo });
+		return await invokeVehicle<PapyrusIngestOutcome>(
+			"papyrus.ingest",
+			{ kind: "search", query, results, relatesTo: params.relatesTo },
+			callMeta,
+		);
 	}
 
 	function withPapyrus<T extends Record<string, unknown>>(content: T, papyrus: PapyrusIngestOutcome | undefined): T {
@@ -150,9 +142,12 @@ export default async function (pi: ExtensionAPI) {
 	// Path handlers — each owns one execution branch. SRP: one reason to change.
 	// ---------------------------------------------------------------------------
 
-	async function handleSearch(params: Params) {
+	async function handleSearch(params: Params, callMeta: CallMeta) {
 		const query = params.searchQuery ?? "";
-		const result = await call<{ query: string; results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }> }>(
+		const result = await invokeVehicle<{
+			query: string;
+			results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }>;
+		}>(
 			"search",
 			{
 				query,
@@ -160,9 +155,10 @@ export default async function (pi: ExtensionAPI) {
 				siteFilter: params.siteFilter,
 				wantFullContent: params.wantFullContent,
 			},
+			callMeta,
 		);
 		log("info", "web search done", { query, hits: result.results.length });
-		const papyrus = await maybeIngestSearch(params, query, result.results);
+		const papyrus = await maybeIngestSearch(params, query, result.results, callMeta);
 		return output(
 			withPapyrus(
 				{
@@ -184,7 +180,7 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleCacheListing(params: Params, callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext }) {
+	async function handleCacheListing(params: Params, callMeta: CallMeta) {
 		const result = await invokeVehicle<{
 			total: number;
 			filtered: number;
@@ -233,7 +229,7 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleCacheSearch(params: Params, callMeta: { toolCallId: string; signal?: AbortSignal; context: ExtensionContext }) {
+	async function handleCacheSearch(params: Params, callMeta: CallMeta) {
 		const result = await invokeVehicle<{
 			query: string;
 			pagesSearched: number;
@@ -289,25 +285,29 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleCrawl(params: Params) {
+	async function handleCrawl(params: Params, callMeta: CallMeta) {
 		const fmt = params.format ?? "markdown";
 		const depth = params.depth ?? 0;
 		const url = params.url ?? "";
 
-		const result = await call<Record<string, unknown>>("crawl", {
-			url,
-			format: fmt,
-			depth,
-			maxPages: params.maxPages ?? 10,
-			sameDomain: params.sameDomain,
-			rootSelector: params.rootSelector,
-			excludeSelectors: params.excludeSelectors,
-			tokenBudget: params.tokenBudget,
-			enhanced: params.enhanced,
-			timeoutMs: params.timeoutMs,
-			query: params.query,
-			ignoreRobots: params.ignoreRobots,
-		});
+		const result = await invokeVehicle<Record<string, unknown>>(
+			"crawl",
+			{
+				url,
+				format: fmt,
+				depth,
+				maxPages: params.maxPages ?? 10,
+				sameDomain: params.sameDomain,
+				rootSelector: params.rootSelector,
+				excludeSelectors: params.excludeSelectors,
+				tokenBudget: params.tokenBudget,
+				enhanced: params.enhanced,
+				timeoutMs: params.timeoutMs,
+				query: params.query,
+				ignoreRobots: params.ignoreRobots,
+			},
+			callMeta,
+		);
 		const errors = typeof result.errors === "number" ? result.errors : 0;
 
 		if (fmt === "highlights") {
@@ -353,19 +353,23 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	async function handleTreeFormat(params: Params) {
+	async function handleTreeFormat(params: Params, callMeta: CallMeta) {
 		const url = params.url ?? "";
 		try {
 			if (params.path) {
-				const node = await call<{ found?: false; path?: string; tag?: string } & Record<string, unknown>>("fetch", {
-					url,
-					format: "tree",
-					path: params.path,
-					rootSelector: params.rootSelector,
-					excludeSelectors: params.excludeSelectors,
-					enhanced: params.enhanced,
-					ignoreRobots: params.ignoreRobots,
-				});
+				const node = await invokeVehicle<{ found?: false; path?: string; tag?: string } & Record<string, unknown>>(
+					"fetch",
+					{
+						url,
+						format: "tree",
+						path: params.path,
+						rootSelector: params.rootSelector,
+						excludeSelectors: params.excludeSelectors,
+						enhanced: params.enhanced,
+						ignoreRobots: params.ignoreRobots,
+					},
+					callMeta,
+				);
 				if (node.found === false) {
 					return output(
 						{ found: false, path: params.path, hint: "Inspect the full tree or query it to find a valid path." },
@@ -382,20 +386,24 @@ export default async function (pi: ExtensionAPI) {
 			}
 
 			if (params.query?.trim()) {
-				const result = await call<{
+				const result = await invokeVehicle<{
 					url: string;
 					query: string;
 					hits: Array<{ path: string; tag: string; score: number; snippet: string }>;
-				}>("fetch", {
-					url,
-					format: "tree",
-					query: params.query,
-					topN: params.topN,
-					rootSelector: params.rootSelector,
-					excludeSelectors: params.excludeSelectors,
-					enhanced: params.enhanced,
-					ignoreRobots: params.ignoreRobots,
-				});
+				}>(
+					"fetch",
+					{
+						url,
+						format: "tree",
+						query: params.query,
+						topN: params.topN,
+						rootSelector: params.rootSelector,
+						excludeSelectors: params.excludeSelectors,
+						enhanced: params.enhanced,
+						ignoreRobots: params.ignoreRobots,
+					},
+					callMeta,
+				);
 				return output(
 					omitEmpty({ url: result.url, query: result.query, hits: result.hits.map((h) => omitEmpty({ ...h })) }),
 					createWebDetails({
@@ -410,14 +418,18 @@ export default async function (pi: ExtensionAPI) {
 				);
 			}
 
-			const tree = await call<Record<string, unknown>>("fetch", {
-				url,
-				format: "tree",
-				rootSelector: params.rootSelector,
-				excludeSelectors: params.excludeSelectors,
-				enhanced: params.enhanced,
-				ignoreRobots: params.ignoreRobots,
-			});
+			const tree = await invokeVehicle<Record<string, unknown>>(
+				"fetch",
+				{
+					url,
+					format: "tree",
+					rootSelector: params.rootSelector,
+					excludeSelectors: params.excludeSelectors,
+					enhanced: params.enhanced,
+					ignoreRobots: params.ignoreRobots,
+				},
+				callMeta,
+			);
 			return output(tree, createWebDetails({ operation: "tree-full", format: "tree", url }));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -425,23 +437,27 @@ export default async function (pi: ExtensionAPI) {
 		}
 	}
 
-	async function handleSinglePage(params: Params) {
+	async function handleSinglePage(params: Params, callMeta: CallMeta) {
 		const fmt = params.format ?? "markdown";
 		const url = params.url ?? "";
 
-		if (fmt === "tree") return handleTreeFormat(params);
+		if (fmt === "tree") return handleTreeFormat(params, callMeta);
 
-		const raw = await call<Record<string, unknown> & { cache?: "hit" | "miss"; blocked?: boolean }>("fetch", {
-			url,
-			format: fmt,
-			rootSelector: params.rootSelector,
-			excludeSelectors: params.excludeSelectors,
-			tokenBudget: params.tokenBudget,
-			enhanced: params.enhanced,
-			timeoutMs: params.timeoutMs,
-			query: params.query,
-			ignoreRobots: params.ignoreRobots,
-		});
+		const raw = await invokeVehicle<Record<string, unknown> & { cache?: "hit" | "miss"; blocked?: boolean }>(
+			"fetch",
+			{
+				url,
+				format: fmt,
+				rootSelector: params.rootSelector,
+				excludeSelectors: params.excludeSelectors,
+				tokenBudget: params.tokenBudget,
+				enhanced: params.enhanced,
+				timeoutMs: params.timeoutMs,
+				query: params.query,
+				ignoreRobots: params.ignoreRobots,
+			},
+			callMeta,
+		);
 
 		if (raw.blocked === true) {
 			return output(
@@ -456,7 +472,7 @@ export default async function (pi: ExtensionAPI) {
 		}
 
 		const { content, cache } = splitCache(raw);
-		const papyrus = await maybeIngestPage(params, url);
+		const papyrus = await maybeIngestPage(params, url, callMeta);
 
 		if (fmt === "lean") {
 			return output(
@@ -809,17 +825,17 @@ export default async function (pi: ExtensionAPI) {
 		// -------------------------------------------------------------------------
 		async execute(toolCallId, params, signal, _onUpdate, context) {
 			try {
-				if (params.searchQuery?.trim()) return await handleSearch(params);
+				const callMeta: CallMeta = { toolName: "web_fetch", toolCallId, signal, context };
+				if (params.searchQuery?.trim()) return await handleSearch(params, callMeta);
 
 				if (!params.url) {
-					const callMeta = { toolCallId, signal, context };
 					if (params.query?.trim()) return await handleCacheSearch(params, callMeta);
 					return await handleCacheListing(params, callMeta);
 				}
 
-				if ((params.depth ?? 0) > 0) return await handleCrawl(params);
+				if ((params.depth ?? 0) > 0) return await handleCrawl(params, callMeta);
 
-				return await handleSinglePage(params);
+				return await handleSinglePage(params, callMeta);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				throw new Error(`web_fetch failed: ${message}`);
@@ -1050,21 +1066,23 @@ export default async function (pi: ExtensionAPI) {
 		renderResult(result, options, theme, context) {
 			return renderWebSessionResult(result, options, theme, context);
 		},
-		async execute(_id, params: SessionParams, _signal, _onUpdate, _ctx) {
+		async execute(toolCallId, params: SessionParams, signal, _onUpdate, context) {
+			const callMeta: CallMeta = { toolName: "web_session", toolCallId, signal, context };
 			try {
 				if (params.operation === "create") {
 					if (!params.name) throw new Error("name is required for operation=create");
-					const result = await call<{ name: string; snapshotVersion: number; closed: boolean }>("session.create", {
-						name: params.name,
-						forceChromeChannel: params.forceChromeChannel,
-					});
+					const result = await invokeVehicle<{ name: string; snapshotVersion: number; closed: boolean }>(
+						"session.create",
+						{ name: params.name, forceChromeChannel: params.forceChromeChannel },
+						callMeta,
+					);
 					return {
 						content: [{ type: "text" as const, text: JSON.stringify(result) }],
 						details: createSessionLifecycleDetails("create", result.name, { snapshotVersion: result.snapshotVersion }),
 					};
 				}
 				if (params.operation === "list") {
-					const result = await call<{ sessions: Array<{ name: string; closed: boolean }> }>("session.list", {});
+					const result = await invokeVehicle<{ sessions: Array<{ name: string; closed: boolean }> }>("session.list", {}, callMeta);
 					return {
 						content: [{ type: "text" as const, text: JSON.stringify(result) }],
 						details: createSessionListDetails(result.sessions),
@@ -1072,7 +1090,7 @@ export default async function (pi: ExtensionAPI) {
 				}
 				if (params.operation === "close") {
 					if (!params.name) throw new Error("name is required for operation=close");
-					const result = await call<{ name: string; closed: true }>("session.close", { name: params.name });
+					const result = await invokeVehicle<{ name: string; closed: true }>("session.close", { name: params.name }, callMeta);
 					return {
 						content: [{ type: "text" as const, text: JSON.stringify(result) }],
 						details: createSessionLifecycleDetails("close", result.name, { closed: true }),
@@ -1083,32 +1101,36 @@ export default async function (pi: ExtensionAPI) {
 				if (!params.name) throw new Error("name is required for operation=act");
 				if (params.snapshotVersion === undefined) throw new Error("snapshotVersion is required for operation=act");
 				if (!params.action) throw new Error("action is required for operation=act");
-				const result = await call<SessionActResult>("session.act", {
-					name: params.name,
-					snapshotVersion: params.snapshotVersion,
-					action: params.action,
-					url: params.url,
-					selector: params.selector,
-					script: params.script,
-					timeoutMs: params.timeoutMs,
-					text: params.text,
-					clear: params.clear,
-					value: params.value,
-					label: params.label,
-					loadState: params.loadState,
-					state: params.state,
-					key: params.key,
-					fullPage: params.fullPage,
-					scale: params.scale,
-					depth: params.depth,
-					boxes: params.boxes,
-					mode: params.mode,
-					accept: params.accept,
-					promptText: params.promptText,
-					includeStatic: params.includeStatic,
-					tabOperation: params.tabOperation,
-					tabIndex: params.tabIndex,
-				});
+				const result = await invokeVehicle<SessionActResult>(
+					"session.act",
+					{
+						name: params.name,
+						snapshotVersion: params.snapshotVersion,
+						action: params.action,
+						url: params.url,
+						selector: params.selector,
+						script: params.script,
+						timeoutMs: params.timeoutMs,
+						text: params.text,
+						clear: params.clear,
+						value: params.value,
+						label: params.label,
+						loadState: params.loadState,
+						state: params.state,
+						key: params.key,
+						fullPage: params.fullPage,
+						scale: params.scale,
+						depth: params.depth,
+						boxes: params.boxes,
+						mode: params.mode,
+						accept: params.accept,
+						promptText: params.promptText,
+						includeStatic: params.includeStatic,
+						tabOperation: params.tabOperation,
+						tabIndex: params.tabIndex,
+					},
+					callMeta,
+				);
 
 				if (params.action === "screenshot" && typeof result.screenshotBase64 === "string") {
 					const summary = { name: result.name, action: result.action, snapshotVersion: result.snapshotVersion };

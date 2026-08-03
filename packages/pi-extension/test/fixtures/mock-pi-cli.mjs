@@ -63,6 +63,12 @@ const jiti = createJiti(import.meta.url, { moduleCache: false, alias });
 
 const tools = new Map();
 
+// Minimal ExtensionContext -- every web-spider operation now goes through Vehicle
+// (task 4057390d), which reads context.sessionManager.getSessionId() to build a
+// correlationId. Real Pi supplies a full ReadonlySessionManager; this mock only
+// needs the one method actually called on this path.
+const ctx = { cwd: process.cwd(), hasUI: false, sessionManager: { getSessionId: () => "mock-pi-cli-session" } };
+
 const pi = {
   registerTool({ name, execute }) { tools.set(name, execute); },
   on() {},
@@ -95,7 +101,7 @@ for (const paramsJson of allParamsJson) {
   const params = JSON.parse(paramsJson);
   emit({ type: "tool_execution_start", toolName, args: params });
   try {
-    const result = await execute(`mock-call-${Date.now()}`, params);
+    const result = await execute(`mock-call-${Date.now()}`, params, undefined, () => {}, ctx);
     emit({ type: "tool_execution_end", toolName, result });
   } catch (err) {
     emit({ type: "tool_execution_error", toolName, error: err?.message ?? String(err) });

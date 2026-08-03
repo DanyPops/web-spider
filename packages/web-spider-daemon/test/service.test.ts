@@ -189,14 +189,30 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		expect(response.status).toBe(401);
 	});
 
-	test("GET /vehicle/manifest lists the four category.* operations plus cache.list/cache.search", async () => {
+	test("GET /vehicle/manifest lists every operation migrated onto the real Vehicle protocol", async () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as { operations: Array<{ name: string }> };
 		const names = body.operations.map((operation) => operation.name);
 		expect(names).toEqual(
-			expect.arrayContaining(["category.assign", "category.remove", "category.rename", "category.list", "cache.list", "cache.search"]),
+			expect.arrayContaining([
+				"category.assign",
+				"category.remove",
+				"category.rename",
+				"category.list",
+				"cache.list",
+				"cache.search",
+				"search",
+				"search.usage",
+				"papyrus.ingest",
+				"fetch",
+				"crawl",
+				"session.create",
+				"session.list",
+				"session.close",
+				"session.act",
+			]),
 		);
 	});
 
@@ -286,5 +302,52 @@ describe("createApp — search", () => {
 		const response = await server.fetch(new Request("http://x/api/v1/ops", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		const body = (await response.json()) as { operations: string[] };
 		expect(body.operations).toContain("search");
+	});
+});
+
+describe("createApp — search.usage, papyrus.ingest through the real Vehicle wire protocol", () => {
+	async function invoke(server: ReturnType<typeof app>["app"], name: string, input: Record<string, unknown>) {
+		return server.fetch(
+			new Request("http://x/vehicle/invoke", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ name, version: 1, input, permissions: ["web-spider:read", "web-spider:write"] }),
+			}),
+		);
+	}
+
+	test("search.usage round-trips through the real Vehicle wire protocol (a pure local read, no network)", async () => {
+		const { app: server } = app();
+		const response = await invoke(server, "search.usage", {});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { output: { entries: unknown[] } };
+		expect(body.output.entries).toEqual([]);
+	});
+
+	test("search with a missing query fails with a real Vehicle validation error, not a crash", async () => {
+		const { app: server } = app();
+		const response = await invoke(server, "search", {});
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: { category: string } };
+		expect(body.error.category).toBe("validation");
+	});
+
+	test("papyrus.ingest with a missing kind fails with a real Vehicle validation error, not a crash", async () => {
+		const { app: server } = app();
+		const response = await invoke(server, "papyrus.ingest", {});
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: { category: string } };
+		expect(body.error.category).toBe("validation");
+	});
+
+	test("papyrus.ingest with an unreachable Papyrus daemon fails closed through Vehicle with the same 400 status and real message /api/v1/ops has", async () => {
+		const { app: server } = appWithCachedPage("https://example.test/ingest-me");
+		const response = await invoke(server, "papyrus.ingest", { kind: "pages", urls: ["https://example.test/ingest-me"] });
+		// No Papyrus daemon is reachable in this isolated test environment. Not a crash or a
+		// hang -- and the real, specific message survives (not just a generic "handler failed").
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: { category: string; message: string } };
+		expect(body.error.category).toBe("validation");
+		expect(body.error.message).toMatch(/Papyrus daemon/);
 	});
 });

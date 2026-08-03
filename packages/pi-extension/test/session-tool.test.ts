@@ -9,6 +9,7 @@
  * propagation, and the one piece of tool-specific logic: screenshot's
  * image content block).
  */
+import { registerActivityBroker, unregisterActivityBroker } from "@danypops/vehicle-client-pi/activity-broker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import piFactory from "../src/index.js";
 import { type IsolatedDaemonEnv, isolatedDaemonEnv } from "./daemon-isolation.js";
@@ -59,6 +60,29 @@ describe("web_session — tool registration", () => {
 		expect(definition).toBeDefined();
 		expect(definition?.parameters).toBeDefined();
 	});
+
+	it("session.create/act/close now route through the real Vehicle protocol -- Activity Broker fires for every one", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			await h.invokeTool("web_session", { operation: "create", name: "broker-check" });
+			await h.invokeTool("web_session", {
+				operation: "act",
+				name: "broker-check",
+				snapshotVersion: 0,
+				action: "navigate",
+				url: `${server.baseUrl}/form`,
+			});
+			await h.invokeTool("web_session", { operation: "close", name: "broker-check" });
+
+			for (const operation of ["session.create", "session.act", "session.close"]) {
+				const opEvents = events.filter((e) => e.refs.operation === operation);
+				expect(opEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+			}
+		} finally {
+			unregisterActivityBroker();
+		}
+	}, 30_000);
 });
 
 describe("web_session — real end-to-end lifecycle", () => {

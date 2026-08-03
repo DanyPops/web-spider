@@ -12,19 +12,11 @@
  * file, matching the previous behavior of one shared on-disk cache file.
  */
 
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import piFactory from "../src/index.js";
 import { type IsolatedDaemonEnv, isolatedDaemonEnv } from "./daemon-isolation.js";
+import { createExtensionHarness } from "./harness/index.ts";
 import { type FixtureServer, startFixtureServer } from "./helpers/fixture-server.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = join(__dirname, "../src/index.ts");
-
-const require = createRequire(import.meta.url);
-const jitiPath = require.resolve("jiti");
-const JITI_BASE = `file://${join(__dirname, "../src/index.ts")}`;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -85,32 +77,22 @@ type ExecuteFn = (
 	params: Record<string, unknown>,
 ) => Promise<{ content: { text: string }[]; details: Record<string, unknown> }>;
 
-/** Load a fresh extension and return the execute() for a specific tool name. */
+/**
+ * Load a fresh extension (via the real ExtensionHarness, not a hand-rolled
+ * registerTool stub) and return an execute()-shaped wrapper around
+ * h.invokeTool() for a specific tool name.
+ *
+ * Every operation this extension calls now goes through Vehicle (task
+ * 4057390d), which needs a real ExtensionContext (specifically
+ * context.sessionManager) to build a correlationId -- a hand-rolled stub
+ * `api` object with no real `ctx` can no longer stand in here. The harness
+ * supplies one; `id` is accepted for this file's own call-site compatibility
+ * but not otherwise used (invokeTool supplies its own fixed toolCallId).
+ */
 async function loadExecute(toolName = "web_fetch"): Promise<ExecuteFn> {
-	const { createJiti: cj } = await import(jitiPath);
-	const jiti = cj(JITI_BASE, { moduleCache: false, tryNative: false });
-	const factory = (await jiti.import(EXTENSION_PATH, { default: true })) as (api: unknown) => Promise<void>;
-
-	const tools = new Map<string, ExecuteFn>();
-	const api = {
-		registerTool: vi.fn((tool: { name: string; execute: ExecuteFn }) => {
-			tools.set(tool.name, tool.execute);
-		}),
-		on: vi.fn(),
-		registerCommand: vi.fn(),
-		registerShortcut: vi.fn(),
-		registerFlag: vi.fn(),
-		appendEntry: vi.fn(),
-	};
-
-	// Isolated for the whole file's duration (set in beforeAll) — the daemon
-	// connection is lazy (first execute() call), so the env must still be set
-	// when execute() runs, not just during this factory() call.
-	await factory(api);
-
-	const fn = tools.get(toolName);
-	if (!fn) throw new Error(`Tool '${toolName}' not registered — got: ${[...tools.keys()].join(", ")}`);
-	return fn;
+	const h = createExtensionHarness(piFactory, { cwd: "/tmp", env: isolated.env });
+	await h.boot();
+	return (async (_id, params) => (await h.invokeTool(toolName, params)) as Awaited<ReturnType<ExecuteFn>>) satisfies ExecuteFn;
 }
 
 // ---------------------------------------------------------------------------

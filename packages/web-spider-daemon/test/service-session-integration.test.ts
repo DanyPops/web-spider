@@ -106,3 +106,66 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 		}
 	});
 });
+
+describe("session.* operations — the same real end-to-end lifecycle, through the real Vehicle wire protocol", () => {
+	async function invoke(app: { fetch(request: Request): Promise<Response> }, name: string, input: Record<string, unknown>) {
+		const response = await app.fetch(
+			new Request("http://x/vehicle/invoke", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ name, version: 1, input, permissions: ["web-spider:read", "web-spider:write"] }),
+			}),
+		);
+		return { status: response.status, body: (await response.json()) as { output?: Record<string, unknown>; error?: { category: string } } };
+	}
+
+	test("create → act(navigate) → act(click, stale then fresh) → list → close, with the same 409/404 status parity /api/v1/ops already has", async () => {
+		const service = createWebSpiderService(":memory:");
+		const app = createApp({ service, token: TOKEN });
+		try {
+			const created = await invoke(app, "session.create", { name: "vehicle-e2e" });
+			expect(created.status).toBe(200);
+			expect(created.body.output).toMatchObject({ name: "vehicle-e2e", snapshotVersion: 0 });
+
+			const navigate = await invoke(app, "session.act", {
+				name: "vehicle-e2e",
+				snapshotVersion: 0,
+				action: "navigate",
+				url: "data:text/html,<button id='b'>hi</button>",
+			});
+			expect(navigate.status).toBe(200);
+			expect(navigate.body.output?.snapshotVersion).toBe(1);
+
+			// Stale snapshot -> Vehicle's "conflict" category -> HTTP 409, same as /api/v1/ops's own StaleSnapshotError mapping.
+			const stale = await invoke(app, "session.act", { name: "vehicle-e2e", snapshotVersion: 0, action: "click", selector: "#b" });
+			expect(stale.status).toBe(409);
+			expect(stale.body.error?.category).toBe("conflict");
+
+			const click = await invoke(app, "session.act", { name: "vehicle-e2e", snapshotVersion: 1, action: "click", selector: "#b" });
+			expect(click.status).toBe(200);
+
+			const list = await invoke(app, "session.list", {});
+			expect(((list.body.output?.sessions ?? []) as unknown[]).length).toBe(1);
+
+			const closed = await invoke(app, "session.close", { name: "vehicle-e2e" });
+			expect(closed.body.output).toEqual({ name: "vehicle-e2e", closed: true });
+
+			const listAfterClose = await invoke(app, "session.list", {});
+			expect(((listAfterClose.body.output?.sessions ?? []) as unknown[]).length).toBe(0);
+		} finally {
+			service.close();
+		}
+	}, 30_000);
+
+	test("acting on a nonexistent session maps to Vehicle's \"not_found\" category -> HTTP 404, same as /api/v1/ops's own SessionNotFoundError mapping", async () => {
+		const service = createWebSpiderService(":memory:");
+		const app = createApp({ service, token: TOKEN });
+		try {
+			const result = await invoke(app, "session.act", { name: "ghost", snapshotVersion: 0, action: "screenshot" });
+			expect(result.status).toBe(404);
+			expect(result.body.error?.category).toBe("not_found");
+		} finally {
+			service.close();
+		}
+	});
+});

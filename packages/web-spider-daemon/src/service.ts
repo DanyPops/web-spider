@@ -43,11 +43,14 @@ import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
 import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch-service.ts";
+import { registerFetchVehicleOperations } from "./fetch-vehicle.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
 import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./papyrus-ingest-service.ts";
+import { registerPapyrusVehicleOperations } from "./papyrus-vehicle.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
 import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search-service.ts";
+import { registerSearchVehicleOperations } from "./search-vehicle.ts";
 import {
 	type SessionActInput,
 	type SessionActOutput,
@@ -56,6 +59,7 @@ import {
 	SessionService,
 	StaleSnapshotError,
 } from "./session-service.ts";
+import { registerSessionVehicleOperations } from "./session-vehicle.ts";
 import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
@@ -112,40 +116,60 @@ export interface OperationOutputs {
 	"category.list": CategoryListResult;
 }
 
-type OperationInput = Record<string, unknown>;
+export type OperationInput = Record<string, unknown>;
 type OperationHandler = (input: OperationInput) => unknown | Promise<unknown>;
 
 export class UnknownOperationError extends Error {}
 export class PayloadTooLargeError extends Error {}
 
-function requireString(input: OperationInput, key: string): string {
+export function requireString(input: OperationInput, key: string): string {
 	const value = input[key];
 	if (typeof value !== "string") throw new Error(`${key} is required`);
 	return value;
 }
 
-function optionalString(input: OperationInput, key: string): string | undefined {
+export function optionalString(input: OperationInput, key: string): string | undefined {
 	const value = input[key];
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") throw new Error(`${key} must be a string`);
 	return value;
 }
 
-function optionalNumber(input: OperationInput, key: string): number | undefined {
+export function optionalNumber(input: OperationInput, key: string): number | undefined {
 	const value = input[key];
 	if (value === undefined) return undefined;
 	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
 	return value;
 }
 
-function optionalBoolean(input: OperationInput, key: string): boolean | undefined {
+export function optionalBoolean(input: OperationInput, key: string): boolean | undefined {
 	const value = input[key];
 	if (value === undefined) return undefined;
 	if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
 	return value;
 }
 
-function fetchInput(input: OperationInput): FetchOperationInput {
+/**
+ * Bug fix: the pre-Vehicle handler here used to build this object inline and
+ * silently dropped siteFilter/wantFullContent -- both declared on
+ * WebSearchInput and already sent by the pi-extension's handleSearch(), but
+ * never reaching WebSearchService.search() through /api/v1/ops. Extracted so
+ * both the legacy handler and the new search Vehicle operation share one
+ * correct implementation.
+ */
+export function searchInput(input: OperationInput): WebSearchInput {
+	return {
+		query: requireString(input, "query"),
+		numResults: optionalNumber(input, "numResults"),
+		timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
+		topic: optionalString(input, "topic") as WebSearchInput["topic"],
+		searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
+		siteFilter: optionalString(input, "siteFilter"),
+		wantFullContent: optionalBoolean(input, "wantFullContent"),
+	};
+}
+
+export function fetchInput(input: OperationInput): FetchOperationInput {
 	return {
 		url: requireString(input, "url"),
 		format: optionalString(input, "format") as FetchOperationInput["format"],
@@ -167,7 +191,7 @@ const ELEMENT_STATES = new Set(["visible", "hidden", "attached", "detached"]);
 const SCREENSHOT_SCALES = new Set(["css", "device"]);
 const SNAPSHOT_MODES = new Set(["ai", "default"]);
 
-function sessionActInput(input: OperationInput): SessionActInput {
+export function sessionActInput(input: OperationInput): SessionActInput {
 	const name = requireString(input, "name");
 	const snapshotVersionRaw = input.snapshotVersion;
 	if (typeof snapshotVersionRaw !== "number" || !Number.isInteger(snapshotVersionRaw) || snapshotVersionRaw < 0) {
@@ -225,7 +249,7 @@ function sessionActInput(input: OperationInput): SessionActInput {
 	};
 }
 
-function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
+export function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
 	const kind = requireString(input, "kind");
 	const relatesTo = optionalString(input, "relatesTo");
 	if (kind === "pages") {
@@ -276,14 +300,7 @@ function handlers(
 			store.search(requireString(input, "query"), {
 				topN: optionalNumber(input, "limit"),
 			}),
-		search: (input) =>
-			webSearch.search({
-				query: requireString(input, "query"),
-				numResults: optionalNumber(input, "numResults"),
-				timeRange: optionalString(input, "timeRange") as WebSearchInput["timeRange"],
-				topic: optionalString(input, "topic") as WebSearchInput["topic"],
-				searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
-			}),
+		search: (input) => webSearch.search(searchInput(input)),
 		"search.usage": (input) => ({
 			entries: searchUsage.recent({
 				engine: optionalString(input, "engine"),
@@ -406,6 +423,10 @@ export function createWebSpiderService(
 	});
 	registerCategoryVehicleOperations(vehicleRegistry, store);
 	registerCacheVehicleOperations(vehicleRegistry, store);
+	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage);
+	registerPapyrusVehicleOperations(vehicleRegistry, papyrusIngest);
+	registerFetchVehicleOperations(vehicleRegistry, fetchService, crawlService);
+	registerSessionVehicleOperations(vehicleRegistry, sessionService);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),

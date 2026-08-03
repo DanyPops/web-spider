@@ -124,3 +124,59 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 		}
 	});
 });
+
+describe("fetch/crawl operations — the same real fixture, through the real Vehicle wire protocol", () => {
+	async function invoke(app: { fetch(request: Request): Promise<Response> }, name: string, input: Record<string, unknown>) {
+		const response = await app.fetch(
+			new Request("http://x/vehicle/invoke", {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify({ name, version: 1, input, permissions: ["web-spider:read", "web-spider:write"] }),
+			}),
+		);
+		return { status: response.status, body: (await response.json()) as { output?: Record<string, unknown>; error?: { category: string } } };
+	}
+
+	test("fetch.markdown returns the same real article body /api/v1/ops already proved, and caches it", async () => {
+		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
+		try {
+			const service = createWebSpiderService(":memory:");
+			const app = createApp({ service, token: TOKEN });
+
+			const first = await invoke(app, "fetch", { url: ARTICLE_URL });
+			expect(first.status).toBe(200);
+			expect(first.body.output?.title).toBe("Article With Images — Fixture");
+			expect(first.body.output?.cache).toBe("miss");
+
+			const second = await invoke(app, "fetch", { url: ARTICLE_URL });
+			expect(second.body.output?.cache).toBe("hit");
+
+			service.close();
+		} finally {
+			restore();
+		}
+	});
+
+	test("crawl discovers the single-page fixture site through /vehicle/invoke, matching the /api/v1/ops shape", async () => {
+		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
+		try {
+			const service = createWebSpiderService(":memory:");
+			const app = createApp({ service, token: TOKEN });
+			const { status, body } = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5 });
+			expect(status).toBe(200);
+			expect((body.output?.pagesFound as number) ?? 0).toBeGreaterThanOrEqual(1);
+			service.close();
+		} finally {
+			restore();
+		}
+	});
+
+	test("fetch with a missing url fails with a real Vehicle validation error, not a crash", async () => {
+		const service = createWebSpiderService(":memory:");
+		const app = createApp({ service, token: TOKEN });
+		const { status, body } = await invoke(app, "fetch", {});
+		expect(status).toBe(400);
+		expect(body.error?.category).toBe("validation");
+		service.close();
+	});
+});

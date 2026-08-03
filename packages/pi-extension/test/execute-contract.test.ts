@@ -123,6 +123,26 @@ describe("execute() result and failure channels", () => {
 			unregisterActivityBroker();
 		}
 	});
+
+	it("fetch and crawl now route through the real Vehicle protocol -- Activity Broker fires for both", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			server.set(
+				"/vehicle-fetch-check",
+				"<html><body><article><h1>Vehicle fetch check</h1><p>Proving the swap.</p></article></body></html>",
+			);
+			await h.invokeTool("web_fetch", { url: `${server.baseUrl}/vehicle-fetch-check` });
+			await h.invokeTool("web_fetch", { url: `${server.baseUrl}/vehicle-fetch-check`, depth: 1, maxPages: 1 });
+
+			const fetchEvents = events.filter((e) => e.refs.operation === "fetch");
+			const crawlEvents = events.filter((e) => e.refs.operation === "crawl");
+			expect(fetchEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+			expect(crawlEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+		} finally {
+			unregisterActivityBroker();
+		}
+	});
 });
 
 describe("ingest: explicit opt-in Papyrus wiring", () => {
@@ -138,6 +158,22 @@ describe("ingest: explicit opt-in Papyrus wiring", () => {
 		await expect(h.invokeTool("web_fetch", { url: `${server.baseUrl}/ingest-me`, format: "lean", ingest: true })).rejects.toThrow(
 			/Papyrus daemon is not running|Papyrus daemon state is stale/,
 		);
+	});
+
+	it("papyrus.ingest now routes through the real Vehicle protocol -- Activity Broker fires even on its own fail-closed rejection", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			server.set("/ingest-broker-check", "<html><body><article><h1>Broker check</h1><p>Worth keeping.</p></article></body></html>");
+			await expect(
+				h.invokeTool("web_fetch", { url: `${server.baseUrl}/ingest-broker-check`, format: "lean", ingest: true }),
+			).rejects.toThrow();
+
+			const ingestEvents = events.filter((e) => e.refs.operation === "papyrus.ingest");
+			expect(ingestEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.failed"]);
+		} finally {
+			unregisterActivityBroker();
+		}
 	});
 
 	// The search-path wiring (maybeIngestSearch) uses the exact same call() helper and

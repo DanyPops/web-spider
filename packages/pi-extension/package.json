@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-web-spider",
-	"version": "0.16.0",
+	"version": "0.17.0",
 	"license": "MIT",
 	"description": "Pi extension for web_fetch, web_search, and live browser sessions: 7 search providers (Brave, Brave LLM Context, Tavily, Exa, Serper, SerpApi, You.com) with automatic fallback, robots.txt-respecting crawl, GitHub/Wikipedia/llms.txt-aware fetching, and a disk-backed page cache, all behind a supervised daemon",
 	"keywords": [
@@ -30,7 +30,7 @@
 		"@danypops/vehicle-client-pi": "^0.15.2",
 		"@danypops/vehicle-core": "^0.10.0",
 		"@danypops/web-spider": "^0.14.0",
-		"@danypops/web-spider-daemon": "^0.17.0"
+		"@danypops/web-spider-daemon": "^0.18.0"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
