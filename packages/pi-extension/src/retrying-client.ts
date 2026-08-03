@@ -11,9 +11,10 @@
  * once against a freshly re-resolved client.
  */
 
-import { createRetryingClient } from "@danypops/vehicle-client/daemon-client";
+import { createReconnectingVehicleClient, createRetryingClient } from "@danypops/vehicle-client/daemon-client";
 import type { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { invokeVehicleOperation, type VehicleOperationInvocationResult } from "@danypops/vehicle-client-pi";
+import type { VehicleClient } from "@danypops/vehicle-core";
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { connectOrStartWebSpiderClient, connectOrStartWebSpiderVehicleClient, type WebSpiderClient } from "./daemon-client.js";
 
@@ -38,24 +39,33 @@ export function resetWebSpiderClientConnectorForTests(): void {
 
 // ---------------------------------------------------------------------------
 // Vehicle-protocol path -- used by whichever tool operations have migrated
-// so far (category.* today; see category-vehicle.ts). Same retry-once-on-
-// stale-connection policy, same daemon, a different route/client shape.
+// so far (category.* today; see category-vehicle.ts). Same daemon, a
+// different route/client shape, and a deliberately different retry policy
+// per call: createReconnectingVehicleClient() (from @danypops/vehicle-client)
+// is the same wrapper registerVehicleTools() itself uses -- manifest() is
+// safely retried on a stale connection (read-only, idempotent), while
+// invoke() is never transparently retried (Vehicle's own idempotency model
+// -- safe/keyed/unsafe -- is real per-operation information this wire-level
+// wrapper can't safely generalize over), only the stale connection itself is
+// dropped so the *next* call reconnects. That is the correct call()/
+// callOnce() split for a Vehicle operation -- by client method, not by
+// operation name -- so there is nothing web-spider needs to reimplement here.
 // ---------------------------------------------------------------------------
 type VehicleClientConnector = () => Promise<RemoteVehicleClient>;
 
 let vehicleConnector: VehicleClientConnector = () => connectOrStartWebSpiderVehicleClient();
-const retryingVehicleClient = createRetryingClient<RemoteVehicleClient>(() => vehicleConnector(), { label: "Web Spider (Vehicle)" });
+let vehicleClient: VehicleClient = createReconnectingVehicleClient(() => vehicleConnector());
 
 const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write"];
 
 export function setWebSpiderVehicleClientConnectorForTests(value: VehicleClientConnector): void {
 	vehicleConnector = value;
-	retryingVehicleClient.reset();
+	vehicleClient = createReconnectingVehicleClient(() => vehicleConnector());
 }
 
 export function resetWebSpiderVehicleClientConnectorForTests(): void {
 	vehicleConnector = () => connectOrStartWebSpiderVehicleClient();
-	retryingVehicleClient.reset();
+	vehicleClient = createReconnectingVehicleClient(() => vehicleConnector());
 }
 
 /**
@@ -83,21 +93,19 @@ export async function invokeWebSpiderVehicleOperation(
 		context: ExtensionContext;
 	},
 ): Promise<VehicleOperationInvocationResult> {
-	return retryingVehicleClient.call(async (client) => {
-		const manifest = await client.manifest();
-		const descriptor = manifest.operations.find((op) => op.name === operationName);
-		if (!descriptor) throw new Error(`Web Spider Vehicle manifest has no operation named '${operationName}'`);
-		return invokeVehicleOperation({
-			client,
-			manifest,
-			descriptor,
-			toolName: call.toolName,
-			toolCallId: call.toolCallId,
-			input,
-			context: call.context,
-			signal: call.signal,
-			onUpdate: call.onUpdate,
-			options: { permissions: VEHICLE_PERMISSIONS },
-		});
+	const manifest = await vehicleClient.manifest();
+	const descriptor = manifest.operations.find((op) => op.name === operationName);
+	if (!descriptor) throw new Error(`Web Spider Vehicle manifest has no operation named '${operationName}'`);
+	return invokeVehicleOperation({
+		client: vehicleClient,
+		manifest,
+		descriptor,
+		toolName: call.toolName,
+		toolCallId: call.toolCallId,
+		input,
+		context: call.context,
+		signal: call.signal,
+		onUpdate: call.onUpdate,
+		options: { permissions: VEHICLE_PERMISSIONS },
 	});
 }
