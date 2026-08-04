@@ -43,6 +43,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
+		"@danypops/pi-extension-harness": "^0.4.0",
 		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"@earendil-works/pi-tui": "^0.80.10",
 		"@types/node": "^22.19.19",
