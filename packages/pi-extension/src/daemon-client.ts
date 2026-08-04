@@ -57,11 +57,35 @@ interface PathEnvironment {
 	env?: Record<string, string | undefined>;
 	home?: string;
 	uid?: number;
+	/**
+	 * Override for `process.platform`. Tests pass an explicit platform so
+	 * the Windows branch can be exercised on Linux/macOS CI; production
+	 * callers leave it unset and the function falls back to the host
+	 * platform.
+	 */
+	platform?: NodeJS.Platform;
 }
 
 export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderPaths {
 	const env = options.env ?? process.env;
 	const home = options.home ?? homedir();
+	const platform = options.platform ?? process.platform;
+	// The daemon resolves paths via @danypops/vehicle-server/paths, which has
+	// a Windows branch (handle -> %LOCALAPPDATA%\Temp\<dir>\daemon.json,
+	// token + db -> %LOCALAPPDATA%\<dir>\Data\). Mirror that layout here
+	// so this client and the spawned daemon agree on handle + token paths.
+	// Without this, web_fetch/web_session/web_category silently fail on
+	// Windows: the client writes its token to one place and looks for the
+	// handle in another (the never-writable /run/user/<uid>/...).
+	if (platform === "win32") {
+		const localAppData = env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+		const dataDir = join(localAppData, WEB_SPIDER_STATE_DIRECTORY, "Data");
+		return {
+			database: join(dataDir, "web-spider.db"),
+			token: join(dataDir, TOKEN_FILENAME),
+			handle: join(localAppData, "Temp", WEB_SPIDER_STATE_DIRECTORY, HANDLE_FILENAME),
+		};
+	}
 	const uid = options.uid ?? process.getuid?.() ?? 0;
 	const dataHome = env.XDG_DATA_HOME ?? join(home, ".local", "share");
 	const stateHome = env.XDG_STATE_HOME ?? join(home, ".local", "state");
@@ -174,6 +198,13 @@ export interface ConnectOrStartOptions {
 	 * on where the handle file lives.
 	 */
 	env?: Record<string, string | undefined>;
+	/**
+	 * Override for the host platform. Mirrors the same option on
+	 * resolveWebSpiderPaths() so the spawn (bun-vs-shebang) decision
+	 * matches the path layout decision. Tests pass an explicit platform;
+	 * production callers leave it unset.
+	 */
+	platform?: NodeJS.Platform;
 }
 
 export async function connectOrStartWebSpiderClient(
@@ -184,7 +215,7 @@ export async function connectOrStartWebSpiderClient(
 		readHandle: () => readDaemonHandle(paths),
 		buildClient: (handle) => new WebSpiderClient(`http://${handle.host}:${handle.port}`, ensureAuthToken(paths)),
 		autoStart: true,
-		spawn: () => spawnWebSpiderDaemon(options.env),
+		spawn: () => spawnWebSpiderDaemon(options.env, options.platform ?? process.platform),
 		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
 		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
 		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
@@ -206,7 +237,7 @@ export async function connectOrStartWebSpiderVehicleClient(
 		readHandle: () => readDaemonHandle(paths),
 		buildClient: (handle) => new RemoteVehicleClient({ baseUrl: `http://${handle.host}:${handle.port}`, token: ensureAuthToken(paths) }),
 		autoStart: true,
-		spawn: () => spawnWebSpiderDaemon(options.env),
+		spawn: () => spawnWebSpiderDaemon(options.env, options.platform ?? process.platform),
 		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
 		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
 		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
@@ -219,7 +250,10 @@ export async function connectOrStartWebSpiderVehicleClient(
  * detached via spawnDetachedDaemon), only the resulting client type
  * differs between the two callers.
  */
-function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefined): void {
+function spawnWebSpiderDaemon(
+	env: Record<string, string | undefined> | undefined,
+	platform: NodeJS.Platform = process.platform,
+): void {
 	let cliPath: string;
 	try {
 		cliPath = resolveDaemonCliPath();
@@ -234,12 +268,21 @@ function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefine
 	// idle-shutdown default) that this file's own hand-rolled spawn call
 	// didn't have -- the actual node:child_process.spawn() call still
 	// happens here, daemon-kit only shapes its options.
+	//
+	// cli.ts has shebang `#!/usr/bin/env bun` and is a TypeScript file.
+	// POSIX kernels honor the shebang via execve; Windows has no shebang
+	// handling, so child_process.spawn returns EFTYPE for a .ts path.
+	// Route the spawn through bun on win32 -- the daemon package's own
+	// scripts already use `bun src/cli.ts serve`, and its npm bin shim
+	// does the same.
 	spawnDetachedDaemon({
 		binPath: cliPath,
 		args: ["serve"],
 		env: env ?? process.env,
 		spawn: (command, args, spawnOptions) => {
-			const child = spawnProcess(command, args, spawnOptions);
+			const child = platform === "win32"
+				? spawnProcess("bun", [command, ...args], spawnOptions)
+				: spawnProcess(command, args, spawnOptions);
 			child.unref();
 		},
 	});

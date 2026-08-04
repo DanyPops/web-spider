@@ -51,6 +51,39 @@ describe("resolveWebSpiderPaths", () => {
 		expect(paths.token).toContain(join("state", "web-spider", "auth-token"));
 		expect(paths.handle).toContain(join("run", "web-spider", "daemon.json"));
 	});
+
+	it("uses %LOCALAPPDATA%\\Temp for the handle and %LOCALAPPDATA%\\<dir>\\Data for token + db on win32", () => {
+		// platform: "win32" forces the Windows branch even when this test is
+		// running on Linux/macOS CI; production callers leave it unset and
+		// the function falls back to process.platform.
+		const env = { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local" };
+		const paths = resolveWebSpiderPaths({ env, home: "C:\\Users\\test", platform: "win32" });
+		expect(paths.handle).toBe("C:\\Users\\test\\AppData\\Local\\Temp\\web-spider\\daemon.json");
+		expect(paths.token).toBe("C:\\Users\\test\\AppData\\Local\\web-spider\\Data\\auth-token");
+		expect(paths.database).toBe("C:\\Users\\test\\AppData\\Local\\web-spider\\Data\\web-spider.db");
+	});
+
+	it("falls back to %LOCALAPPDATA% = HOME\\AppData\\Local on win32 when LOCALAPPDATA is unset", () => {
+		const paths = resolveWebSpiderPaths({ env: {}, home: "C:\\Users\\test", platform: "win32" });
+		expect(paths.handle).toBe("C:\\Users\\test\\AppData\\Local\\Temp\\web-spider\\daemon.json");
+	});
+
+	it("ignores XDG_* vars on win32 so client and daemon agree", () => {
+		// Regression guard for the original bug: even if a Windows process
+		// happens to set XDG_RUNTIME_DIR (CI shells often do), the client
+		// must still point at %LOCALAPPDATA%\\Temp so it matches where the
+		// daemon wrote the handle via @danypops/vehicle-server/paths.
+		const env = {
+			LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+			XDG_RUNTIME_DIR: "C:\\should\\be\\ignored",
+			XDG_STATE_HOME: "C:\\should\\be\\ignored",
+			XDG_DATA_HOME: "C:\\should\\be\\ignored",
+		};
+		const paths = resolveWebSpiderPaths({ env, home: "C:\\Users\\test", platform: "win32" });
+		expect(paths.handle).toBe("C:\\Users\\test\\AppData\\Local\\Temp\\web-spider\\daemon.json");
+		expect(paths.token).toContain("C:\\Users\\test\\AppData\\Local\\web-spider\\Data");
+		expect(paths.database).toContain("C:\\Users\\test\\AppData\\Local\\web-spider\\Data");
+	});
 });
 
 describe("ensureAuthToken", () => {
