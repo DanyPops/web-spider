@@ -8,39 +8,19 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runCliToCompletion } from "@danypops/pi-process-harness";
 
 const CLI_PATH = join(import.meta.dir, "..", "src", "cli.ts");
-
-/**
- * Bun.spawn()'s piped stdout/stderr has two confirmed, still-open upstream failure modes under
- * `bun test` (neither anything in this file or cli.ts): intermittently empty despite a real exit
- * (https://github.com/oven-sh/bun/issues/24690), and an outright EBADF/epoll_ctl exception from
- * reading the pipe under load (observed live in CI, not just the empty-output case). Every real
- * invocation of this CLI writes to at least one of stdout/stderr, so both are retried the same
- * bounded way -- a thrown read error is not a real failure of the CLI under test either.
- */
-const MAX_SPAWN_ATTEMPTS = 3;
 
 async function spawnCli(
 	args: string[],
 	env: Record<string, string>,
 	opts: { stdin?: Blob } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-	for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS; attempt++) {
-		const proc = Bun.spawn(["bun", CLI_PATH, ...args], {
-			env,
-			stdout: "pipe",
-			stderr: "pipe",
-			...(opts.stdin ? { stdin: opts.stdin } : {}),
-		});
-		try {
-			const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-			if (stdout.length > 0 || stderr.length > 0 || attempt === MAX_SPAWN_ATTEMPTS) return { code, stdout, stderr };
-		} catch (error) {
-			if (attempt === MAX_SPAWN_ATTEMPTS) throw error;
-		}
-	}
-	throw new Error("unreachable");
+	return runCliToCompletion("bun", [CLI_PATH, ...args], {
+		env,
+		...(opts.stdin ? { stdin: opts.stdin } : {}),
+	});
 }
 
 async function runCliProcess(args: string[], env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {

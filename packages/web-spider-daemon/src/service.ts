@@ -418,7 +418,7 @@ export function createWebSpiderService(
 	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
 	const vehicleRegistry = new VehicleRegistry({
 		name: "web-spider",
-		version: VERSION,
+		packageJsonUrl: new URL("../package.json", import.meta.url),
 		description: "Web fetch/search/crawl, curated page categories, and a disk-backed cache, behind a supervised daemon.",
 	});
 	// withVehicleErrorParity() already converts every real handler error into a well-formed

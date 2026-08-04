@@ -11,21 +11,10 @@
  * a 500, and losing its own specific message in the process (a
  * VehicleFailure sent over the wire never carries an error's `cause`).
  */
-import { VehicleError } from "@danypops/vehicle-core";
+import { defineErrorMapping } from "@danypops/vehicle-core";
 import { SessionNotFoundError, StaleSnapshotError } from "./session-service.ts";
 
-export async function withVehicleErrorParity<T>(run: () => T | Promise<T>): Promise<T> {
-	try {
-		return await run();
-	} catch (error) {
-		if (error instanceof VehicleError) throw error;
-		if (error instanceof SessionNotFoundError) {
-			throw new VehicleError("session-not-found", error.message, { category: "not_found", cause: error });
-		}
-		if (error instanceof StaleSnapshotError) {
-			throw new VehicleError("stale-snapshot", error.message, { category: "conflict", cause: error });
-		}
-		const message = error instanceof Error ? error.message : String(error);
-		throw new VehicleError("operation-rejected", message, { category: "validation", cause: error });
-	}
-}
+export const withVehicleErrorParity = defineErrorMapping([
+	{ errorClass: SessionNotFoundError, category: "not_found", code: "session-not-found" },
+	{ errorClass: StaleSnapshotError, category: "conflict", code: "stale-snapshot" },
+]);
