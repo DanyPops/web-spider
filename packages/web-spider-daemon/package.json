@@ -27,7 +27,7 @@
 	},
 	"optionalDependencies": {
 		"@danypops/papyrus": "*",
-		"playwright-core": "^1.60.0"
+		"playwright-core": "^1.62.1"
 	},
 	"devDependencies": {
 		"@danypops/pi-process-harness": "^0.1.0",
