@@ -1,12 +1,21 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
 	buildUsageChartData,
 	parseUsageCommandArgs,
 	runUsageCommand,
 	type SearchEngineUsageEntry,
+	showUsagePanel,
 	usageBucketSizeMs,
 } from "../src/usage-command.js";
+
+function fakeTheme(): Theme {
+	return {
+		fg: (_hue: string, text: string) => text,
+		bold: (text: string) => text,
+		inverse: (text: string) => text,
+	} as unknown as Theme;
+}
 
 function fakeContext(overrides: Partial<ExtensionCommandContext> = {}): ExtensionCommandContext {
 	return {
@@ -101,6 +110,35 @@ describe("buildUsageChartData", () => {
 		const nonEmpty = buckets.filter((bucket) => bucket.total > 0);
 		const engines = new Set(nonEmpty.flatMap((bucket) => Object.keys(bucket.series)));
 		expect(engines).toEqual(new Set(["tavily", "exa", "brave"]));
+	});
+});
+
+describe("showUsagePanel", () => {
+	it("a plain tab (no Enter) immediately switches the rendered metric, matching pi-jittor's own instant tab-switch feel", async () => {
+		const ctx = fakeContext({
+			ui: {
+				custom: async (factory: Parameters<ExtensionCommandContext["ui"]["custom"]>[0]) => {
+					const tui = { requestRender: () => {} };
+					const done = () => {};
+					const component = factory(tui as never, fakeTheme(), {} as never, done);
+
+					// "calls" is the initial metric -- every entry counts, so all three
+					// engines show up in the rendered chart.
+					const before = component.render(80).join("\n");
+					expect(before).toContain("brave");
+
+					// A single Tab (real terminal sequence, not Enter) should already flip
+					// to "credits" -- only tavily reports that field.
+					component.handleInput("\t");
+					const after = component.render(80).join("\n");
+					expect(after).toContain("tavily");
+					expect(after).not.toContain("No credits reported");
+					return undefined;
+				},
+			} as never,
+		});
+
+		await showUsagePanel(ctx, ENTRIES, "Search provider usage \u2014 3 entries");
 	});
 });
 

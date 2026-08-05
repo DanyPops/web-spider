@@ -1,7 +1,7 @@
 /**
  * `/web`: renders the daemon's own `search.usage` operation (recent
  * per-call credits/cost/rate-limit-header reports, newest first -- see
- * web-spider-daemon's domain/search-usage.ts) as a bucketed bar chart via
+ * web-spider-daemon's search/search-usage.ts) as a bucketed bar chart via
  * malevich-tui-components' HistoryChart -- the same generalized renderer
  * pi-jittor's own `/usage` panel uses -- with a TabMenu to switch which
  * metric the bars stack (calls / credits / cost), since not every engine
@@ -13,6 +13,7 @@ import {
 	type ChartSeries,
 	HistoryChart,
 	type HistoryChartTheme,
+	legacyKeyMatcher,
 	TabMenu,
 	type TabMenuNode,
 	type TabMenuTheme,
@@ -183,7 +184,11 @@ function usageTitle(count: number, engine: string | undefined): string {
 }
 
 /** Opens a TabMenu (calls/credits/cost) over a HistoryChart of the given entries; resolves once the human cancels out of the menu. */
-async function showUsagePanel(ctx: ExtensionCommandContext, entries: readonly SearchEngineUsageEntry[], title: string): Promise<void> {
+export async function showUsagePanel(
+	ctx: ExtensionCommandContext,
+	entries: readonly SearchEngineUsageEntry[],
+	title: string,
+): Promise<void> {
 	return ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
 		let metric: UsageMetric = "calls";
 		const nodes: TabMenuNode<UsageMetric>[] = USAGE_METRICS.map((value) => ({
@@ -222,6 +227,19 @@ async function showUsagePanel(ctx: ExtensionCommandContext, entries: readonly Se
 			invalidate: () => tabMenu.invalidate(),
 			handleInput: (data: string) => {
 				tabMenu.handleInput(data);
+				// TabMenu itself only moves the highlight on tab/arrows and waits for a
+				// separate Enter to activate it (a real menu's highlight-then-confirm
+				// model) -- but a flat, childless tab strip like ours reads as a
+				// segmented control, and pi-jittor's own /usage panel switches
+				// immediately on tab/arrows. Follow a move with a synthetic Enter so
+				// flipping tabs feels the same here -- Enter itself still works too,
+				// just redundantly.
+				const isMove =
+					legacyKeyMatcher(data, "tab") ||
+					legacyKeyMatcher(data, "shift+tab") ||
+					legacyKeyMatcher(data, "left") ||
+					legacyKeyMatcher(data, "right");
+				if (isMove) tabMenu.handleInput("\r");
 				tui.requestRender();
 			},
 		};
