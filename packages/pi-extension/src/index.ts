@@ -37,6 +37,7 @@ import {
 	renderWebSessionCall,
 	renderWebSessionResult,
 } from "./session-presentation.js";
+import { registerWebSpiderUsageCommand } from "./usage-command.js";
 
 // ---------------------------------------------------------------------------
 // Tool
@@ -1303,6 +1304,8 @@ export default async function (pi: ExtensionAPI) {
 			}
 		},
 	});
+
+	registerWebSpiderUsageCommand(pi);
 }
 
 // ---------------------------------------------------------------------------
