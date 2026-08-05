@@ -43,7 +43,10 @@ export interface ParsedUsageArgs {
 
 /** Parses "[engine] [--limit N]" -- two optional inputs, not a full flag grammar. Returns undefined on a malformed --limit. */
 export function parseUsageCommandArgs(raw: string): ParsedUsageArgs | undefined {
-	const tokens = raw.trim().split(/\s+/).filter((token) => token.length > 0);
+	const tokens = raw
+		.trim()
+		.split(/\s+/)
+		.filter((token) => token.length > 0);
 	let engine: string | undefined;
 	let limit: number | undefined;
 	for (let index = 0; index < tokens.length; index += 1) {
@@ -91,8 +94,7 @@ function usageTitle(count: number, engine: string | undefined): string {
 
 /** Fetches recent search-provider usage and shows it -- a table overlay in TUI mode, a plain notify() summary otherwise (ctx.mode !== "tui"), matching this package's other TUI-fallback commands. */
 export async function runUsageCommand(ctx: ExtensionCommandContext, args: string, options: RunUsageCommandOptions = {}): Promise<void> {
-	const fetchUsage =
-		options.fetchUsage ?? ((input) => callWebSpider("search.usage", { engine: input.engine, limit: input.limit }));
+	const fetchUsage = options.fetchUsage ?? ((input) => callWebSpider("search.usage", { engine: input.engine, limit: input.limit }));
 	const showPanel = options.showPanel ?? showUsagePanel;
 
 	const parsed = parseUsageCommandArgs(args);

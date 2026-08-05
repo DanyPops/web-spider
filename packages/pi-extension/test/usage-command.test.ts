@@ -1,11 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import {
-	buildUsageTableRows,
-	parseUsageCommandArgs,
-	runUsageCommand,
-	type SearchEngineUsageEntry,
-} from "../src/usage-command.js";
+import { buildUsageTableRows, parseUsageCommandArgs, runUsageCommand, type SearchEngineUsageEntry } from "../src/usage-command.js";
 
 function fakeContext(overrides: Partial<ExtensionCommandContext> = {}): ExtensionCommandContext {
 	return {
