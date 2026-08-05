@@ -22,7 +22,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { SESSION_ACTIONS } from "../domain/session-audit.ts";
 import { optionalBoolean, requireString, sessionActInput } from "../service.ts";
 import type { SessionService } from "../services/session-service.ts";
-import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
+import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 15_000, maxTimeoutMs: 60_000, maxRequestBytes: 65_536, maxResponseBytes: 1_048_576 };

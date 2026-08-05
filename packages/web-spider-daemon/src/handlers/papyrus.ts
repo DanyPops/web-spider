@@ -9,7 +9,7 @@ import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, 
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { papyrusIngestInput } from "../service.ts";
 import type { PapyrusIngestService } from "../services/papyrus-ingest-service.ts";
-import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
+import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 15_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 65_536 };

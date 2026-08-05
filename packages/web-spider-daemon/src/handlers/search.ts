@@ -13,7 +13,7 @@ import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "../constants.ts";
 import type { SearchUsageJournal } from "../ports/search-usage-journal.ts";
 import { optionalNumber, optionalString, searchInput } from "../service.ts";
 import type { WebSearchService } from "../services/search-service.ts";
-import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
+import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 15_000, maxTimeoutMs: 30_000, maxRequestBytes: 16_384, maxResponseBytes: 262_144 };

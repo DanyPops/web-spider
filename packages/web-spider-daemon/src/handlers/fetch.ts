@@ -15,7 +15,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { fetchInput, optionalBoolean, optionalNumber, optionalString } from "../service.ts";
 import type { CrawlService } from "../services/crawl-service.ts";
 import type { FetchService } from "../services/fetch-service.ts";
-import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
+import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 30_000, maxTimeoutMs: 120_000, maxRequestBytes: 16_384, maxResponseBytes: 1_048_576 };

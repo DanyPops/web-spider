@@ -39,6 +39,12 @@ import type {
 import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
+import { registerCacheVehicleOperations } from "./handlers/cache.ts";
+import { registerCategoryVehicleOperations } from "./handlers/category.ts";
+import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
+import { registerPapyrusVehicleOperations } from "./handlers/papyrus.ts";
+import { registerSearchVehicleOperations } from "./handlers/search.ts";
+import { registerSessionVehicleOperations } from "./handlers/session.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
@@ -54,12 +60,6 @@ import {
 	SessionService,
 	StaleSnapshotError,
 } from "./services/session-service.ts";
-import { registerCacheVehicleOperations } from "./vehicle/cache-vehicle.ts";
-import { registerCategoryVehicleOperations } from "./vehicle/category-vehicle.ts";
-import { registerFetchVehicleOperations } from "./vehicle/fetch-vehicle.ts";
-import { registerPapyrusVehicleOperations } from "./vehicle/papyrus-vehicle.ts";
-import { registerSearchVehicleOperations } from "./vehicle/search-vehicle.ts";
-import { registerSessionVehicleOperations } from "./vehicle/session-vehicle.ts";
 import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
@@ -343,7 +343,7 @@ export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
-	/** Every operation migrated onto the real Vehicle protocol so far -- see category-vehicle.ts/cache-vehicle.ts. Served alongside (not replacing) the /api/v1/ops route above. */
+	/** Every operation migrated onto the real Vehicle protocol so far -- see handlers/category.ts and handlers/cache.ts. Served alongside (not replacing) the /api/v1/ops route above. */
 	vehicleRegistry: VehicleRegistry;
 	/** Best-effort, one-time import of a pre-daemon JSON DiskCache. No-op once the store already has rows. */
 	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
@@ -499,7 +499,7 @@ export function createApp(
 	// A real second transport for whatever operations createCategoryVehicleRegistry
 	// has migrated so far -- composed here rather than replacing /api/v1/ops, so the
 	// rest of this daemon's operations keep working unchanged while the migration
-	// proceeds operation-by-operation (see category-vehicle.ts's own doc comment).
+	// proceeds operation-by-operation (see handlers/category.ts's own doc comment).
 	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicleRegistry, token: deps.token, logger: options.logger });
 	return {
 		async fetch(request: Request): Promise<Response> {

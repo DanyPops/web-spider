@@ -12,7 +12,7 @@ import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, 
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { CachedPageListFilter } from "../domain/page.ts";
 import type { CacheStore } from "../ports/cache-store.ts";
-import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
+import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 15_000, maxRequestBytes: 16_384, maxResponseBytes: 65_536 };
