@@ -145,44 +145,6 @@ describe("execute() result and failure channels", () => {
 	});
 });
 
-describe("ingest: explicit opt-in Papyrus wiring", () => {
-	it("never calls papyrus.ingest when ingest is omitted (default behavior unchanged)", async () => {
-		server.set("/plain", "<html><body><article><h1>Plain</h1><p>No mesh.</p></article></body></html>");
-		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/plain`, format: "lean" })) as any;
-		expect(JSON.parse(result.content[0].text)).not.toHaveProperty("papyrus");
-		expect(result.details.papyrusDocs).toBeUndefined();
-	});
-
-	it("forwards ingest:true for a single-page fetch to the daemon's papyrus.ingest op, which fails closed with no Papyrus daemon reachable in this isolated test environment", async () => {
-		server.set("/ingest-me", "<html><body><article><h1>Ingest me</h1><p>Worth keeping.</p></article></body></html>");
-		await expect(h.invokeTool("web_fetch", { url: `${server.baseUrl}/ingest-me`, format: "lean", ingest: true })).rejects.toThrow(
-			/Papyrus daemon is not running|Papyrus daemon state is stale/,
-		);
-	});
-
-	it("papyrus.ingest now routes through the real Vehicle protocol -- Activity Broker fires even on its own fail-closed rejection", async () => {
-		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
-		registerActivityBroker({ publish: (event) => events.push(event) });
-		try {
-			server.set("/ingest-broker-check", "<html><body><article><h1>Broker check</h1><p>Worth keeping.</p></article></body></html>");
-			await expect(
-				h.invokeTool("web_fetch", { url: `${server.baseUrl}/ingest-broker-check`, format: "lean", ingest: true }),
-			).rejects.toThrow();
-
-			const ingestEvents = events.filter((e) => e.refs.operation === "papyrus.ingest");
-			expect(ingestEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.failed"]);
-		} finally {
-			unregisterActivityBroker();
-		}
-	});
-
-	// The search-path wiring (maybeIngestSearch) uses the exact same call() helper and
-	// papyrus.ingest operation as the fetch path exercised above; a live-network search-
-	// engine round trip isn't repeated here to avoid a flaky, network-dependent test.
-	// Search-specific mapping/bounding is covered by web-spider-daemon's
-	// papyrus-mapping.test.ts and papyrus-ingest-service.test.ts.
-});
-
 describe("web_category: curated relevance categories, end to end", () => {
 	it("assign/list/remove round-trip through the real daemon, with real overlap across two categories", async () => {
 		server.set("/category-me", "<html><body><article><h1>Category me</h1><p>Something worth curating.</p></article></body></html>");

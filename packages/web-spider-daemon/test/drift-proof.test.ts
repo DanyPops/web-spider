@@ -26,7 +26,6 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"search.usage": ["usage"],
 	fetch: ["fetch", "https://drift-proof.test/article"],
 	crawl: ["fetch", "https://drift-proof.test/article", "--depth", "1"],
-	"papyrus.ingest": ["papyrus", "ingest", "https://drift-proof.test/article"],
 	"session.create": ["session", "create", "drift-proof-session"],
 	"session.list": ["session", "list"],
 	"session.close": ["session", "close", "drift-proof-session"],
@@ -249,14 +248,13 @@ describe("trust boundary — authentication", () => {
 
 describe("trust boundary — CLI never opens SQLite directly", () => {
 	// One file per concrete adapter (grouped by domain concept, not a shared
-	// adapters/ bucket -- see cache/, session/, search/, papyrus/) rather than
+	// adapters/ bucket -- see cache/, session/, search/) rather than
 	// a single "./adapters/" prefix to grep for.
 	const CONCRETE_ADAPTER_IMPORTS = [
 		"./cache/sqlite-cache-store.ts",
 		"./search/sqlite-search-usage-journal.ts",
 		"./session/sqlite-session-audit-journal.ts",
 		"./session/playwright-session-registry.ts",
-		"./papyrus/papyrus-http-adapter.ts",
 	];
 
 	test("cli.ts imports only the authenticated client, never bun:sqlite or a storage adapter", () => {

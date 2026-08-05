@@ -54,7 +54,6 @@ export const CRAWL_HIGHLIGHTS_DEFAULT_TOP_N = 8;
 export const TREE_QUERY_DEFAULT_TOP_N = 5;
 /** Session-scoped tree cache — matches the pi-extension's existing bound (constants.ts TREE_CACHE_MAX_ENTRIES). */
 export const TREE_CACHE_MAX_ENTRIES = 20;
-export const PAPYRUS_INGEST_MAX_BATCH = 20;
 
 // ---------------------------------------------------------------------------
 // Session registry — tmux-style browser sessions: named, persistent across

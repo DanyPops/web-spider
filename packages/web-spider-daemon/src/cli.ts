@@ -26,7 +26,6 @@ import {
 	formatCategoryRemoveResult,
 	formatCategoryRenameResult,
 	formatFetchResult,
-	formatPapyrusIngestResult,
 	formatSearchResult,
 	formatSearchUsageResult,
 	formatSessionActResult,
@@ -197,8 +196,6 @@ function usage(stderr: (line: string) => void): number {
 			"       web-spider category rename <category> <newName> [--json]",
 			"       web-spider category list [--json]",
 			"       web-spider cache search <query> [--limit N] [--json]",
-			"       web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]",
-			"                          (each url must already be cached — fetch it first)",
 			"       web-spider session create <name> [--force-chrome-channel] [--json]",
 			"       web-spider session list [--json]",
 			"       web-spider session close <name> [--json]",
@@ -549,24 +546,6 @@ async function runCategoryList(rest: string[], deps: CliDependencies): Promise<n
 	}
 }
 
-async function runPapyrusIngest(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, ["--relates-to"], []);
-	if (!parsed || parsed.positional.length === 0) return usage(deps.stderr);
-
-	try {
-		const result = await deps.client.call("papyrus.ingest", {
-			kind: "pages",
-			urls: parsed.positional,
-			relatesTo: parsed.values["relates-to"],
-		});
-		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatPapyrusIngestResult(result));
-		return 0;
-	} catch (error) {
-		deps.stderr(error instanceof Error ? error.message : String(error));
-		return 1;
-	}
-}
-
 async function runSessionCreate(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [], ["--force-chrome-channel"]);
 	const name = parsed?.positional[0];
@@ -714,11 +693,6 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 		if (subcommand === "remove") return runCategoryRemove(categoryRest, deps);
 		if (subcommand === "rename") return runCategoryRename(categoryRest, deps);
 		if (subcommand === "list") return runCategoryList(categoryRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command === "papyrus") {
-		const [subcommand, ...papyrusRest] = rest;
-		if (subcommand === "ingest") return runPapyrusIngest(papyrusRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command === "session") {

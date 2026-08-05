@@ -92,47 +92,6 @@ export default async function (pi: ExtensionAPI) {
 		return createWebResult(payload, details);
 	}
 
-	// ---------------------------------------------------------------------------
-	// Papyrus ingestion — Web Spider is a context source, Papyrus is the context
-	// mesh. Explicit opt-in only (params.ingest === true): never triggered by an
-	// ordinary fetch/search, matching the daemon's own "papyrus.ingest" contract
-	// (bounded batch, "web-spider:web"/"web-spider:web-search-result" subtypes, immutable service output).
-	// Scoped to a single-page fetch and a search, not crawl or cache views — a
-	// crawl can produce more pages than the ingest batch bound and picking which
-	// ones matter is a separate design question left for a follow-up.
-	// ---------------------------------------------------------------------------
-	type PapyrusIngestOutcome = {
-		ingested: Array<{ url: string; docId: string }>;
-		skipped: Array<{ url: string; reason: string }>;
-	};
-
-	async function maybeIngestPage(params: Params, url: string, callMeta: CallMeta): Promise<PapyrusIngestOutcome | undefined> {
-		if (params.ingest !== true) return undefined;
-		return await invokeVehicle<PapyrusIngestOutcome>(
-			"papyrus.ingest",
-			{ kind: "pages", urls: [url], relatesTo: params.relatesTo },
-			callMeta,
-		);
-	}
-
-	async function maybeIngestSearch(
-		params: Params,
-		query: string,
-		results: Array<{ url: string; title: string; snippet: string; publishedAt?: string }>,
-		callMeta: CallMeta,
-	): Promise<PapyrusIngestOutcome | undefined> {
-		if (params.ingest !== true) return undefined;
-		return await invokeVehicle<PapyrusIngestOutcome>(
-			"papyrus.ingest",
-			{ kind: "search", query, results, relatesTo: params.relatesTo },
-			callMeta,
-		);
-	}
-
-	function withPapyrus<T extends Record<string, unknown>>(content: T, papyrus: PapyrusIngestOutcome | undefined): T {
-		return papyrus ? { ...content, papyrus } : content;
-	}
-
 	/** Splits the daemon's "cache" hit/miss field out of a fetch result — historically renderer-only, never model content. */
 	function splitCache<T extends { cache?: "hit" | "miss" }>(result: T): { content: Omit<T, "cache">; cache: "hit" | "miss" | undefined } {
 		const { cache, ...content } = result;
@@ -159,16 +118,12 @@ export default async function (pi: ExtensionAPI) {
 			callMeta,
 		);
 		log("info", "web search done", { query, hits: result.results.length });
-		const papyrus = await maybeIngestSearch(params, query, result.results, callMeta);
 		return output(
-			withPapyrus(
-				{
-					query: result.query,
-					results: result.results,
-					hint: "Use the url field from a result to fetch its full content with web_fetch(url=...).",
-				},
-				papyrus,
-			),
+			{
+				query: result.query,
+				results: result.results,
+				hint: "Use the url field from a result to fetch its full content with web_fetch(url=...).",
+			},
 			createWebDetails({
 				operation: "search",
 				format: "search",
@@ -176,7 +131,6 @@ export default async function (pi: ExtensionAPI) {
 				query,
 				hits: result.results.length,
 				items: result.results.map((r) => ({ url: r.url, title: r.title })),
-				papyrusDocs: papyrus?.ingested.length,
 			}),
 		);
 	}
@@ -473,11 +427,10 @@ export default async function (pi: ExtensionAPI) {
 		}
 
 		const { content, cache } = splitCache(raw);
-		const papyrus = await maybeIngestPage(params, url, callMeta);
 
 		if (fmt === "lean") {
 			return output(
-				withPapyrus(content, papyrus),
+				content,
 				createWebDetails({
 					operation: "fetch",
 					format: "lean",
@@ -486,7 +439,6 @@ export default async function (pi: ExtensionAPI) {
 					wordCount: Number(content.wordCount ?? 0),
 					cache,
 					enhanced: params.enhanced,
-					papyrusDocs: papyrus?.ingested.length,
 				}),
 			);
 		}
@@ -494,7 +446,7 @@ export default async function (pi: ExtensionAPI) {
 		if (fmt === "links") {
 			const links = (content.bodyLinks as unknown[] | undefined) ?? [];
 			return output(
-				withPapyrus(content, papyrus),
+				content,
 				createWebDetails({
 					operation: "fetch",
 					format: "links",
@@ -504,7 +456,6 @@ export default async function (pi: ExtensionAPI) {
 					cache,
 					enhanced: params.enhanced,
 					items: links.map((link) => ({ url: (link as { href: string }).href, title: (link as { text: string }).text })),
-					papyrusDocs: papyrus?.ingested.length,
 				}),
 			);
 		}
@@ -513,7 +464,7 @@ export default async function (pi: ExtensionAPI) {
 			const hits = (content.hits as unknown[] | undefined) ?? [];
 			const withHint = hits.length === 0 ? { ...content, hint: "No matches. Try broader terms or use format=markdown." } : content;
 			return output(
-				withPapyrus(withHint, papyrus),
+				withHint,
 				createWebDetails({
 					operation: "fetch",
 					format: "highlights",
@@ -524,7 +475,6 @@ export default async function (pi: ExtensionAPI) {
 					hits: hits.length,
 					cache,
 					enhanced: params.enhanced,
-					papyrusDocs: papyrus?.ingested.length,
 				}),
 			);
 		}
@@ -538,7 +488,7 @@ export default async function (pi: ExtensionAPI) {
 				}
 			: content;
 		return output(
-			withPapyrus(withHint, papyrus),
+			withHint,
 			createWebDetails({
 				operation: "fetch",
 				format: "markdown",
@@ -549,7 +499,6 @@ export default async function (pi: ExtensionAPI) {
 				enhanced: params.enhanced,
 				truncated,
 				complete: !truncated,
-				papyrusDocs: papyrus?.ingested.length,
 			}),
 		);
 	}
@@ -712,21 +661,6 @@ export default async function (pi: ExtensionAPI) {
 					"Increase for slow sites; decrease to fail fast in latency-sensitive loops.",
 			}),
 		),
-
-		ingest: Type.Optional(
-			Type.Boolean({
-				description:
-					"When true, push the result into Papyrus (the context mesh) as a Doc artifact after a " +
-					"successful single-page fetch (url, depth=0) or a searchQuery search. Explicit opt-in only " +
-					"\u2014 never triggered by an ordinary fetch. Ignored for depth>0 crawls and local cache views " +
-					"(no url/searchQuery). Response includes a papyrus field with the created Doc id(s).",
-			}),
-		),
-		relatesTo: Type.Optional(
-			Type.String({
-				description: "Existing Papyrus artifact id to link the ingested Doc(s) to via 'references'. Only used with ingest=true.",
-			}),
-		),
 		ignoreRobots: Type.Optional(
 			Type.Boolean({
 				description:
@@ -802,13 +736,6 @@ export default async function (pi: ExtensionAPI) {
 			"  robots.txt is checked and respected before each fetch (depth=0 and depth>0).",
 			"  ignoreRobots=true  — explicit, audited bypass for this one request. Never default;",
 			"                       use only for a human-directed one-off fetch, not bulk crawling.",
-			"",
-			"CONTEXT MESH",
-			"  ingest=true    — push this fetch's page or this search's results into Papyrus as Doc",
-			"                   artifact(s). Explicit only, never automatic. Works with a single-page",
-			"                   fetch (depth=0) or searchQuery; ignored for crawls and cache views.",
-			"  relatesTo=ID   — link the ingested Doc(s) to an existing Papyrus artifact via 'references'.",
-			"  Response gains a papyrus field: {ingested: [{url, docId}], skipped: [{url, reason}]}.",
 		].join("\n"),
 		promptSnippet: "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
 		parameters: paramsSchema,

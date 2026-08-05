@@ -38,7 +38,6 @@ export interface WebPresentationDetails {
 	cache?: "hit" | "miss" | "listing" | "search";
 	enhanced?: boolean;
 	blockedBy?: "robots.txt";
-	papyrusDocs?: number;
 	items: WebItemDetails[];
 	truncated: boolean;
 	complete: boolean;
@@ -109,7 +108,6 @@ export function createWebDetails(input: CreateWebDetailsInput): WebPresentationD
 		...(input.cache ? { cache: input.cache } : {}),
 		...(input.enhanced ? { enhanced: true } : {}),
 		...(input.blockedBy ? { blockedBy: input.blockedBy } : {}),
-		...(validCount(input.papyrusDocs) ? { papyrusDocs: input.papyrusDocs } : {}),
 		items,
 		truncated: input.truncated ?? false,
 		complete: input.complete ?? !(input.truncated ?? false),
@@ -224,7 +222,7 @@ export function parseWebDetails(value: unknown): WebPresentationDetails | undefi
 			if (details[field] !== undefined && (typeof details[field] !== "string" || details[field].length > DETAILS_MAX_FIELD_CHARACTERS))
 				return undefined;
 		}
-		for (const field of ["depth", "pages", "hits", "links", "errors", "wordCount", "papyrusDocs"] as const) {
+		for (const field of ["depth", "pages", "hits", "links", "errors", "wordCount"] as const) {
 			if (details[field] !== undefined && !validCount(details[field])) return undefined;
 		}
 		return value as WebPresentationDetails;
@@ -306,7 +304,6 @@ function summary(details: WebPresentationDetails): string {
 		details.cache ? `cache ${details.cache}` : undefined,
 		details.enhanced ? "browser" : undefined,
 		details.truncated ? "truncated" : undefined,
-		details.papyrusDocs ? `${details.papyrusDocs} → mesh` : undefined,
 	]
 		.filter(Boolean)
 		.join(" · ");

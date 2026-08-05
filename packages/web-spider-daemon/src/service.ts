@@ -15,7 +15,7 @@ import { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type WebSearchResult } from "@danypops/web-spider";
+import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache } from "@danypops/web-spider";
 import type { CacheStore } from "./cache/cache-store.ts";
 import type {
 	CachedPageListFilter,
@@ -38,12 +38,9 @@ import { type FetchOperationInput, type FetchOperationOutput, FetchService } fro
 import { registerCacheVehicleOperations } from "./handlers/cache.ts";
 import { registerCategoryVehicleOperations } from "./handlers/category.ts";
 import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
-import { registerPapyrusVehicleOperations } from "./handlers/papyrus.ts";
 import { registerSearchVehicleOperations } from "./handlers/search.ts";
 import { registerSessionVehicleOperations } from "./handlers/session.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
-import { PapyrusHttpAdapter } from "./papyrus/papyrus-http-adapter.ts";
-import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./papyrus/papyrus-ingest-service.ts";
 import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search/search-service.ts";
 import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
 import type { SearchUsageJournal } from "./search/search-usage-journal.ts";
@@ -69,7 +66,6 @@ export const EXPECTED_OPERATION_NAMES = [
 	"search.usage",
 	"fetch",
 	"crawl",
-	"papyrus.ingest",
 	"session.create",
 	"session.list",
 	"session.close",
@@ -88,7 +84,6 @@ export interface OperationInputs {
 	"search.usage": { engine?: string; limit?: number };
 	fetch: FetchOperationInput;
 	crawl: CrawlOperationInput;
-	"papyrus.ingest": PapyrusIngestInput;
 	"session.create": { name: string; forceChromeChannel?: boolean };
 	"session.list": Record<string, never>;
 	"session.close": SessionCloseInput;
@@ -105,7 +100,6 @@ export interface OperationOutputs {
 	"search.usage": { entries: SearchEngineUsageEntry[] };
 	fetch: FetchOperationOutput;
 	crawl: CrawlOperationOutput;
-	"papyrus.ingest": PapyrusIngestOutput;
 	"session.create": SessionInfo;
 	"session.list": { sessions: SessionInfo[] };
 	"session.close": { name: string; closed: true };
@@ -249,34 +243,11 @@ export function sessionActInput(input: OperationInput): SessionActInput {
 	};
 }
 
-export function papyrusIngestInput(input: OperationInput): PapyrusIngestInput {
-	const kind = requireString(input, "kind");
-	const relatesTo = optionalString(input, "relatesTo");
-	if (kind === "pages") {
-		const urls = input.urls;
-		if (!Array.isArray(urls) || urls.some((u) => typeof u !== "string")) throw new Error("urls must be an array of strings");
-		return { kind: "pages", urls: urls as string[], relatesTo };
-	}
-	if (kind === "search") {
-		const results = input.results;
-		if (!Array.isArray(results)) throw new Error("results must be an array");
-		return {
-			kind: "search",
-			query: requireString(input, "query"),
-			engine: optionalString(input, "engine"),
-			results: results as WebSearchResult[],
-			relatesTo,
-		};
-	}
-	throw new Error('kind must be "pages" or "search"');
-}
-
 function handlers(
 	store: CacheStore,
 	webSearch: WebSearchService,
 	fetchService: FetchService,
 	crawlService: CrawlService,
-	papyrusIngest: PapyrusIngestService,
 	sessionService: SessionService,
 	searchUsage: SearchUsageJournal,
 ): Record<OperationName, OperationHandler> {
@@ -316,7 +287,6 @@ function handlers(
 				maxPages: optionalNumber(input, "maxPages"),
 				sameDomain: optionalBoolean(input, "sameDomain"),
 			}),
-		"papyrus.ingest": (input) => papyrusIngest.ingest(papyrusIngestInput(input)),
 		"session.create": (input) =>
 			sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
 		"session.list": () => ({ sessions: sessionService.list() }),
@@ -407,15 +377,12 @@ export function createWebSpiderService(
 	};
 	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
-	// Papyrus is a peer daemon, reached only through its own authenticated
-	// client (PapyrusHttpAdapter) — never opened as a database directly.
-	const papyrusIngest = new PapyrusIngestService(store, new PapyrusHttpAdapter());
 
 	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, logger });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
-	const registry = handlers(store, webSearch, fetchService, crawlService, papyrusIngest, sessionService, searchUsage);
+	const registry = handlers(store, webSearch, fetchService, crawlService, sessionService, searchUsage);
 	const vehicleRegistry = new VehicleRegistry({
 		name: "web-spider",
 		packageJsonUrl: new URL("../package.json", import.meta.url),
@@ -427,7 +394,6 @@ export function createWebSpiderService(
 	registerCategoryVehicleOperations(vehicleRegistry, store);
 	registerCacheVehicleOperations(vehicleRegistry, store);
 	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage);
-	registerPapyrusVehicleOperations(vehicleRegistry, papyrusIngest);
 	registerFetchVehicleOperations(vehicleRegistry, fetchService, crawlService);
 	registerSessionVehicleOperations(vehicleRegistry, sessionService);
 	return {

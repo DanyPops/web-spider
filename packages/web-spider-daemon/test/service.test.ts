@@ -213,7 +213,6 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 				"cache.search",
 				"search",
 				"search.usage",
-				"papyrus.ingest",
 				"fetch",
 				"crawl",
 				"session.create",
@@ -313,7 +312,7 @@ describe("createApp — search", () => {
 	});
 });
 
-describe("createApp — search.usage, papyrus.ingest through the real Vehicle wire protocol", () => {
+describe("createApp — search.usage through the real Vehicle wire protocol", () => {
 	async function invoke(server: ReturnType<typeof app>["app"], name: string, input: Record<string, unknown>) {
 		return server.fetch(
 			new Request("http://x/vehicle/invoke", {
@@ -338,24 +337,5 @@ describe("createApp — search.usage, papyrus.ingest through the real Vehicle wi
 		expect(response.status).toBe(400);
 		const body = (await response.json()) as { error: { category: string } };
 		expect(body.error.category).toBe("validation");
-	});
-
-	test("papyrus.ingest with a missing kind fails with a real Vehicle validation error, not a crash", async () => {
-		const { app: server } = app();
-		const response = await invoke(server, "papyrus.ingest", {});
-		expect(response.status).toBe(400);
-		const body = (await response.json()) as { error: { category: string } };
-		expect(body.error.category).toBe("validation");
-	});
-
-	test("papyrus.ingest with an unreachable Papyrus daemon fails closed through Vehicle with the same 400 status and real message /api/v1/ops has", async () => {
-		const { app: server } = appWithCachedPage("https://example.test/ingest-me");
-		const response = await invoke(server, "papyrus.ingest", { kind: "pages", urls: ["https://example.test/ingest-me"] });
-		// No Papyrus daemon is reachable in this isolated test environment. Not a crash or a
-		// hang -- and the real, specific message survives (not just a generic "handler failed").
-		expect(response.status).toBe(400);
-		const body = (await response.json()) as { error: { category: string; message: string } };
-		expect(body.error.category).toBe("validation");
-		expect(body.error.message).toMatch(/Papyrus daemon/);
 	});
 });

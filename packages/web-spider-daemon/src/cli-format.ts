@@ -12,7 +12,6 @@ import type {
 	CategoryListResult,
 	CategoryRenameResult,
 } from "./cache/page.ts";
-import type { PapyrusIngestOutput } from "./papyrus/papyrus-ingest-service.ts";
 import type { WebSearchOutput } from "./search/search-service.ts";
 import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
 import type { SessionInfo } from "./session/session.ts";
@@ -146,14 +145,6 @@ export function formatCacheListResult(result: CachedPageListResult): string {
 	return [`${result.pages.length} cached page(s)${suffix}`, ...result.pages.map((page) => `  ${page.title || page.url}  ${page.url}`)].join(
 		"\n",
 	);
-}
-
-export function formatPapyrusIngestResult(result: PapyrusIngestOutput): string {
-	const lines: string[] = [];
-	for (const item of result.ingested) lines.push(`✓ ${item.url} → ${item.docId}`);
-	for (const item of result.skipped) lines.push(`✗ ${item.url} — ${item.reason}`);
-	if (lines.length === 0) return "Nothing to ingest.";
-	return lines.join("\n");
 }
 
 export function formatCacheSearchResult(result: CachedPageSearchResult): string {
