@@ -40,7 +40,7 @@ vi.mock("@mozilla/readability", async (importOriginal) => {
 
 describe("spider() — Readability nulling documentElement", () => {
 	it("does not crash, and falls back to lang: 'en', when documentElement is null after Readability.parse()", async () => {
-		const { spider } = await import("../src/spider.js");
+		const { spider } = await import("../src/fetch/spider.js");
 		const httpClient = {
 			async fetch() {
 				return {
@@ -61,7 +61,7 @@ describe("spider() — Readability nulling documentElement", () => {
 	});
 
 	it("does not crash for the lean and tree views either", async () => {
-		const { spider } = await import("../src/spider.js");
+		const { spider } = await import("../src/fetch/spider.js");
 		const httpClient = {
 			async fetch() {
 				return {

@@ -2,8 +2,8 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
+import { toLean } from "../src/extract/views.js";
 import type { LeanPage, SpideredPage } from "../src/types.js";
-import { toLean } from "../src/views.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

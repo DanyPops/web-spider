@@ -3,8 +3,8 @@
  * the standalone github.ts units (github.test.ts). No real network.
  */
 import { describe, expect, it } from "vitest";
+import { spider } from "../src/fetch/spider.js";
 import type { IHttpClient } from "../src/ports.js";
-import { spider } from "../src/spider.js";
 
 function stubClient(jsonRoutes: Record<string, unknown>, htmlRoutes: Record<string, string> = {}): IHttpClient {
 	return {

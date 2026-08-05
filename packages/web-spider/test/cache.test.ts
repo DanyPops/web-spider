@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SpiderCache } from "../src/cache.js";
+import { SpiderCache } from "../src/cache/cache.js";
 import type { SpideredPage } from "../src/types.js";
 
 function page(url: string): SpideredPage {

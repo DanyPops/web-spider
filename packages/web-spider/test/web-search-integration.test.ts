@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { tavilySearch, webSearch } from "../src/web-search.js";
+import { tavilySearch, webSearch } from "../src/web-search/index.js";
 
 describe("tavilySearch() — live Tavily API", () => {
 	it("throws a clear error when the key is wrong", async () => {

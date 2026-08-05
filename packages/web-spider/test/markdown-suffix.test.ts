@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveMarkdownVariantUrl, probeMarkdownVariant } from "../src/markdown-suffix.js";
 import type { IHttpClient } from "../src/ports.js";
+import { deriveMarkdownVariantUrl, probeMarkdownVariant } from "../src/sources/markdown-suffix.js";
 
 describe("deriveMarkdownVariantUrl", () => {
 	it("replaces a .html extension with .md", () => {

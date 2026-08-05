@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createPlaywrightClient, PlaywrightHttpClient } from "../src/playwright.js";
+import { createPlaywrightClient, PlaywrightHttpClient } from "../src/fetch/playwright.js";
 import type { IHttpClient } from "../src/ports.js";
 
 // ---------------------------------------------------------------------------

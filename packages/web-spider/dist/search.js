@@ -59,9 +59,7 @@ export function searchPages(pages, query, opts = {}) {
         // Metadata documents
         const metaDocs = [
             { id: `${page.url}#meta-title`, heading: "title", text: page.title },
-            ...(page.description
-                ? [{ id: `${page.url}#meta-description`, heading: "description", text: page.description }]
-                : []),
+            ...(page.description ? [{ id: `${page.url}#meta-description`, heading: "description", text: page.description }] : []),
             ...page.headings.map((h, i) => ({
                 id: `${page.url}#meta-h${i}`,
                 heading: `h${h.level}`,
@@ -100,11 +98,11 @@ export function searchPages(pages, query, opts = {}) {
     const fullQuery = query.trim().toLowerCase();
     const queryTokens = tokenise(query);
     return results.slice(0, topN).map((r) => ({
-        url: String(r["url"]),
-        chunkId: String(r["chunkId"]),
-        heading: String(r["heading"]),
+        url: String(r.url),
+        chunkId: String(r.chunkId),
+        heading: String(r.heading),
         score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
-        snippet: buildSnippet(String(r["text"]), fullQuery, queryTokens, snippetRadius),
+        snippet: buildSnippet(String(r.text), fullQuery, queryTokens, snippetRadius),
     }));
 }
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */

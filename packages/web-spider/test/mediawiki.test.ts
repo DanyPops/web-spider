@@ -5,8 +5,8 @@
  * Wikipedia and ArchWiki instances before writing this module.
  */
 import { describe, expect, it } from "vitest";
-import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "../src/mediawiki.js";
 import type { IHttpClient } from "../src/ports.js";
+import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "../src/sources/mediawiki.js";
 
 describe("extractWikiPageTitle", () => {
 	it("extracts from the /wiki/<Title> convention (Wikipedia and most installs)", () => {

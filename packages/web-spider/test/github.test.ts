@@ -5,8 +5,8 @@
  * GitHub API before writing this module.
  */
 import { describe, expect, it } from "vitest";
-import { parseGitHubUrl, queryGitHub } from "../src/github.js";
 import type { IHttpClient } from "../src/ports.js";
+import { parseGitHubUrl, queryGitHub } from "../src/sources/github.js";
 
 describe("parseGitHubUrl", () => {
 	it("parses a bare repo URL", () => {

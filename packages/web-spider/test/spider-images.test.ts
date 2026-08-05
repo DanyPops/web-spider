@@ -6,8 +6,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { spider } from "../src/fetch/spider.js";
 import type { IHttpClient } from "../src/ports.js";
-import { spider } from "../src/spider.js";
 
 // ---------------------------------------------------------------------------
 // Fixture HTML (loaded from disk)

@@ -15,7 +15,7 @@ import {
 	resolveSearchEngine,
 	SerperSearchEngine,
 	TavilySearchEngine,
-} from "../src/web-search.js";
+} from "../src/web-search/index.js";
 
 // ---------------------------------------------------------------------------
 // Stub engine — used to verify registration without touching real APIs

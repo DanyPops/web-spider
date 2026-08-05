@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyContentType } from "../src/content-type.js";
+import { classifyContentType } from "../src/fetch/content-type.js";
 
 describe("classifyContentType", () => {
 	it("classifies text/html and application/xhtml+xml as html", () => {

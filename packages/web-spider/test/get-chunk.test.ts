@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { SpiderCache } from "../src/cache.js";
+import { SpiderCache } from "../src/cache/cache.js";
 import { getChunk } from "../src/index.js";
 import type { Chunk, SpideredPage } from "../src/types.js";
 

@@ -1,21 +1,20 @@
 // ---------------------------------------------------------------------------
 // Public API — what most consumers need
 // ---------------------------------------------------------------------------
-export { SpiderCache } from "./cache.js";
-export { canonicalizeUrl } from "./cache-key.js";
-export { crawl } from "./crawl.js";
-export { PageGraph } from "./graph.js";
-export { searchPages } from "./search.js";
+export { SpiderCache } from "./cache/cache.js";
+export { canonicalizeUrl } from "./cache/cache-key.js";
+export { crawl } from "./crawl/crawl.js";
+export { PageGraph } from "./crawl/graph.js";
+export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
+export { toLean } from "./extract/views.js";
+export { spider } from "./fetch/spider.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
-export { searchPages as fuzzySearch } from "./search.js";
-export { spider } from "./spider.js";
-export { probeLlmsTxt } from "./llms-txt.js";
-export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
-export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
-export { parseGitHubUrl, queryGitHub } from "./github.js";
-export { buildTree, navigateTree, queryTree } from "./tree.js";
-export { toLean } from "./views.js";
-export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch } from "./web-search.js";
+export { searchPages, searchPages as fuzzySearch } from "./search.js";
+export { parseGitHubUrl, queryGitHub } from "./sources/github.js";
+export { probeLlmsTxt } from "./sources/llms-txt.js";
+export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./sources/markdown-suffix.js";
+export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./sources/mediawiki.js";
+export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
  *
@@ -34,13 +33,13 @@ export function getChunk(cache, url, index) {
         return undefined;
     return cache.get(url)?.chunks[index];
 }
-export { DiskCache } from "./disk-cache.js";
-export { PlaywrightHttpClient, createPlaywrightClient } from "./playwright.js";
-export { RobotsCache, createRobotsCache } from "./robots.js";
-export { fetchSitemapUrls } from "./sitemap.js";
-export { DomainThrottle, createThrottle } from "./throttle.js";
-export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, defaultAnswerEngine, defaultSearchEngine } from "./web-search.js";
-export { pageToRecords, pagesToNDJSON, ingestToScribe } from "./scribe-bridge.js";
+export { DiskCache } from "./cache/disk-cache.js";
+export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
+export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
+export { fetchSitemapUrls } from "./sources/sitemap.js";
+export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
+export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";
+export { ingestToScribe, pagesToNDJSON, pageToRecords } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.
 // If you need lower-level DOM or markdown utilities, import from the

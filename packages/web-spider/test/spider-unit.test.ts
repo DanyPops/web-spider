@@ -300,17 +300,17 @@ describe("link rel classification", () => {
 
 describe("spider input validation", () => {
 	it("rejects non-URL strings", async () => {
-		const { spider } = await import("../src/spider.js");
+		const { spider } = await import("../src/fetch/spider.js");
 		await expect(spider("not a url")).rejects.toThrow("Invalid URL");
 	});
 
 	it("rejects ftp:// protocol", async () => {
-		const { spider } = await import("../src/spider.js");
+		const { spider } = await import("../src/fetch/spider.js");
 		await expect(spider("ftp://example.com")).rejects.toThrow("Unsupported protocol");
 	});
 
 	it("rejects file:// protocol", async () => {
-		const { spider } = await import("../src/spider.js");
+		const { spider } = await import("../src/fetch/spider.js");
 		await expect(spider("file:///etc/passwd")).rejects.toThrow("Unsupported protocol");
 	});
 });
@@ -416,8 +416,8 @@ describe("extended nav classification", () => {
 // IHttpClient injection — spider() without real network
 // ---------------------------------------------------------------------------
 
+import { spider } from "../src/fetch/spider.js";
 import type { IHttpClient } from "../src/ports.js";
-import { spider } from "../src/spider.js";
 
 function makeHtmlResponse(html: string, status = 200): ReturnType<IHttpClient["fetch"]> {
 	return Promise.resolve({
@@ -503,7 +503,7 @@ describe("spider() with injected IHttpClient", () => {
 // Table-aware chunking — tables must be atomic
 // ---------------------------------------------------------------------------
 
-import { chunk } from "../src/convert.js";
+import { chunk } from "../src/extract/convert.js";
 
 describe("table-aware chunking", () => {
 	const URL = "https://example.com/page";

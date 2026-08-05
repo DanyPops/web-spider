@@ -4,9 +4,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { crawl } from "../src/crawl.js";
+import { crawl } from "../src/crawl/crawl.js";
+import { spider } from "../src/fetch/spider.js";
 import type { IHttpClient } from "../src/ports.js";
-import { spider } from "../src/spider.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -213,7 +213,7 @@ describe("sitemap.xml seeds crawl frontier", () => {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DiskCache } from "../src/disk-cache.js";
+import { DiskCache } from "../src/cache/disk-cache.js";
 import type { SpideredPage } from "../src/types.js";
 
 describe("DiskCache persists across instances", () => {

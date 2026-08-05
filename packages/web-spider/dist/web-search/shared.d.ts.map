@@ -1,0 +1,1 @@
+{"version":3,"file":"shared.d.ts","sourceRoot":"","sources":["../../src/web-search/shared.ts"],"names":[],"mappings":"AAAA,mEAAmE;AACnE,MAAM,MAAM,YAAY,GAAG,OAAO,GAAG,WAAW,GAAG,QAAQ,GAAG,KAAK,GAAG,QAAQ,GAAG,SAAS,GAAG,KAAK,CAAC;AAEnG;;;;;;GAMG;AACH,wBAAgB,cAAc,CAAC,KAAK,EAAE,MAAM,EAAE,UAAU,EAAE,MAAM,GAAG,SAAS,GAAG,MAAM,CAEpF;AAED,qGAAqG;AACrG,eAAO,MAAM,yBAAyB,QAAiC,CAAC"}

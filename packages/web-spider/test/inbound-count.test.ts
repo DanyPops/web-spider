@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PageGraph } from "../src/graph.js";
+import { PageGraph } from "../src/crawl/graph.js";
+import { toLean } from "../src/extract/views.js";
 import type { SpideredPage } from "../src/types.js";
-import { toLean } from "../src/views.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

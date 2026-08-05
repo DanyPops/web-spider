@@ -2,30 +2,30 @@
 // Public API — what most consumers need
 // ---------------------------------------------------------------------------
 
-export type { SpiderCacheOptions } from "./cache.js";
-export { SpiderCache } from "./cache.js";
-export { canonicalizeUrl } from "./cache-key.js";
-export type { CrawlOptions, CrawlResult } from "./crawl.js";
-export { crawl } from "./crawl.js";
-export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./github.js";
-export { parseGitHubUrl, queryGitHub } from "./github.js";
-export type { PageEdge, PageGraphSnapshot, PageNode } from "./graph.js";
-export { PageGraph } from "./graph.js";
-export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./llms-txt.js";
-export { probeLlmsTxt } from "./llms-txt.js";
-export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./markdown-suffix.js";
-export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./markdown-suffix.js";
-export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./mediawiki.js";
-export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./mediawiki.js";
+export type { SpiderCacheOptions } from "./cache/cache.js";
+export { SpiderCache } from "./cache/cache.js";
+export { canonicalizeUrl } from "./cache/cache-key.js";
+export type { CrawlOptions, CrawlResult } from "./crawl/crawl.js";
+export { crawl } from "./crawl/crawl.js";
+export type { PageEdge, PageGraphSnapshot, PageNode } from "./crawl/graph.js";
+export { PageGraph } from "./crawl/graph.js";
+export type { QueryTreeOptions } from "./extract/tree.js";
+export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
+export { toLean } from "./extract/views.js";
+export type { SpiderOptions, TreePage } from "./fetch/spider.js";
+export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
-export type { SpiderOptions, TreePage } from "./spider.js";
-export { spider } from "./spider.js";
-export type { QueryTreeOptions } from "./tree.js";
-export { buildTree, navigateTree, queryTree } from "./tree.js";
+export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./sources/github.js";
+export { parseGitHubUrl, queryGitHub } from "./sources/github.js";
+export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./sources/llms-txt.js";
+export { probeLlmsTxt } from "./sources/llms-txt.js";
+export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./sources/markdown-suffix.js";
+export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./sources/markdown-suffix.js";
+export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./sources/mediawiki.js";
+export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./sources/mediawiki.js";
 export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
-export { toLean } from "./views.js";
 export type {
 	BraveLlmContextSearchOptions,
 	BraveSearchOptions,
@@ -48,7 +48,7 @@ export type {
 	WebSearchOptions,
 	WebSearchResult,
 	YouComSearchOptions,
-} from "./web-search.js";
+} from "./web-search/index.js";
 export {
 	braveLlmContextSearch,
 	braveSearch,
@@ -65,7 +65,7 @@ export {
 	tavilySearchForAnswer,
 	webSearch,
 	youComSearch,
-} from "./web-search.js";
+} from "./web-search/index.js";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -97,10 +97,13 @@ export function getChunk(cache: ICache<string, SpideredPage>, url: string, index
 // Import these when you need to inject custom implementations.
 // ---------------------------------------------------------------------------
 
-export type { DiskCacheOptions } from "./disk-cache.js";
-export { DiskCache } from "./disk-cache.js";
-export type { PlaywrightClientOptions } from "./playwright.js";
-export { createPlaywrightClient, PlaywrightHttpClient } from "./playwright.js";
+export type { DiskCacheOptions } from "./cache/disk-cache.js";
+export { DiskCache } from "./cache/disk-cache.js";
+export type { PlaywrightClientOptions } from "./fetch/playwright.js";
+export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
+export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
+export type { ThrottleOptions } from "./fetch/throttle.js";
+export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
 export type {
 	AnswerResult,
 	HttpRequest,
@@ -115,10 +118,7 @@ export type {
 	SearchQuery,
 	SiteAvailabilityTracker,
 } from "./ports.js";
-export { createRobotsCache, RobotsCache } from "./robots.js";
-export { fetchSitemapUrls } from "./sitemap.js";
-export type { ThrottleOptions } from "./throttle.js";
-export { createThrottle, DomainThrottle } from "./throttle.js";
+export { fetchSitemapUrls } from "./sources/sitemap.js";
 export {
 	BraveLlmContextSearchEngine,
 	BraveSearchEngine,
@@ -134,7 +134,7 @@ export {
 	SiteRoutedSearchEngine,
 	TavilySearchEngine,
 	YouComSearchEngine,
-} from "./web-search.js";
+} from "./web-search/index.js";
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

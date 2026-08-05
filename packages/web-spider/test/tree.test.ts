@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, navigateTree, queryTree } from "../src/tree.js";
+import { buildTree, navigateTree, queryTree } from "../src/extract/tree.js";
 import type { DOMNode } from "../src/types.js";
 
 // ---------------------------------------------------------------------------

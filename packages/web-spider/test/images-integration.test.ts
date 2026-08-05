@@ -12,10 +12,10 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DiskCache } from "../src/disk-cache.js";
-import { PlaywrightHttpClient } from "../src/playwright.js";
+import { DiskCache } from "../src/cache/disk-cache.js";
+import { PlaywrightHttpClient } from "../src/fetch/playwright.js";
+import { spider } from "../src/fetch/spider.js";
 import type { IHttpClient } from "../src/ports.js";
-import { spider } from "../src/spider.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures

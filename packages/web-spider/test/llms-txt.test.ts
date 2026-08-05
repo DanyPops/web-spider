@@ -3,8 +3,8 @@
  * the existing spider-content-type.test.ts pattern.
  */
 import { describe, expect, it } from "vitest";
-import { probeLlmsTxt } from "../src/llms-txt.js";
 import type { IHttpClient } from "../src/ports.js";
+import { probeLlmsTxt } from "../src/sources/llms-txt.js";
 
 function stubClient(handler: (url: string) => { ok: boolean; status: number; contentType: string | null; body: string }): IHttpClient {
 	return {

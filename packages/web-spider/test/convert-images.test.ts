@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { toMarkdown } from "../src/convert.js";
+import { toMarkdown } from "../src/extract/convert.js";
 
 describe("toMarkdown() keepImages flag", () => {
 	it("1. default strips images — no src or alt in output", () => {

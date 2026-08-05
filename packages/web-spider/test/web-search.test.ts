@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "../src/ports.js";
-import type { NamedSearchEngine } from "../src/web-search.js";
+import type { NamedSearchEngine } from "../src/web-search/index.js";
 import {
 	BraveLlmContextSearchEngine,
 	BraveSearchEngine,
@@ -38,7 +38,7 @@ import {
 	webSearch,
 	YouComSearchEngine,
 	youComSearch,
-} from "../src/web-search.js";
+} from "../src/web-search/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

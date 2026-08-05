@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalizeUrl } from "../src/cache-key.js";
+import { canonicalizeUrl } from "../src/cache/cache-key.js";
 
 describe("canonicalizeUrl", () => {
 	it("strips a trailing slash", () => {

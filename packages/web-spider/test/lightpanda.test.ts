@@ -11,9 +11,9 @@
  */
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLightpandaClient, LightpandaHttpClient } from "../src/lightpanda.js";
-import { probeMarkdownVariant } from "../src/markdown-suffix.js";
+import { createLightpandaClient, LightpandaHttpClient } from "../src/fetch/lightpanda.js";
 import type { IHttpClient } from "../src/ports.js";
+import { probeMarkdownVariant } from "../src/sources/markdown-suffix.js";
 
 const ENV_VAR = "WEB_SPIDER_LIGHTPANDA_ENDPOINT";
 
