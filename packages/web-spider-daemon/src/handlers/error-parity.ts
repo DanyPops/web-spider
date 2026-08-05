@@ -12,7 +12,7 @@
  * VehicleFailure sent over the wire never carries an error's `cause`).
  */
 import { defineErrorMapping } from "@danypops/vehicle-core";
-import { SessionNotFoundError, StaleSnapshotError } from "../services/session-service.ts";
+import { SessionNotFoundError, StaleSnapshotError } from "../session/session-service.ts";
 
 export const withVehicleErrorParity = defineErrorMapping([
 	{ errorClass: SessionNotFoundError, category: "not_found", code: "session-not-found" },

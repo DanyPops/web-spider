@@ -1,4 +1,4 @@
-import type { SessionAuditEntry } from "../domain/session-audit.ts";
+import type { SessionAuditEntry } from "./session-audit.ts";
 
 /**
  * Append-only audit journal — record() is the only write path application

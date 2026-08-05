@@ -7,7 +7,7 @@
  */
 import { existsSync, renameSync } from "node:fs";
 import { DiskCache } from "@danypops/web-spider";
-import type { CacheStore } from "./ports/cache-store.ts";
+import type { CacheStore } from "./cache/cache-store.ts";
 
 export interface LegacyImportResult {
 	imported: number;

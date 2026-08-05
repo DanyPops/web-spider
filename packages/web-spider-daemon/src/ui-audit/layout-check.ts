@@ -12,7 +12,7 @@
  * approximation) and asserts consistency within a tolerance — reporting
  * the actual disagreeing pixel values, not just pass/fail.
  */
-import type { SessionPage } from "../ports/session-registry.ts";
+import type { SessionPage } from "../session/session-registry.ts";
 
 export type LayoutProperty = "top" | "left" | "width" | "height" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft";
 
@@ -94,7 +94,7 @@ interface RawMeasurement {
 function buildMeasurementScript(selectors: string[]): string {
 	// Selectors are embedded as a JSON literal, never string-concatenated into
 	// executable code — no injection surface even though these are trusted,
-	// caller-supplied selectors (same discipline as domain/session-audit.ts's
+	// caller-supplied selectors (same discipline as session/session-audit.ts's
 	// treatment of eval scripts: the page's own APIs do the work, not string
 	// interpolation of untrusted content into a script body).
 	return `(() => {

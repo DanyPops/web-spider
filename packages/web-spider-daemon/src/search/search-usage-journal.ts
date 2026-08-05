@@ -1,4 +1,4 @@
-import type { SearchEngineUsageEntry } from "../domain/search-usage.ts";
+import type { SearchEngineUsageEntry } from "./search-usage.ts";
 
 /**
  * Append-only usage journal -- record() is the only write path application

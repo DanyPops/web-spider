@@ -24,6 +24,8 @@ import {
 	CACHE_SEARCH_DEFAULT_LIMIT,
 	CACHE_SEARCH_SNIPPET_RADIUS,
 } from "../constants.ts";
+import { leanOutput } from "../format.ts";
+import type { CacheStore } from "./cache-store.ts";
 import type {
 	CachedPageListFilter,
 	CachedPageListResult,
@@ -33,9 +35,7 @@ import type {
 	CategoryAssignmentResult,
 	CategoryListResult,
 	CategoryRenameResult,
-} from "../domain/page.ts";
-import { leanOutput } from "../format.ts";
-import type { CacheStore } from "../ports/cache-store.ts";
+} from "./page.ts";
 
 export interface SQLiteCacheStoreOptions {
 	/** Time-to-live in ms applied on every set(). Default 30 min. */

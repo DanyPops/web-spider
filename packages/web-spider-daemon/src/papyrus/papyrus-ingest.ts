@@ -1,7 +1,7 @@
 /**
  * Boundary the ingestion application service depends on — Papyrus is a peer
  * daemon, not a library the domain logic should know the shape of. The real
- * adapter (adapters/papyrus-http-adapter.ts) is the only thing that imports
+ * adapter (papyrus/papyrus-http-adapter.ts) is the only thing that imports
  * @danypops/papyrus; tests inject a fake implementing this port instead.
  */
 export interface PapyrusDocInput {

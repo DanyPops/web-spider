@@ -3,11 +3,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage, WebSearchResult } from "@danypops/web-spider";
-import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { PAPYRUS_INGEST_MAX_BATCH } from "../src/constants.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import type { PapyrusDocInput, PapyrusIngestPort } from "../src/ports/papyrus-ingest.ts";
-import { PapyrusIngestService } from "../src/services/papyrus-ingest-service.ts";
+import type { PapyrusDocInput, PapyrusIngestPort } from "../src/papyrus/papyrus-ingest.ts";
+import { PapyrusIngestService } from "../src/papyrus/papyrus-ingest-service.ts";
 
 function page(url: string, title: string): SpideredPage {
 	return {

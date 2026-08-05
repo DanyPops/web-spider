@@ -5,7 +5,7 @@ import {
 	journalTargetFor,
 	SESSION_ACTIONS,
 	sanitizeUrlForJournal,
-} from "../src/domain/session-audit.ts";
+} from "../src/session/session-audit.ts";
 
 describe("sanitizeUrlForJournal", () => {
 	test("redacts sensitive query parameter values, keeps the rest of the URL intact", () => {

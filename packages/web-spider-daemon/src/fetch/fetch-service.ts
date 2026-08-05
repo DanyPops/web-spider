@@ -21,6 +21,7 @@ import {
 	searchPages,
 	spider,
 } from "@danypops/web-spider";
+import type { CacheStore } from "../cache/cache-store.ts";
 import {
 	FETCH_DEFAULT_TIMEOUT_MS,
 	FETCH_HIGHLIGHTS_DEFAULT_TOP_N,
@@ -30,7 +31,6 @@ import {
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "../constants.ts";
 import { highlightHit, leanOutput, linksOutput, markdownOutput } from "../format.ts";
-import type { CacheStore } from "../ports/cache-store.ts";
 
 export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree";
 

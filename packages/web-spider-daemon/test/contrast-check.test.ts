@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
+import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/session/playwright-session-registry.ts";
 import {
 	type ContrastMeasurement,
 	checkContrast,

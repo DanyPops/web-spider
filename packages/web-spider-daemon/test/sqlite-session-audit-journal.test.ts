@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { SQLiteSessionAuditJournal } from "../src/adapters/sqlite-session-audit-journal.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import type { SessionAuditEntry } from "../src/domain/session-audit.ts";
+import type { SessionAuditEntry } from "../src/session/session-audit.ts";
+import { SQLiteSessionAuditJournal } from "../src/session/sqlite-session-audit-journal.ts";
 
 function entry(overrides: Partial<SessionAuditEntry> = {}): SessionAuditEntry {
 	return {

@@ -17,6 +17,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { listRegisteredSearchEngines } from "@danypops/web-spider";
+import type { CachedPageListFilter } from "./cache/page.ts";
 import {
 	formatCacheListResult,
 	formatCacheSearchResult,
@@ -36,10 +37,9 @@ import {
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
 import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
-import type { CachedPageListFilter } from "./domain/page.ts";
-import { isSessionAction } from "./domain/session-audit.ts";
 import { promptMaskedSecret } from "./masked-prompt.ts";
-import { createSearchKeyStore, resolveSearchKeysDir } from "./search-config/search-secrets.ts";
+import { createSearchKeyStore, resolveSearchKeysDir } from "./search/search-secrets.ts";
+import { isSessionAction } from "./session/session-audit.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
 import { VERSION } from "./version.ts";
 

@@ -30,8 +30,8 @@ import {
 	SESSION_NAME_MAX_LENGTH,
 	SESSION_REGISTRY_MAX_CONCURRENT,
 } from "../constants.ts";
-import { createSessionInfo, isValidSessionName, type SessionInfo } from "../domain/session.ts";
-import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "../ports/session-registry.ts";
+import { createSessionInfo, isValidSessionName, type SessionInfo } from "./session.ts";
+import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "./session-registry.ts";
 
 /**
  * The minimal surface this module needs from a launched browser. Manages

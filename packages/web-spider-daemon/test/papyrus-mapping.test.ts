@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SpideredPage, WebSearchResult } from "@danypops/web-spider";
-import { pageToPapyrusDoc, searchResultToPapyrusDoc } from "../src/services/papyrus-mapping.ts";
+import { pageToPapyrusDoc, searchResultToPapyrusDoc } from "../src/papyrus/papyrus-mapping.ts";
 
 function page(overrides: Partial<SpideredPage> = {}): SpideredPage {
 	return {

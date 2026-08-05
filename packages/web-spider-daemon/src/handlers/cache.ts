@@ -10,8 +10,8 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { CachedPageListFilter } from "../domain/page.ts";
-import type { CacheStore } from "../ports/cache-store.ts";
+import type { CacheStore } from "../cache/cache-store.ts";
+import type { CachedPageListFilter } from "../cache/page.ts";
 import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";

@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import type { HttpRequest, HttpResponse, IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
-import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import { FetchService } from "../src/services/fetch-service.ts";
+import { FetchService } from "../src/fetch/fetch-service.ts";
 import { ARTICLE_HTML, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const URL = "https://fixture.test/article";

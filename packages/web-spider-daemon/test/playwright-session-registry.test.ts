@@ -11,7 +11,7 @@ import {
 	type PlaywrightPageLike,
 	PlaywrightSessionRegistry,
 	wrapPlaywrightPage,
-} from "../src/adapters/playwright-session-registry.ts";
+} from "../src/session/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
 function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {

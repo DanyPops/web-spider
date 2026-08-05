@@ -7,8 +7,8 @@
  */
 import type { Database } from "bun:sqlite";
 import { SESSION_AUDIT_LOG_MAX_ROWS } from "../constants.ts";
-import type { SessionAction, SessionActOutcome, SessionAuditEntry } from "../domain/session-audit.ts";
-import type { SessionAuditJournal } from "../ports/session-audit-journal.ts";
+import type { SessionAction, SessionActOutcome, SessionAuditEntry } from "./session-audit.ts";
+import type { SessionAuditJournal } from "./session-audit-journal.ts";
 
 interface AuditRow {
 	ts: number;

@@ -6,7 +6,7 @@ import type {
 	CategoryAssignmentResult,
 	CategoryListResult,
 	CategoryRenameResult,
-} from "../domain/page.ts";
+} from "./page.ts";
 
 /**
  * Storage boundary the application/service layer depends on. This is the

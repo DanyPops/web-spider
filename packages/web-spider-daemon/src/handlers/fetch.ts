@@ -12,9 +12,9 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { CrawlService } from "../fetch/crawl-service.ts";
+import type { FetchService } from "../fetch/fetch-service.ts";
 import { fetchInput, optionalBoolean, optionalNumber, optionalString } from "../service.ts";
-import type { CrawlService } from "../services/crawl-service.ts";
-import type { FetchService } from "../services/fetch-service.ts";
 import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";

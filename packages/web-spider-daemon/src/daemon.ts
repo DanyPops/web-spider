@@ -11,7 +11,7 @@
 import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
-import { resolveSearchEnv } from "./search-config/search-env.ts";
+import { resolveSearchEnv } from "./search/search-env.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
 import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
 

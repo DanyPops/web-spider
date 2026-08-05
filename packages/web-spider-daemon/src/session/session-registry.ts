@@ -1,4 +1,4 @@
-import type { SessionInfo } from "../domain/session.ts";
+import type { SessionInfo } from "./session.ts";
 
 /**
  * The minimal surface act() dispatch needs from a live page — deliberately

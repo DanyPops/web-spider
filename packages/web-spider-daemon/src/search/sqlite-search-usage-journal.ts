@@ -4,8 +4,8 @@
  */
 import type { Database } from "bun:sqlite";
 import { SEARCH_ENGINE_USAGE_LOG_MAX_ROWS } from "../constants.ts";
-import type { SearchEngineUsageEntry } from "../domain/search-usage.ts";
-import type { SearchUsageJournal } from "../ports/search-usage-journal.ts";
+import type { SearchEngineUsageEntry } from "./search-usage.ts";
+import type { SearchUsageJournal } from "./search-usage-journal.ts";
 
 interface UsageRow {
 	engine: string;

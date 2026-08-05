@@ -1,5 +1,5 @@
-import type { BrowserLauncher, LaunchedBrowser } from "../../src/adapters/playwright-session-registry.ts";
-import type { SessionPage } from "../../src/ports/session-registry.ts";
+import type { BrowserLauncher, LaunchedBrowser } from "../../src/session/playwright-session-registry.ts";
+import type { SessionPage } from "../../src/session/session-registry.ts";
 
 export interface FakePageOptions {
 	failGoto?: boolean;

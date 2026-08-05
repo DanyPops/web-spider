@@ -11,12 +11,12 @@ import type {
 	CategoryAssignmentResult,
 	CategoryListResult,
 	CategoryRenameResult,
-} from "./domain/page.ts";
-import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
-import type { SessionInfo } from "./domain/session.ts";
-import type { PapyrusIngestOutput } from "./services/papyrus-ingest-service.ts";
-import type { WebSearchOutput } from "./services/search-service.ts";
-import type { SessionActOutput } from "./services/session-service.ts";
+} from "./cache/page.ts";
+import type { PapyrusIngestOutput } from "./papyrus/papyrus-ingest-service.ts";
+import type { WebSearchOutput } from "./search/search-service.ts";
+import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
+import type { SessionInfo } from "./session/session.ts";
+import type { SessionActOutput } from "./session/session-service.ts";
 
 const PREVIEW_MARKDOWN_CHARACTERS = 500;
 const PREVIEW_ROW_LIMIT = 10;

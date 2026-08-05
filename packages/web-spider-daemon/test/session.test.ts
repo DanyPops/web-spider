@@ -5,7 +5,7 @@ import {
 	withBumpedSnapshotVersion,
 	withClosed,
 	withTouchedActivity,
-} from "../src/domain/session.ts";
+} from "../src/session/session.ts";
 
 describe("isValidSessionName", () => {
 	test("accepts alphanumeric, dash, underscore, starting with a letter or digit", () => {

@@ -8,6 +8,7 @@
 
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, searchPages } from "@danypops/web-spider";
+import type { CacheStore } from "../cache/cache-store.ts";
 import {
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,
@@ -18,7 +19,6 @@ import {
 	FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
 } from "../constants.ts";
 import { highlightHit, leanOutput, omitEmpty } from "../format.ts";
-import type { CacheStore } from "../ports/cache-store.ts";
 
 export type CrawlFormat = "markdown" | "lean" | "highlights";
 

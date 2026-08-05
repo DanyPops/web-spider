@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
-import { pageKey, SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { pageKey, SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
 
 function page(overrides: Partial<SpideredPage> = {}): SpideredPage {

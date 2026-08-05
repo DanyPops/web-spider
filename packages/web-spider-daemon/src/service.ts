@@ -16,18 +16,7 @@ import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type WebSearchResult } from "@danypops/web-spider";
-import { PapyrusHttpAdapter } from "./adapters/papyrus-http-adapter.ts";
-import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registry.ts";
-import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
-import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
-import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
-import {
-	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
-	SERVICE_MAX_BODY_BYTES,
-	SESSION_DOWNLOADS_DIRECTORY_NAME,
-	SQLITE_SCHEMA_VERSION,
-} from "./constants.ts";
-import { openWebSpiderDb, schemaVersion } from "./db.ts";
+import type { CacheStore } from "./cache/cache-store.ts";
 import type {
 	CachedPageListFilter,
 	CachedPageListResult,
@@ -35,10 +24,17 @@ import type {
 	CategoryAssignmentResult,
 	CategoryListResult,
 	CategoryRenameResult,
-} from "./domain/page.ts";
-import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
-import type { SessionInfo } from "./domain/session.ts";
-import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
+} from "./cache/page.ts";
+import { SQLiteCacheStore } from "./cache/sqlite-cache-store.ts";
+import {
+	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
+	SERVICE_MAX_BODY_BYTES,
+	SESSION_DOWNLOADS_DIRECTORY_NAME,
+	SQLITE_SCHEMA_VERSION,
+} from "./constants.ts";
+import { openWebSpiderDb, schemaVersion } from "./db.ts";
+import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./fetch/crawl-service.ts";
+import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch/fetch-service.ts";
 import { registerCacheVehicleOperations } from "./handlers/cache.ts";
 import { registerCategoryVehicleOperations } from "./handlers/category.ts";
 import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
@@ -46,12 +42,15 @@ import { registerPapyrusVehicleOperations } from "./handlers/papyrus.ts";
 import { registerSearchVehicleOperations } from "./handlers/search.ts";
 import { registerSessionVehicleOperations } from "./handlers/session.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
-import type { CacheStore } from "./ports/cache-store.ts";
-import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
-import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./services/crawl-service.ts";
-import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./services/fetch-service.ts";
-import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./services/papyrus-ingest-service.ts";
-import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./services/search-service.ts";
+import { PapyrusHttpAdapter } from "./papyrus/papyrus-http-adapter.ts";
+import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./papyrus/papyrus-ingest-service.ts";
+import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search/search-service.ts";
+import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
+import type { SearchUsageJournal } from "./search/search-usage-journal.ts";
+import { SQLiteSearchUsageJournal } from "./search/sqlite-search-usage-journal.ts";
+import { PlaywrightSessionRegistry } from "./session/playwright-session-registry.ts";
+import type { SessionInfo } from "./session/session.ts";
+import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./session/session-audit.ts";
 import {
 	type SessionActInput,
 	type SessionActOutput,
@@ -59,7 +58,8 @@ import {
 	SessionNotFoundError,
 	SessionService,
 	StaleSnapshotError,
-} from "./services/session-service.ts";
+} from "./session/session-service.ts";
+import { SQLiteSessionAuditJournal } from "./session/sqlite-session-audit-journal.ts";
 import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [

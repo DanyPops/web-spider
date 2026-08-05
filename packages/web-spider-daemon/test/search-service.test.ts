@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "@danypops/web-spider";
 import { SEARCH_MAX_NUM_RESULTS_CEILING } from "../src/constants.ts";
-import { createEngineResolver, WebSearchService } from "../src/services/search-service.ts";
+import { createEngineResolver, WebSearchService } from "../src/search/search-service.ts";
 
 class FakeEngine implements ISearchEngine {
 	public lastQuery?: SearchQuery;

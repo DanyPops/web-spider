@@ -9,7 +9,7 @@
  * service output: these functions only ever produce a *new* Doc's fields, never an update.
  */
 import type { SpideredPage, WebSearchResult } from "@danypops/web-spider";
-import type { PapyrusDocInput } from "../ports/papyrus-ingest.ts";
+import type { PapyrusDocInput } from "./papyrus-ingest.ts";
 
 /** Matches scribe-bridge.ts's existing markdown truncation bound, so the two ingestion paths stay visually consistent. */
 const BODY_MARKDOWN_MAX_CHARACTERS = 4_000;

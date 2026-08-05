@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
-import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
 import { createApp, createWebSpiderService, UnknownOperationError } from "../src/service.ts";
 import { VERSION } from "../src/version.ts";

@@ -23,10 +23,10 @@
  * Usage:
  *   bun scripts/audit-agent-deck.ts [--base-url http://localhost:5183]
  */
-import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
+import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/session/playwright-session-registry.ts";
 import { checkContrast, type ContrastCheckResult } from "../src/ui-audit/contrast-check.ts";
 import { checkLayout, type LayoutCheckResult } from "../src/ui-audit/layout-check.ts";
-import type { SessionPage } from "../src/ports/session-registry.ts";
+import type { SessionPage } from "../src/session/session-registry.ts";
 
 const MESSAGE_BUBBLE_SELECTOR = "div.rounded-lg.px-3.py-2";
 const TOOL_CALL_CARD_SELECTOR = "details.rounded-lg";

@@ -13,7 +13,7 @@
  * the Pi extension apply here.
  */
 import { connectPapyrusClient } from "@danypops/papyrus/src/client.ts";
-import type { PapyrusDocInput, PapyrusIngestPort } from "../ports/papyrus-ingest.ts";
+import type { PapyrusDocInput, PapyrusIngestPort } from "./papyrus-ingest.ts";
 
 export class PapyrusHttpAdapter implements PapyrusIngestPort {
 	// Uses Papyrus's "docs.*" domain-facade operations (not the lower-level

@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "@danypops/web-spider";
-import { SQLiteCacheStore } from "../src/adapters/sqlite-cache-store.ts";
+import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { CRAWL_MAX_DEPTH_CEILING, CRAWL_MAX_PAGES_CEILING } from "../src/constants.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import { CrawlService } from "../src/services/crawl-service.ts";
+import { CrawlService } from "../src/fetch/crawl-service.ts";
 import { articleWithLinks, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const ROOT = "https://fixture.test/";

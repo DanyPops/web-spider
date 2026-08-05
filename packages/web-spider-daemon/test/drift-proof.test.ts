@@ -248,17 +248,28 @@ describe("trust boundary — authentication", () => {
 });
 
 describe("trust boundary — CLI never opens SQLite directly", () => {
+	// One file per concrete adapter (grouped by domain concept, not a shared
+	// adapters/ bucket -- see cache/, session/, search/, papyrus/) rather than
+	// a single "./adapters/" prefix to grep for.
+	const CONCRETE_ADAPTER_IMPORTS = [
+		"./cache/sqlite-cache-store.ts",
+		"./search/sqlite-search-usage-journal.ts",
+		"./session/sqlite-session-audit-journal.ts",
+		"./session/playwright-session-registry.ts",
+		"./papyrus/papyrus-http-adapter.ts",
+	];
+
 	test("cli.ts imports only the authenticated client, never bun:sqlite or a storage adapter", () => {
 		const source = readFileSync(join(import.meta.dir, "../src/cli.ts"), "utf8");
 		expect(source).not.toContain("bun:sqlite");
 		expect(source).not.toContain("./db.ts");
-		expect(source).not.toContain("./adapters/");
+		for (const adapterImport of CONCRETE_ADAPTER_IMPORTS) expect(source).not.toContain(adapterImport);
 		expect(source).toContain("./client.ts");
 	});
 
 	test("cli-format.ts (the human-output formatters) does not import SQLite either", () => {
 		const source = readFileSync(join(import.meta.dir, "../src/cli-format.ts"), "utf8");
 		expect(source).not.toContain("bun:sqlite");
-		expect(source).not.toContain("./adapters/");
+		for (const adapterImport of CONCRETE_ADAPTER_IMPORTS) expect(source).not.toContain(adapterImport);
 	});
 });
