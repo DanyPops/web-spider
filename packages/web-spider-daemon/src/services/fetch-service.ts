@@ -28,9 +28,9 @@ import {
 	FETCH_MAX_TOKEN_BUDGET,
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
-} from "./constants.ts";
-import { highlightHit, leanOutput, linksOutput, markdownOutput } from "./format.ts";
-import type { CacheStore } from "./ports/cache-store.ts";
+} from "../constants.ts";
+import { highlightHit, leanOutput, linksOutput, markdownOutput } from "../format.ts";
+import type { CacheStore } from "../ports/cache-store.ts";
 
 export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree";
 

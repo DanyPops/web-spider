@@ -11,7 +11,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createFileStore, type RefreshableAccessToken } from "@danypops/vehicle-server/vault";
-import type { WebSpiderPaths } from "./state.ts";
+import type { WebSpiderPaths } from "../state.ts";
 
 export interface SearchKeyStore {
 	load(): string | undefined;

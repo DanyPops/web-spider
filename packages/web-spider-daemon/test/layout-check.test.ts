@@ -6,7 +6,7 @@ import {
 	type ElementMeasurement,
 	measureElements,
 	SelectorNotFoundError,
-} from "../src/layout-check.ts";
+} from "../src/ui-audit/layout-check.ts";
 
 function measurement(selector: string, overrides: Partial<ElementMeasurement> = {}): ElementMeasurement {
 	return {

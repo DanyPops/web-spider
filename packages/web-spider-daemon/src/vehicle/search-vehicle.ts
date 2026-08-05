@@ -9,10 +9,10 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "./constants.ts";
-import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
-import type { WebSearchService } from "./search-service.ts";
-import { optionalNumber, optionalString, searchInput } from "./service.ts";
+import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "../constants.ts";
+import type { SearchUsageJournal } from "../ports/search-usage-journal.ts";
+import { optionalNumber, optionalString, searchInput } from "../service.ts";
+import type { WebSearchService } from "../services/search-service.ts";
 import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
 
 const OWNER = "web-spider";

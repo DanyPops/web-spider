@@ -7,8 +7,8 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { PapyrusIngestService } from "./papyrus-ingest-service.ts";
-import { papyrusIngestInput } from "./service.ts";
+import { papyrusIngestInput } from "../service.ts";
+import type { PapyrusIngestService } from "../services/papyrus-ingest-service.ts";
 import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
 
 const OWNER = "web-spider";

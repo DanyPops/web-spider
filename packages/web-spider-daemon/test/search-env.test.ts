@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EnigmaWhoAmI, TryEnigmaCredential, TryEnigmaWhoAmI, VaultCredential } from "@danypops/enigma-client";
-import { resolveSearchEnv } from "../src/search-env.ts";
-import { createSearchKeyStore } from "../src/search-secrets.ts";
+import { resolveSearchEnv } from "../src/search-config/search-env.ts";
+import { createSearchKeyStore } from "../src/search-config/search-secrets.ts";
 
 /**
  * Never a real filesystem path this machine might actually have search

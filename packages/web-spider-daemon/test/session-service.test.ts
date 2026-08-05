@@ -3,7 +3,7 @@ import type { Logger } from "@danypops/vehicle-server/logging";
 import { PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
 import type { SessionAuditEntry } from "../src/domain/session-audit.ts";
 import type { SessionAuditJournal } from "../src/ports/session-audit-journal.ts";
-import { SessionNotFoundError, SessionService, StaleSnapshotError } from "../src/session-service.ts";
+import { SessionNotFoundError, SessionService, StaleSnapshotError } from "../src/services/session-service.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
 
 interface FakeLoggerCall {

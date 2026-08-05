@@ -19,9 +19,9 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { SESSION_ACTIONS } from "./domain/session-audit.ts";
-import { optionalBoolean, requireString, sessionActInput } from "./service.ts";
-import type { SessionService } from "./session-service.ts";
+import { SESSION_ACTIONS } from "../domain/session-audit.ts";
+import { optionalBoolean, requireString, sessionActInput } from "../service.ts";
+import type { SessionService } from "../services/session-service.ts";
 import { withVehicleErrorParity } from "./vehicle-error-parity.ts";
 
 const OWNER = "web-spider";

@@ -39,7 +39,7 @@ import { serveMain } from "./daemon.ts";
 import type { CachedPageListFilter } from "./domain/page.ts";
 import { isSessionAction } from "./domain/session-audit.ts";
 import { promptMaskedSecret } from "./masked-prompt.ts";
-import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
+import { createSearchKeyStore, resolveSearchKeysDir } from "./search-config/search-secrets.ts";
 import { resolveWebSpiderPaths } from "./state.ts";
 import { VERSION } from "./version.ts";
 

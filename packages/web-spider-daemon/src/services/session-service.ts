@@ -20,11 +20,11 @@ import {
 	SESSION_ACT_SCRIPT_MAX_LENGTH,
 	SESSION_ACT_SNAPSHOT_MAX_LENGTH,
 	SESSION_ACT_TEXT_MAX_LENGTH,
-} from "./constants.ts";
-import type { SessionInfo } from "./domain/session.ts";
-import { boundedJournalError, journalTargetFor, type SessionAction } from "./domain/session-audit.ts";
-import type { SessionAuditJournal } from "./ports/session-audit-journal.ts";
-import type { CreateSessionOptions, SessionPage, SessionRegistry } from "./ports/session-registry.ts";
+} from "../constants.ts";
+import type { SessionInfo } from "../domain/session.ts";
+import { boundedJournalError, journalTargetFor, type SessionAction } from "../domain/session-audit.ts";
+import type { SessionAuditJournal } from "../ports/session-audit-journal.ts";
+import type { CreateSessionOptions, SessionPage, SessionRegistry } from "../ports/session-registry.ts";
 
 export class SessionNotFoundError extends Error {}
 export class StaleSnapshotError extends Error {}

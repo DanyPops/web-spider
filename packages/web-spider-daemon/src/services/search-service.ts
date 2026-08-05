@@ -14,7 +14,7 @@ import {
 	type SearchEngine,
 	type WebSearchResult,
 } from "@danypops/web-spider";
-import { SEARCH_DEFAULT_NUM_RESULTS, SEARCH_MAX_NUM_RESULTS_CEILING } from "./constants.ts";
+import { SEARCH_DEFAULT_NUM_RESULTS, SEARCH_MAX_NUM_RESULTS_CEILING } from "../constants.ts";
 
 export interface WebSearchInput {
 	query: string;

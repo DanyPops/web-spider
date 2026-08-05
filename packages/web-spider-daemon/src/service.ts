@@ -21,15 +21,12 @@ import { PlaywrightSessionRegistry } from "./adapters/playwright-session-registr
 import { SQLiteCacheStore } from "./adapters/sqlite-cache-store.ts";
 import { SQLiteSearchUsageJournal } from "./adapters/sqlite-search-usage-journal.ts";
 import { SQLiteSessionAuditJournal } from "./adapters/sqlite-session-audit-journal.ts";
-import { registerCacheVehicleOperations } from "./cache-vehicle.ts";
-import { registerCategoryVehicleOperations } from "./category-vehicle.ts";
 import {
 	SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 	SERVICE_MAX_BODY_BYTES,
 	SESSION_DOWNLOADS_DIRECTORY_NAME,
 	SQLITE_SCHEMA_VERSION,
 } from "./constants.ts";
-import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./crawl-service.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import type {
 	CachedPageListFilter,
@@ -42,15 +39,13 @@ import type {
 import type { SearchEngineUsageEntry } from "./domain/search-usage.ts";
 import type { SessionInfo } from "./domain/session.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./domain/session-audit.ts";
-import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch-service.ts";
-import { registerFetchVehicleOperations } from "./fetch-vehicle.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
-import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./papyrus-ingest-service.ts";
-import { registerPapyrusVehicleOperations } from "./papyrus-vehicle.ts";
 import type { CacheStore } from "./ports/cache-store.ts";
 import type { SearchUsageJournal } from "./ports/search-usage-journal.ts";
-import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search-service.ts";
-import { registerSearchVehicleOperations } from "./search-vehicle.ts";
+import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./services/crawl-service.ts";
+import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./services/fetch-service.ts";
+import { type PapyrusIngestInput, type PapyrusIngestOutput, PapyrusIngestService } from "./services/papyrus-ingest-service.ts";
+import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./services/search-service.ts";
 import {
 	type SessionActInput,
 	type SessionActOutput,
@@ -58,8 +53,13 @@ import {
 	SessionNotFoundError,
 	SessionService,
 	StaleSnapshotError,
-} from "./session-service.ts";
-import { registerSessionVehicleOperations } from "./session-vehicle.ts";
+} from "./services/session-service.ts";
+import { registerCacheVehicleOperations } from "./vehicle/cache-vehicle.ts";
+import { registerCategoryVehicleOperations } from "./vehicle/category-vehicle.ts";
+import { registerFetchVehicleOperations } from "./vehicle/fetch-vehicle.ts";
+import { registerPapyrusVehicleOperations } from "./vehicle/papyrus-vehicle.ts";
+import { registerSearchVehicleOperations } from "./vehicle/search-vehicle.ts";
+import { registerSessionVehicleOperations } from "./vehicle/session-vehicle.ts";
 import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [

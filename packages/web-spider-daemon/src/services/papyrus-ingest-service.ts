@@ -6,10 +6,10 @@
  * a caller (CLI, tool) must explicitly request.
  */
 import type { WebSearchResult } from "@danypops/web-spider";
-import { PAPYRUS_INGEST_MAX_BATCH } from "./constants.ts";
+import { PAPYRUS_INGEST_MAX_BATCH } from "../constants.ts";
+import type { CacheStore } from "../ports/cache-store.ts";
+import type { PapyrusIngestPort } from "../ports/papyrus-ingest.ts";
 import { pageToPapyrusDoc, searchResultToPapyrusDoc } from "./papyrus-mapping.ts";
-import type { CacheStore } from "./ports/cache-store.ts";
-import type { PapyrusIngestPort } from "./ports/papyrus-ingest.ts";
 
 export interface IngestPagesInput {
 	kind: "pages";

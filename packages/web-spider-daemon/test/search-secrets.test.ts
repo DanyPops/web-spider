@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSearchKeyStore, resolveSearchKeysDir } from "../src/search-secrets.ts";
+import { createSearchKeyStore, resolveSearchKeysDir } from "../src/search-config/search-secrets.ts";
 
 describe("resolveSearchKeysDir", () => {
 	it("is a sibling directory of the auth token file, under this daemon's own state directory", () => {

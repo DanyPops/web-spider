@@ -12,7 +12,7 @@
  * approximation) and asserts consistency within a tolerance — reporting
  * the actual disagreeing pixel values, not just pass/fail.
  */
-import type { SessionPage } from "./ports/session-registry.ts";
+import type { SessionPage } from "../ports/session-registry.ts";
 
 export type LayoutProperty = "top" | "left" | "width" | "height" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft";
 

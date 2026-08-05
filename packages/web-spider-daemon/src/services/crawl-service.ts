@@ -16,9 +16,9 @@ import {
 	CRAWL_MAX_PAGES_CEILING,
 	FETCH_DEFAULT_TIMEOUT_MS,
 	FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
-} from "./constants.ts";
-import { highlightHit, leanOutput, omitEmpty } from "./format.ts";
-import type { CacheStore } from "./ports/cache-store.ts";
+} from "../constants.ts";
+import { highlightHit, leanOutput, omitEmpty } from "../format.ts";
+import type { CacheStore } from "../ports/cache-store.ts";
 
 export type CrawlFormat = "markdown" | "lean" | "highlights";
 

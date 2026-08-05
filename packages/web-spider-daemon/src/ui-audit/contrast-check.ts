@@ -16,7 +16,7 @@
  * parsing, alpha compositing, luminance, and ratio math is pure Node-side
  * logic, directly unit-testable without a browser.
  */
-import type { SessionPage } from "./ports/session-registry.ts";
+import type { SessionPage } from "../ports/session-registry.ts";
 
 export interface ColorRGBA {
 	r: number;

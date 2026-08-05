@@ -36,8 +36,8 @@
  */
 import { type TryEnigmaCredential, type TryEnigmaWhoAmI, tryEnigmaCredential, tryEnigmaWhoAmI } from "@danypops/enigma-client";
 import { envKeyForEngine, listRegisteredSearchEngines } from "@danypops/web-spider";
+import { resolveWebSpiderPaths } from "../state.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
-import { resolveWebSpiderPaths } from "./state.ts";
 
 function enigmaOptedIn(env: Record<string, string | undefined>): boolean {
 	const flag = env.WEB_SPIDER_USE_ENIGMA;

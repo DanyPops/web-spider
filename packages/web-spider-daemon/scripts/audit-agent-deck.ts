@@ -24,8 +24,8 @@
  *   bun scripts/audit-agent-deck.ts [--base-url http://localhost:5183]
  */
 import { defaultBrowserLauncher, PlaywrightSessionRegistry } from "../src/adapters/playwright-session-registry.ts";
-import { checkContrast, type ContrastCheckResult } from "../src/contrast-check.ts";
-import { checkLayout, type LayoutCheckResult } from "../src/layout-check.ts";
+import { checkContrast, type ContrastCheckResult } from "../src/ui-audit/contrast-check.ts";
+import { checkLayout, type LayoutCheckResult } from "../src/ui-audit/layout-check.ts";
 import type { SessionPage } from "../src/ports/session-registry.ts";
 
 const MESSAGE_BUBBLE_SELECTOR = "div.rounded-lg.px-3.py-2";
