@@ -1,5 +1,5 @@
 /**
- * Output-shaping helpers — ported verbatim from packages/pi-extension/src/format.ts
+ * Output-shaping helpers — ported verbatim from packages/pi-web-spider/src/format.ts
  * so the daemon's `fetch`/`crawl` operations produce the exact same JSON shapes
  * the tool already returns (design doc §3: "reuse today's pi-extension Params/
  * output shapes verbatim — this is a backend swap, not an API change").

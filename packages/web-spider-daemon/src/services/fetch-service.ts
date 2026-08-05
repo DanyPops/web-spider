@@ -1,5 +1,5 @@
 /**
- * Single-page fetch application service — ports packages/pi-extension/src/index.ts's
+ * Single-page fetch application service — ports packages/pi-web-spider/src/index.ts's
  * buildFetchPage/handleSinglePage logic into the daemon, composed against the
  * SQLite-backed CacheStore instead of an in-process DiskCache/SpiderCache.
  *

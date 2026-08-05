@@ -19,7 +19,7 @@
   },
   "pi": {
     "extensions": [
-      "packages/pi-extension/src/index.ts"
+      "packages/pi-web-spider/src/index.ts"
     ]
   },
   "peerDependencies": {

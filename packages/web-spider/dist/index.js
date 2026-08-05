@@ -36,8 +36,8 @@ export function getChunk(cache, url, index) {
 export { DiskCache } from "./cache/disk-cache.js";
 export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
 export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
-export { fetchSitemapUrls } from "./sources/sitemap.js";
 export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
+export { fetchSitemapUrls } from "./sources/sitemap.js";
 export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";
 export { ingestToScribe, pagesToNDJSON, pageToRecords } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.

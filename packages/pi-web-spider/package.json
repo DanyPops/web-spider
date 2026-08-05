@@ -55,6 +55,6 @@
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/DanyPops/web-spider.git",
-		"directory": "packages/pi-extension"
+		"directory": "packages/pi-web-spider"
 	}
 }

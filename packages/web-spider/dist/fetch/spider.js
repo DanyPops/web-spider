@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
+import { chunk, toMarkdown } from "../extract/convert.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "../extract/parse.js";
 import { buildTree } from "../extract/tree.js";
-import { chunk, toMarkdown } from "../extract/convert.js";
 import { toLean } from "../extract/views.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";

@@ -34,7 +34,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/pi-extension/src/**/*.ts"],
+			"includes": ["packages/pi-web-spider/src/**/*.ts"],
 			"linter": {
 				"rules": {
 					"suspicious": {

@@ -23,8 +23,8 @@ jobs:
       - run: npm run lint:ci
       - run: npx playwright-core install --with-deps chromium
       - run: npm run build --workspace=packages/web-spider
-      - run: npm run check --workspace=packages/web-spider --workspace=packages/pi-extension
-      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-extension
+      - run: npm run check --workspace=packages/web-spider --workspace=packages/pi-web-spider
+      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-web-spider
       - run: bun x tsc --noEmit
         working-directory: packages/web-spider-daemon
       - run: bun test

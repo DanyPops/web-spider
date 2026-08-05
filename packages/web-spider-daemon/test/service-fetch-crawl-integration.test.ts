@@ -7,7 +7,7 @@
  * globalThis.fetch is monkey-patched for the duration of each test (restored
  * in `finally`) because createWebSpiderService() wires production dependencies
  * with no injectable HTTP client seam — exactly the real deployment shape.
- * This mirrors packages/pi-extension/test/paths.test.ts's established
+ * This mirrors packages/pi-web-spider/test/paths.test.ts's established
  * "mock globalThis.fetch, serve fixture HTML" convention for this exact
  * scenario (testing the real wiring, not a unit under test).
  */

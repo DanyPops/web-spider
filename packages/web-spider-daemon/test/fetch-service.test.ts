@@ -13,7 +13,7 @@ const URL = "https://fixture.test/article";
 
 // A minimal app shell with no extractable article content — Readability finds
 // nothing, so spider() reports jsRendered:true and FetchService retries with
-// the injected Playwright client. Same fixture packages/pi-extension used to
+// the injected Playwright client. Same fixture packages/pi-web-spider used to
 // exercise this exact scenario before Playwright moved into this daemon.
 const FIXTURES_DIR = join(import.meta.dir, "../../web-spider/fixtures");
 const GH_SHELL_HTML = readFileSync(join(FIXTURES_DIR, "gh-shell.html"), "utf8");
@@ -177,7 +177,7 @@ describe("FetchService — robots.txt", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Playwright auto-fallback — this behavior lived in packages/pi-extension
+// Playwright auto-fallback — this behavior lived in packages/pi-web-spider
 // before the extension-client task; it is exercised here now that Playwright
 // is a daemon-owned adapter, via the same getPlaywrightClient() injection
 // seam production code uses (see FetchServiceDeps).

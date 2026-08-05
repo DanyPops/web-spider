@@ -1,6 +1,6 @@
 /**
  * Token-efficiency tests for format.ts's output formatters — ported verbatim
- * from packages/pi-extension/test/format.test.ts (vitest → bun:test) now
+ * from packages/pi-web-spider/test/format.test.ts (vitest → bun:test) now
  * that format.ts's canonical home is this daemon package; the pi-extension
  * copy is deleted once the extension-client task makes it consume daemon
  * operation outputs directly instead of formatting pages itself.

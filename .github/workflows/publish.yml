@@ -49,7 +49,7 @@ jobs:
       - run: npx playwright-core install --with-deps chromium
 
       - run: npm run build --workspace=packages/web-spider
-      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-extension
+      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-web-spider
       - run: bun test
         working-directory: packages/web-spider-daemon
       - run: bun x tsc --noEmit
@@ -90,4 +90,4 @@ jobs:
           else
             npm publish --access public
           fi
-        working-directory: packages/pi-extension
+        working-directory: packages/pi-web-spider

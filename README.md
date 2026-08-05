@@ -16,7 +16,7 @@ operation registry (cache.list/search, fetch, crawl, search, session.*, papyrus.
 SQLite (WAL) cache · IHttpClient/PlaywrightHttpClient · web search providers · Papyrus client
 ```
 
-The daemon (`packages/web-spider-daemon`, `@danypops/web-spider-daemon`) is the sole owner of the page cache and the sole process that performs network fetches, crawls, throttling, and robots.txt checks. The Pi extension (`packages/pi-extension`, `@danypops/pi-web-spider`) never touches the network or a cache file directly — it only reconstructs the exact historical `web_fetch` tool contract on top of the daemon's operation responses. `packages/web-spider` is the underlying library (spider/crawl/search primitives, ports) both the daemon and, for now, a few standalone scripts depend on directly.
+The daemon (`packages/web-spider-daemon`, `@danypops/web-spider-daemon`) is the sole owner of the page cache and the sole process that performs network fetches, crawls, throttling, and robots.txt checks. The Pi extension (`packages/pi-web-spider`, `@danypops/pi-web-spider`) never touches the network or a cache file directly — it only reconstructs the exact historical `web_fetch` tool contract on top of the daemon's operation responses. `packages/web-spider` is the underlying library (spider/crawl/search primitives, ports) both the daemon and, for now, a few standalone scripts depend on directly.
 
 Every daemon operation has full CLI parity — see `packages/web-spider-daemon/README.md` for the complete operation/CLI reference, systemd service install, and health/readiness endpoints.
 

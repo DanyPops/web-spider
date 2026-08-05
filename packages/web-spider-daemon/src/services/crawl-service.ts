@@ -1,5 +1,5 @@
 /**
- * Depth-bounded crawl application service — ports packages/pi-extension/src/index.ts's
+ * Depth-bounded crawl application service — ports packages/pi-web-spider/src/index.ts's
  * handleCrawl logic into the daemon, composed against the SQLite-backed
  * CacheStore. Server-side bounds (design doc §5) are enforced here, not just
  * documented as client-side defaults — a CLI or any other future caller must
@@ -112,7 +112,7 @@ export class CrawlService {
 		// markdown (default) — crawl summary, not full page bodies; see docs/web-fetch-api.md "Crawl output".
 		// No "note" field here: the historical "use web_fetch(depth=0, ...)" guidance
 		// names a specific Pi tool and is added by that tool's own adapter layer
-		// (packages/pi-extension), not by this daemon — a CLI caller has no such tool.
+		// (packages/pi-web-spider), not by this daemon — a CLI caller has no such tool.
 		return {
 			pagesFound: result.pages.size,
 			...errorsObj,

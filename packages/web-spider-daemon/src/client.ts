@@ -4,7 +4,7 @@
  * client.ts byte-for-byte). The Pi extension and CLI both use this;
  * neither opens SQLite directly.
  *
- * Note: packages/pi-extension/src/daemon-client.ts intentionally
+ * Note: packages/pi-web-spider/src/daemon-client.ts intentionally
  * duplicates a small, Bun-independent subset of this instead of importing
  * it -- see that file's header comment (jiti/native-ESM loader fragility
  * with a dependency's raw, unbuilt TypeScript). This migration does not
