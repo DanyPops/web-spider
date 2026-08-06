@@ -31,7 +31,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { connectWithPolicy, type SpawnPlatformOptions, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -219,6 +219,27 @@ export async function connectOrStartWebSpiderVehicleClient(
  * detached via spawnDetachedDaemon), only the resulting client type
  * differs between the two callers.
  */
+/**
+ * spawnDetachedDaemon's injected spawn() callback, factored out for a direct unit test.
+ *
+ * A spawn() failure (missing binPath, bad permissions, wrong interpreter) surfaces
+ * asynchronously as an "error" event on the ChildProcess -- with no listener, Node treats it
+ * as an uncaught exception and kills the whole host process, not just this one connect
+ * attempt (see @danypops/vehicle-client's spawn-error-uncaught-crash.test.ts, and papyrus's
+ * own client.ts, which hit exactly this in production). The listener below turns that into
+ * an ordinary logged failure instead: the handle file simply never appears, and
+ * connectWithPolicy's own poll-then-timeout already reports that as its usual, catchable
+ * fallbackMessage error.
+ */
+export function spawnWebSpiderDaemonProcess(command: string, args: string[], spawnOptions: SpawnPlatformOptions): void {
+	const child = spawnProcess(command, args, spawnOptions);
+	child.on("error", (error) => {
+		// biome-ignore lint/suspicious/noConsole: the only diagnostic surface for an otherwise-silent auto-spawn failure.
+		console.error(`Web Spider daemon auto-spawn failed: ${error instanceof Error ? error.message : String(error)}`);
+	});
+	child.unref();
+}
+
 function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefined): void {
 	let cliPath: string;
 	try {
@@ -238,9 +259,6 @@ function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefine
 		binPath: cliPath,
 		args: ["serve"],
 		env: env ?? process.env,
-		spawn: (command, args, spawnOptions) => {
-			const child = spawnProcess(command, args, spawnOptions);
-			child.unref();
-		},
+		spawn: spawnWebSpiderDaemonProcess,
 	});
 }
