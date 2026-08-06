@@ -510,164 +510,64 @@ export default async function (pi: ExtensionAPI) {
 	// Defined here so Params = Static<typeof paramsSchema> resolves concretely
 	// rather than being derived through registerTool's unresolved generic.
 	const paramsSchema = Type.Object({
-		url: Type.Optional(Type.String({ description: "Fully-qualified http(s) URL to fetch or crawl from" })),
+		url: Type.Optional(Type.String({ description: "URL to fetch or crawl" })),
 
-		depth: Type.Optional(
-			Type.Number({
-				description: "BFS depth. 0=single page (default). 1=page + all its links. N=N hops deep.",
-			}),
-		),
-		maxPages: Type.Optional(
-			Type.Number({
-				description: "Hard cap on total pages when depth>0 (default 10).",
-			}),
-		),
-		sameDomain: Type.Optional(
-			Type.Boolean({
-				description: "Only follow links on the same domain when depth>0 (default true).",
-			}),
-		),
+		depth: Type.Optional(Type.Number({ description: "BFS crawl depth from url (default 0 = single page)" })),
+		maxPages: Type.Optional(Type.Number({ description: "Max pages when depth>0 (default 10)" })),
+		sameDomain: Type.Optional(Type.Boolean({ description: "Follow only same-domain links when depth>0 (default true)" })),
 
 		enhanced: Type.Optional(
 			Type.Boolean({
-				description:
-					"When true, always uses a headless browser (playwright-core + system Chrome, stealth mode). " +
-					"When false (default), direct fetch is used and Playwright kicks in automatically " +
-					"only if the page is detected as JS-rendered.",
+				description: "Force headless-browser rendering (default false; auto-falls back to it for JS-rendered pages)",
 			}),
 		),
 
 		format: Type.Optional(
 			Type.Union(
 				[Type.Literal("markdown"), Type.Literal("lean"), Type.Literal("links"), Type.Literal("highlights"), Type.Literal("tree")],
-				{
-					description: "markdown=full body (default), lean=outline only, links=link list, highlights=BM25F chunks, tree=semantic DOM tree.",
-				},
+				{ description: "markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree" },
 			),
 		),
 		query: Type.Optional(
-			Type.String({
-				description: "Search phrase. Required for format=highlights. Optional for format=tree (searches the tree).",
-			}),
+			Type.String({ description: "Search text; required for format=highlights, optional for format=tree" }),
 		),
 		path: Type.Optional(
-			Type.String({
-				description: "Dot-bracket path for format=tree navigation, e.g. article.section[1].pre[0].code",
-			}),
+			Type.String({ description: "format=tree: dot-bracket node path, e.g. article.section[1].pre[0].code" }),
 		),
-		topN: Type.Optional(
-			Type.Number({
-				description: "Max hits to return for format=tree with query (default 5).",
-			}),
-		),
+		topN: Type.Optional(Type.Number({ description: "format=tree with query: max hits (default 5)" })),
 
-		grep: Type.Optional(
-			Type.String({
-				description:
-					"Filter cached pages by substring match on url, title, domain, or description. Only applies when url is omitted (local cache listing).",
-			}),
-		),
-		domain: Type.Optional(
-			Type.String({ description: 'Cache listing only: exact, case-insensitive match on the page\'s domain (e.g. "github.com").' }),
-		),
-		tag: Type.Optional(
-			Type.String({
-				description:
-					"Cache listing only: filter to pages whose auto-extracted tags include this one. A page with multiple tags matches every one of its own tags' queries.",
-			}),
-		),
-		category: Type.Optional(
-			Type.String({
-				description:
-					"Cache listing only: filter to pages assigned this curated relevance category (see web_category). A page in multiple categories matches every one of its own categories' queries.",
-			}),
-		),
-		fetchedAfter: Type.Optional(
-			Type.Number({ description: "Cache listing only: epoch ms lower bound on when the page was cached (not when it was published)." }),
-		),
-		fetchedBefore: Type.Optional(
-			Type.Number({ description: "Cache listing only: epoch ms upper bound on when the page was cached (not when it was published)." }),
-		),
-		publishedAfter: Type.Optional(
-			Type.String({ description: "Cache listing only: ISO-8601 lower bound on the page's own published date (not when it was cached)." }),
-		),
-		publishedBefore: Type.Optional(
-			Type.String({ description: "Cache listing only: ISO-8601 upper bound on the page's own published date (not when it was cached)." }),
-		),
+		grep: Type.Optional(Type.String({ description: "No url: substring filter over cached url/title/domain/description" })),
+		domain: Type.Optional(Type.String({ description: 'No url: exact domain match, e.g. "github.com"' })),
+		tag: Type.Optional(Type.String({ description: "No url: filter cache by auto-extracted tag" })),
+		category: Type.Optional(Type.String({ description: "No url: filter cache by web_category-assigned category" })),
+		fetchedAfter: Type.Optional(Type.Number({ description: "No url: epoch ms lower bound on cache time" })),
+		fetchedBefore: Type.Optional(Type.Number({ description: "No url: epoch ms upper bound on cache time" })),
+		publishedAfter: Type.Optional(Type.String({ description: "No url: ISO-8601 lower bound on the page's published date" })),
+		publishedBefore: Type.Optional(Type.String({ description: "No url: ISO-8601 upper bound on the page's published date" })),
 		sortBy: Type.Optional(
 			Type.Union([Type.Literal("fetchedAt"), Type.Literal("publishedAt"), Type.Literal("url"), Type.Literal("domain")], {
-				description: "Cache listing only: sort field. Defaults to fetchedAt (most recently cached first).",
+				description: "No url: sort field (default fetchedAt)",
 			}),
 		),
 		sortOrder: Type.Optional(
-			Type.Union([Type.Literal("asc"), Type.Literal("desc")], { description: "Cache listing only: sort direction. Defaults to desc." }),
+			Type.Union([Type.Literal("asc"), Type.Literal("desc")], { description: "No url: sort direction (default desc)" }),
 		),
-		offset: Type.Optional(
-			Type.Number({
-				description: "Skip first N results when listing or searching the local cache (pagination).",
-			}),
-		),
-		limit: Type.Optional(
-			Type.Number({
-				description: "Max results to return from cache listing or search (default 20, hard cap 100 for listing, 10 for search).",
-			}),
-		),
+		offset: Type.Optional(Type.Number({ description: "No url: pagination offset" })),
+		limit: Type.Optional(Type.Number({ description: "No url: max results (default 20, cap 100 listing / 10 search)" })),
 
-		rootSelector: Type.Optional(
-			Type.String({
-				description: 'CSS selector to scope extraction (e.g. "article"). Discards everything outside.',
-			}),
-		),
-		excludeSelectors: Type.Optional(
-			Type.String({
-				description: 'Comma-separated CSS selectors to remove before extraction (e.g. "nav, footer, .sidebar").',
-			}),
-		),
-		tokenBudget: Type.Optional(
-			Type.Number({
-				description:
-					"Approximate max tokens to return (~4 chars/token), capped at 10,000. Truncation carries explicit completeness markers.",
-			}),
-		),
+		rootSelector: Type.Optional(Type.String({ description: 'CSS selector to scope extraction to, e.g. "article"' })),
+		excludeSelectors: Type.Optional(Type.String({ description: 'Comma-separated selectors to strip, e.g. "nav, footer"' })),
+		tokenBudget: Type.Optional(Type.Number({ description: "Max ~tokens to return (~4 chars/token), capped at 10,000" })),
 		searchQuery: Type.Optional(
-			Type.String({
-				description:
-					"Web search query. Pass instead of url when you don't know the exact URL. " +
-					"Returns ranked results (url, title, snippet) from Brave/Tavily/Exa/Serper/SerpApi/You.com. " +
-					"Use the returned URLs to fetch the actual page content.",
-			}),
+			Type.String({ description: "Web search text instead of url; returns ranked results with real URLs to fetch next" }),
 		),
-		siteFilter: Type.Optional(
-			Type.String({
-				description:
-					'Restrict searchQuery results to one domain (e.g. "reddit.com"). Routed by which ' +
-					"configured provider has actually returned matching results for that domain before -- " +
-					"some domains (e.g. reddit.com, which blocks most search engines' crawlers) return " +
-					"real coverage from only a subset of providers regardless of which one answers first.",
-			}),
-		),
+		siteFilter: Type.Optional(Type.String({ description: "searchQuery: restrict results to one domain" })),
 		wantFullContent: Type.Optional(
-			Type.Boolean({
-				description:
-					'Declares intent -- "give me full page content" alongside each searchQuery result -- ' +
-					"without naming a provider. Routed to whichever configured provider can actually supply it " +
-					"(Tavily, Exa); providers that can't ignore it, same as an unsupported filter.",
-			}),
+			Type.Boolean({ description: "searchQuery: request full page content where the provider supports it" }),
 		),
-		timeoutMs: Type.Optional(
-			Type.Number({
-				description:
-					"Per-request fetch timeout in milliseconds (default 30 000). " +
-					"Increase for slow sites; decrease to fail fast in latency-sensitive loops.",
-			}),
-		),
+		timeoutMs: Type.Optional(Type.Number({ description: "Per-request timeout ms (default 30000)" })),
 		ignoreRobots: Type.Optional(
-			Type.Boolean({
-				description:
-					"Explicit, audited opt-out of the robots.txt check for this one request. Never use by default — " +
-					"only when a site's blanket disallow is a bandwidth/scraping-abuse guard rather than genuinely " +
-					"private content, and you (a human) have directed this specific fetch. Every use is logged.",
-			}),
+			Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
 		),
 	});
 
@@ -675,67 +575,18 @@ export default async function (pi: ExtensionAPI) {
 		name: "web_fetch",
 		label: "Web Fetch",
 		description: [
-			"Fetch a URL and return its content. Optionally crawl to a given depth.",
-			"Can also search the web when searchQuery is provided instead of a URL.",
+			"Fetch a URL and return its content, or crawl to a given depth.",
+			"Unsure a URL exists? Pass searchQuery instead of url -- never guess article slugs or paths -- then fetch the real URL that comes back.",
 			"",
-			"SEARCH FIRST — avoid hallucinated URLs",
-			"  If you are not certain the URL exists, pass searchQuery instead of url.",
-			"  The tool will run a web search and return ranked results with real URLs.",
-			"  Then fetch the result URL you want. Never guess article slugs or paths.",
-			"  Example wrong: web_fetch(url='martinfowler.com/articles/agent-as-platform.html')",
-			"  Example right: web_fetch(searchQuery='Martin Fowler agent as platform')",
+			"Omit url to query the local disk-backed cache instead of the network: no query lists cached pages, query=X runs BM25F full-text search. grep/domain/tag/category/fetchedAfter/fetchedBefore/publishedAfter/publishedBefore/sortBy/sortOrder/offset/limit filter and paginate that listing.",
 			"",
-			"LOCAL MATERIALIZED VIEW (no url)",
-			"  Omit url to query the local page cache (disk-backed, survives restarts).",
-			"  No url, no query  — list all cached pages in lean format.",
-			"  No url, query=X  — BM25F full-text search across all cached pages.",
-			"  grep=X           — filter list by url/title/domain/description substring.",
-			"  domain=X         — exact match on the page's domain.",
-			"  tag=X            — pages whose auto-extracted tags include X (a page can match more than one tag's query).",
-			"  category=X       — pages assigned this curated relevance category (see web_category). A page can match more than one category's query.",
-			"  fetchedAfter/fetchedBefore     — epoch ms range on when a page was cached.",
-			"  publishedAfter/publishedBefore — ISO-8601 range on the page's own published date.",
-			"  sortBy=fetchedAt|publishedAt|url|domain, sortOrder=asc|desc — defaults to fetchedAt/desc.",
-			"  offset/limit     — paginate results (default limit 20, hard cap 100).",
+			"depth=0 (default) fetches one URL, free on a cache hit. depth>0 BFS-crawls up to maxPages and caches every page.",
 			"",
-			"DEPTH",
-			"  depth=0 (default) — fetch the single URL.",
-			"  depth=1           — fetch the URL and every page it links to (same domain).",
-			"  depth=N           — BFS crawl N hops deep, up to maxPages total.",
-			"  When depth>0, returns a crawl summary and caches all pages.",
-			"  Subsequent calls with depth=0 to any cached URL are free (no network).",
+			"format trades the default full markdown for cheaper, targeted views (lean/links/highlights/tree) -- see the format parameter. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted.",
 			"",
-			"FORMAT",
-			"  markdown   — clean markdown body + metadata. Default.",
-			"  lean       — metadata + headings + links, no body text. ~10-20x fewer tokens.",
-			"               Best for deciding whether to read a page, or crawl triage.",
-			"  links      — outbound links only (href + anchor text + rel).",
-			"  highlights — BM25F search the page and return matching text blocks.",
-			"               Requires `query`. Returns up to 5 scored chunks with context.",
-			"               Use instead of reading full markdown when you know what to find.",
-			"               Works across all cached pages when depth>0.",
-			"  tree       — collapsed semantic DOM tree (div/span stripped, only meaningful tags).",
-			"               Add query= to search the tree (atomic hits: whole code blocks, whole tables).",
-			"               Add path= to navigate to one node (e.g. article.section[1].pre[0].code).",
-			"               Tree is cached — tree then tree+query then tree+path costs one network request.",
+			"enhanced=true forces headless-browser rendering for SPAs/JS-heavy/bot-gated pages; default auto-falls back to it when needed.",
 			"",
-			"SCOPING",
-			'  rootSelector    — CSS selector to scope to (e.g. "article"). Ignores everything else.',
-			'  excludeSelectors — comma-separated selectors to strip (e.g. "nav, footer, .ads").',
-			"  tokenBudget     — max ~tokens returned (~4 chars/token). Truncates at line boundary.",
-			"",
-			"ENHANCED MODE (JS rendering)",
-			"  enhanced=true  — use a headless browser with stealth (playwright-core + system Chrome).",
-			"                   Use for SPAs, JS-heavy pages, or sites with basic bot detection.",
-			"  enhanced=false — use direct fetch (default). Playwright auto-fallback kicks in",
-			"                   when the page is detected as JS-rendered.",
-			"",
-			"THROTTLING",
-			"  Requests are automatically rate-limited per domain (500ms min delay).",
-			"  On 429/503, backs off exponentially and respects Retry-After headers.",
-			"  robots.txt is checked and respected before each fetch (depth=0 and depth>0).",
-			"  ignoreRobots=true  — explicit, audited bypass for this one request. Never default;",
-			"                       use only for a human-directed one-off fetch, not bulk crawling.",
+			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, human-directed bypass for one request -- never a default.",
 		].join("\n"),
 		promptSnippet: "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
 		parameters: paramsSchema,
@@ -791,21 +642,17 @@ export default async function (pi: ExtensionAPI) {
 	// ---------------------------------------------------------------------------
 	const sessionParamsSchema = Type.Object({
 		operation: Type.Union([Type.Literal("create"), Type.Literal("list"), Type.Literal("close"), Type.Literal("act")], {
-			description: "create/list/close a named persistent browser session, or act on one.",
+			description: "create/list/close a named session, or act on one",
 		}),
-		name: Type.Optional(Type.String({ description: "Session name. Required for create/close/act." })),
+		name: Type.Optional(Type.String({ description: "Session name (create/close/act)" })),
 		forceChromeChannel: Type.Optional(
-			Type.Boolean({
-				description:
-					"create only: force the full installed Chrome channel instead of Playwright's own default headless shell (default false).",
-			}),
+			Type.Boolean({ description: "create: use the full installed Chrome channel instead of the default headless shell" }),
 		),
 		snapshotVersion: Type.Optional(
 			Type.Number({
 				description:
-					"act only, required. The session's snapshot version this action expects — read it off the previous " +
-					"response (create returns 0; every act() response returns the current value). Acting with a stale " +
-					"value fails closed rather than silently acting against a page that may have navigated underneath you.",
+					"act, required: expected snapshot version, from the previous response (create returns 0). " +
+					"A stale value fails closed rather than acting on a page that navigated underneath you.",
 			}),
 		),
 		action: Type.Optional(
@@ -831,102 +678,75 @@ export default async function (pi: ExtensionAPI) {
 				],
 				{
 					description:
-						"act only, required. navigate/click/hover/pressKey/type/select act on the page (bump/consult " +
-						"snapshotVersion per above). waitFor blocks until a condition is true — use this instead of guessing " +
-						"a delay. queryText/readTable return structured data — use these instead of eval + hand-parsing text. " +
-						"snapshot returns a YAML accessibility tree — prefer this over screenshot for understanding page " +
-						"structure, it's cheaper and more precise. handleDialog arms accept/dismiss for the next native " +
-						"dialog. downloads/consoleMessages/networkRequests read already-captured session activity. tabs " +
-						"manages multiple tabs (list/new/close/select). eval runs arbitrary JavaScript and returns its " +
-						"JSON-serializable result — prefer the more structured actions above when they fit. screenshot " +
-						"returns a PNG.",
+						"act, required. navigate/click/hover/pressKey/type/select act on the page (track snapshotVersion). " +
+						"waitFor blocks for a condition instead of guessing a delay. queryText/readTable return structured " +
+						"data. snapshot returns a YAML a11y tree -- prefer it over screenshot for page structure. " +
+						"handleDialog arms accept/dismiss for the next dialog. downloads/consoleMessages/networkRequests read " +
+						"captured session activity. tabs manages multiple tabs. eval runs arbitrary JavaScript -- prefer the " +
+						"structured actions above when they fit. screenshot returns a PNG.",
 				},
 			),
 		),
-		url: Type.Optional(Type.String({ description: "navigate: the URL to load. tabs (tabOperation=new): optional URL for the new tab." })),
+		url: Type.Optional(Type.String({ description: "navigate: URL to load. tabs (new): optional URL for the new tab." })),
 		selector: Type.Optional(
 			Type.String({
 				description:
-					"click/hover/type/select/waitFor/queryText/readTable/snapshot(scope)/screenshot(element-scoped): a CSS selector. pressKey: optional, focuses the element first.",
+					"CSS selector for click/hover/type/select/waitFor/queryText/readTable/snapshot(scope)/screenshot(scope); optional focus target for pressKey.",
 			}),
 		),
 		text: Type.Optional(
-			Type.String({
-				description:
-					"type: the text to type (real per-key keyboard input, not a directly-set value — works with pages that " +
-					"have their own JS-bound keyboard handling). waitFor: text to wait for (Playwright's own text locator).",
-			}),
+			Type.String({ description: "type: text to type as real keystrokes. waitFor: text to wait for." }),
 		),
-		clear: Type.Optional(Type.Boolean({ description: "type only: clear existing content first (default true). Set false to append." })),
-		value: Type.Optional(Type.String({ description: "select: match an option by its value attribute. Exactly one of value/label." })),
-		label: Type.Optional(Type.String({ description: "select: match an option by its visible label. Exactly one of value/label." })),
+		clear: Type.Optional(Type.Boolean({ description: "type: clear existing content first (default true)" })),
+		value: Type.Optional(Type.String({ description: "select: match an option by its value attribute" })),
+		label: Type.Optional(Type.String({ description: "select: match an option by its visible label" })),
 		loadState: Type.Optional(
 			Type.Union([Type.Literal("load"), Type.Literal("domcontentloaded"), Type.Literal("networkidle")], {
-				description: "waitFor: wait for a page navigation state instead of a selector/text condition.",
+				description: "waitFor: navigation state to wait for instead of a selector/text condition",
 			}),
 		),
 		state: Type.Optional(
 			Type.Union([Type.Literal("visible"), Type.Literal("hidden"), Type.Literal("attached"), Type.Literal("detached")], {
-				description: "waitFor: element state to wait for alongside selector/text (default visible). Not valid alongside loadState.",
+				description: "waitFor: element state to wait for alongside selector/text (default visible)",
 			}),
 		),
-		script: Type.Optional(Type.String({ description: "eval: JavaScript to evaluate in the page; returns its JSON-serializable result." })),
-		timeoutMs: Type.Optional(
-			Type.Number({
-				description: "Per-action timeout in milliseconds. Playwright's own default (bounded, never unbounded) applies when omitted.",
-			}),
-		),
-		key: Type.Optional(
-			Type.String({ description: 'pressKey: the key to press, e.g. "Enter", "Escape", "Tab", "ArrowLeft". Required for pressKey.' }),
-		),
+		script: Type.Optional(Type.String({ description: "eval: JavaScript to run in the page; returns its JSON-serializable result" })),
+		timeoutMs: Type.Optional(Type.Number({ description: "Per-action timeout ms (Playwright's own default applies when omitted)" })),
+		key: Type.Optional(Type.String({ description: 'pressKey: key to press, e.g. "Enter", "Escape", "Tab", "ArrowLeft"' })),
 		fullPage: Type.Optional(
-			Type.Boolean({
-				description:
-					"screenshot: capture the whole scrollable page instead of just the viewport (default false). Not valid alongside selector.",
-			}),
+			Type.Boolean({ description: "screenshot: capture the whole scrollable page instead of the viewport; not valid with selector" }),
 		),
 		scale: Type.Optional(
 			Type.Union([Type.Literal("css"), Type.Literal("device")], {
-				description: "screenshot: image resolution — css pixels (default) or real device pixel ratio.",
+				description: "screenshot: image resolution -- css pixels (default) or real device pixel ratio",
 			}),
 		),
-		depth: Type.Optional(Type.Number({ description: "snapshot: limit the accessibility tree's depth." })),
+		depth: Type.Optional(Type.Number({ description: "snapshot: limit the accessibility tree's depth" })),
 		boxes: Type.Optional(
-			Type.Boolean({
-				description:
-					"snapshot: include each node's bounding box ([box=x,y,width,height], viewport-relative CSS pixels) — ties structure to real pixel coordinates without needing vision.",
-			}),
+			Type.Boolean({ description: "snapshot: include each node's viewport-relative bounding box" }),
 		),
 		mode: Type.Optional(
 			Type.Union([Type.Literal("ai"), Type.Literal("default")], {
 				description:
-					'snapshot: "ai" mode adds element references, doesn\'t wait for a matching element (throws if missing), and includes <iframe> content. Default "default".',
+					'snapshot: "ai" adds element references, doesn\'t wait for a matching element, and includes <iframe> content (default "default")',
 			}),
 		),
 		accept: Type.Optional(
-			Type.Boolean({
-				description:
-					"handleDialog: accept (true) or dismiss (false) the next native dialog. Required for handleDialog. Without arming this, dialogs auto-dismiss.",
-			}),
+			Type.Boolean({ description: "handleDialog, required: accept (true) or dismiss (false) the next native dialog" }),
 		),
 		promptText: Type.Optional(
-			Type.String({ description: "handleDialog: text to answer a prompt() dialog with. Ignored for other dialog types." }),
+			Type.String({ description: "handleDialog: text to answer a prompt() dialog with" }),
 		),
 		includeStatic: Type.Optional(
-			Type.Boolean({
-				description: "networkRequests: include successful static resources (image/stylesheet/font/script) in the result. Default false.",
-			}),
+			Type.Boolean({ description: "networkRequests: include successful static resources too (default false)" }),
 		),
 		tabOperation: Type.Optional(
 			Type.Union([Type.Literal("list"), Type.Literal("new"), Type.Literal("close"), Type.Literal("select")], {
-				description:
-					"tabs: required. list every open tab; new opens one (optionally navigating via url); close closes one (defaults to the active tab); select switches the active tab (tabIndex required).",
+				description: "tabs, required: list open tabs; new opens one; close closes one (default active); select switches (tabIndex required)",
 			}),
 		),
 		tabIndex: Type.Optional(
-			Type.Number({
-				description: "tabs: 0-based tab index. Required for tabOperation=select; optional for close (defaults to the active tab).",
-			}),
+			Type.Number({ description: "tabs: 0-based tab index; required for select, optional for close (default active)" }),
 		),
 	});
 
@@ -944,46 +764,10 @@ export default async function (pi: ExtensionAPI) {
 		name: "web_session",
 		label: "Web Session",
 		description: [
-			"Persistent, named browser sessions for pages that need real interaction — typing into search boxes,",
-			"selecting dropdowns, waiting on async results, reading a results table — rather than a single fetch.",
-			"tmux-session semantics: create once, act on the same page repeatedly, close when done.",
+			"Persistent, named browser sessions for pages that need real interaction -- typing, selecting dropdowns, waiting on async results, reading tables -- rather than a single fetch.",
+			"tmux-session semantics: create once, act on the same page repeatedly, close when done. hover is the only way to trigger CSS :hover-revealed menus/tooltips. Always close sessions you no longer need.",
 			"",
-			"LIFECYCLE",
-			"  operation=create  — launches an isolated, single-use Playwright browser process for this name.",
-			"  operation=act     — dispatches one action against the session's one persistent page.",
-			"  operation=list    — lists live sessions.",
-			"  operation=close   — tears the session's browser down. Always close sessions you no longer need.",
-			"",
-			"SNAPSHOT VERSION (act only, required)",
-			"  Every act() response includes snapshotVersion — pass it back on your next call for that session.",
-			"  A stale value is rejected (the page may have navigated or changed since you last observed it) rather",
-			"  than silently acting on out-of-date state. create returns snapshotVersion:0 to start with.",
-			"",
-			"ACTIONS (act only)",
-			"  navigate  — load a URL.",
-			"  click     — click selector.",
-			"  hover     — hover selector — the only way to trigger CSS :hover-revealed menus/tooltips.",
-			"  pressKey  — press a key (Enter/Escape/Tab/arrows). With selector, focuses it first; without one, a",
-			"              global keyboard press for keys like Escape with no natural target element.",
-			"  type      — type text into selector (real per-key input; clear=false to append instead of replace).",
-			"  select    — choose a <select> option by value or label.",
-			"  waitFor   — block until selector/text appears, or a load state is reached. Use this instead of",
-			"              guessing a delay — a page's own async round-trip time is never something to assume.",
-			"  queryText — trimmed text per element matching selector — structured data, not innerText + parsing.",
-			"  readTable — rows/cells of a <table> matching selector — structured data, not innerText + parsing.",
-			"  snapshot  — YAML accessibility tree (roles, names, ARIA attributes, hierarchy). PREFER THIS over",
-			"              screenshot for understanding page structure — cheaper, more precise, and directly",
-			"              describes what's interactable. boxes=true ties structure to real pixel coordinates.",
-			"  handleDialog — arms accept/dismiss (+ optional promptText) for the NEXT native dialog, before the",
-			"              action expected to trigger it. Without this, dialogs auto-dismiss (no hang risk either way).",
-			"  downloads — lists files downloaded so far (already saved to disk). Call after the triggering click.",
-			"  consoleMessages / networkRequests — read already-captured console output / network activity, useful",
-			"              for debugging why something isn't working.",
-			"  tabs      — tabOperation=list|new|close|select manages multiple tabs within the session.",
-			"  eval      — arbitrary JavaScript, returns its JSON-serializable result. Prefer the actions above when",
-			"              they fit — eval is the least structured, least auditable option.",
-			"  screenshot — returns a PNG. Defaults to viewport-only; fullPage=true for the whole scrollable page,",
-			"              or selector for one element's own bounding box.",
+			"Every act() response returns snapshotVersion; pass it back on your next call for that session. A stale value is rejected rather than silently acting on a page that may have navigated underneath you. create returns snapshotVersion:0.",
 		].join("\n"),
 		promptSnippet:
 			"Persistent browser sessions: create/act(navigate|click|hover|pressKey|type|select|waitFor|queryText|readTable|snapshot|handleDialog|downloads|consoleMessages|networkRequests|tabs|eval|screenshot)/list/close",
@@ -1100,18 +884,14 @@ export default async function (pi: ExtensionAPI) {
 	// ---------------------------------------------------------------------------
 	const categoryParamsSchema = Type.Object({
 		operation: Type.Union([Type.Literal("assign"), Type.Literal("remove"), Type.Literal("rename"), Type.Literal("list")], {
-			description:
-				"assign/remove a category on a cached page, rename (or merge, if the new name already exists) a category everywhere it's used, or list every known category.",
+			description: "assign/remove a category on a page, rename (or merge) one everywhere it's used, or list every category",
 		}),
-		url: Type.Optional(Type.String({ description: "assign/remove: the cached page's URL. Must already be cached -- fetch it first." })),
+		url: Type.Optional(Type.String({ description: "assign/remove: the cached page's URL (must already be cached)" })),
 		category: Type.Optional(
-			Type.String({ description: "assign/remove: the category name. rename: the existing category's current name." }),
+			Type.String({ description: "assign/remove: category name. rename: its current name." }),
 		),
 		newName: Type.Optional(
-			Type.String({
-				description:
-					"rename only: the category's new name. If a category with this name already exists, the two merge (every page in either ends up in the surviving one) rather than erroring.",
-			}),
+			Type.String({ description: "rename: new name; merges into an existing category of that name instead of erroring" }),
 		),
 	});
 
@@ -1141,21 +921,8 @@ export default async function (pi: ExtensionAPI) {
 		name: "web_category",
 		label: "Web Category",
 		description: [
-			'Curated, agent/user-assignable relevance categories for cached pages -- e.g. "Code", "PTP Protocol".',
-			"Distinct from a page's domain (its URL hostname) and tags (auto-extracted from the page's own HTML by its",
-			"publisher) -- a category is your own judgment about what a page is *for*. Free-form: invent a new category",
-			"name the first time you need it, there is no fixed list. A page can and often will belong to more than one",
-			'category at once (a Rust PTP implementation is both "Code" and "PTP Protocol") -- that overlap is expected,',
-			"not something to avoid. Use web_fetch(category=X) with no url to list every page currently in a category.",
-			"",
-			"  operation=assign  url=<url> category=<name>  — add the category to the page (creating it if new; assigning",
-			"                    a category the page already has is a harmless no-op).",
-			"  operation=remove  url=<url> category=<name>   — remove the category from the page (harmless no-op if it",
-			"                    wasn't assigned).",
-			"  operation=rename  category=<name> newName=<name> — rename a category everywhere it's used in one step. If",
-			"                    newName already exists as a different category, the two merge instead of erroring.",
-			"  operation=list                                — list every known category with how many pages use it --",
-			"                    check this before inventing a near-duplicate name.",
+			'Curated, agent/user-assignable relevance categories for cached pages -- e.g. "Code", "PTP Protocol". Distinct from a page\'s domain and its publisher-supplied tags: a category is your own judgment about what a page is *for*.',
+			"Free-form -- invent a name the first time you need it. A page can belong to more than one category; overlap is expected. Use web_fetch(category=X) with no url to list pages in a category.",
 		].join("\n"),
 		promptSnippet:
 			"Curated relevance categories for cached pages: assign/remove/rename/list, with overlap (a page can belong to more than one)",
