@@ -528,12 +528,8 @@ export default async function (pi: ExtensionAPI) {
 				{ description: "markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree" },
 			),
 		),
-		query: Type.Optional(
-			Type.String({ description: "Search text; required for format=highlights, optional for format=tree" }),
-		),
-		path: Type.Optional(
-			Type.String({ description: "format=tree: dot-bracket node path, e.g. article.section[1].pre[0].code" }),
-		),
+		query: Type.Optional(Type.String({ description: "Search text; required for format=highlights, optional for format=tree" })),
+		path: Type.Optional(Type.String({ description: "format=tree: dot-bracket node path, e.g. article.section[1].pre[0].code" })),
 		topN: Type.Optional(Type.Number({ description: "format=tree with query: max hits (default 5)" })),
 
 		grep: Type.Optional(Type.String({ description: "No url: substring filter over cached url/title/domain/description" })),
@@ -562,9 +558,7 @@ export default async function (pi: ExtensionAPI) {
 			Type.String({ description: "Web search text instead of url; returns ranked results with real URLs to fetch next" }),
 		),
 		siteFilter: Type.Optional(Type.String({ description: "searchQuery: restrict results to one domain" })),
-		wantFullContent: Type.Optional(
-			Type.Boolean({ description: "searchQuery: request full page content where the provider supports it" }),
-		),
+		wantFullContent: Type.Optional(Type.Boolean({ description: "searchQuery: request full page content where the provider supports it" })),
 		timeoutMs: Type.Optional(Type.Number({ description: "Per-request timeout ms (default 30000)" })),
 		ignoreRobots: Type.Optional(
 			Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
@@ -694,9 +688,7 @@ export default async function (pi: ExtensionAPI) {
 					"CSS selector for click/hover/type/select/waitFor/queryText/readTable/snapshot(scope)/screenshot(scope); optional focus target for pressKey.",
 			}),
 		),
-		text: Type.Optional(
-			Type.String({ description: "type: text to type as real keystrokes. waitFor: text to wait for." }),
-		),
+		text: Type.Optional(Type.String({ description: "type: text to type as real keystrokes. waitFor: text to wait for." })),
 		clear: Type.Optional(Type.Boolean({ description: "type: clear existing content first (default true)" })),
 		value: Type.Optional(Type.String({ description: "select: match an option by its value attribute" })),
 		label: Type.Optional(Type.String({ description: "select: match an option by its visible label" })),
@@ -722,27 +714,20 @@ export default async function (pi: ExtensionAPI) {
 			}),
 		),
 		depth: Type.Optional(Type.Number({ description: "snapshot: limit the accessibility tree's depth" })),
-		boxes: Type.Optional(
-			Type.Boolean({ description: "snapshot: include each node's viewport-relative bounding box" }),
-		),
+		boxes: Type.Optional(Type.Boolean({ description: "snapshot: include each node's viewport-relative bounding box" })),
 		mode: Type.Optional(
 			Type.Union([Type.Literal("ai"), Type.Literal("default")], {
 				description:
 					'snapshot: "ai" adds element references, doesn\'t wait for a matching element, and includes <iframe> content (default "default")',
 			}),
 		),
-		accept: Type.Optional(
-			Type.Boolean({ description: "handleDialog, required: accept (true) or dismiss (false) the next native dialog" }),
-		),
-		promptText: Type.Optional(
-			Type.String({ description: "handleDialog: text to answer a prompt() dialog with" }),
-		),
-		includeStatic: Type.Optional(
-			Type.Boolean({ description: "networkRequests: include successful static resources too (default false)" }),
-		),
+		accept: Type.Optional(Type.Boolean({ description: "handleDialog, required: accept (true) or dismiss (false) the next native dialog" })),
+		promptText: Type.Optional(Type.String({ description: "handleDialog: text to answer a prompt() dialog with" })),
+		includeStatic: Type.Optional(Type.Boolean({ description: "networkRequests: include successful static resources too (default false)" })),
 		tabOperation: Type.Optional(
 			Type.Union([Type.Literal("list"), Type.Literal("new"), Type.Literal("close"), Type.Literal("select")], {
-				description: "tabs, required: list open tabs; new opens one; close closes one (default active); select switches (tabIndex required)",
+				description:
+					"tabs, required: list open tabs; new opens one; close closes one (default active); select switches (tabIndex required)",
 			}),
 		),
 		tabIndex: Type.Optional(
@@ -887,9 +872,7 @@ export default async function (pi: ExtensionAPI) {
 			description: "assign/remove a category on a page, rename (or merge) one everywhere it's used, or list every category",
 		}),
 		url: Type.Optional(Type.String({ description: "assign/remove: the cached page's URL (must already be cached)" })),
-		category: Type.Optional(
-			Type.String({ description: "assign/remove: category name. rename: its current name." }),
-		),
+		category: Type.Optional(Type.String({ description: "assign/remove: category name. rename: its current name." })),
 		newName: Type.Optional(
 			Type.String({ description: "rename: new name; merges into an existing category of that name instead of erroring" }),
 		),
