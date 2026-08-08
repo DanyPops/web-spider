@@ -1,4 +1,4 @@
-import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	COLLAPSED_ITEM_PREVIEW,
@@ -354,8 +354,10 @@ export class SessionResultCard implements Component {
 		const shown = expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW);
 		for (const item of shown) lines.push(truncateToWidth(theme.fg("text", `  ${item}`), safeWidth));
 		const omitted = details.total - shown.length;
-		if (omitted > 0)
-			lines.push(truncateToWidth(theme.fg("muted", `  … ${omitted} more${expanded ? "" : " · expand for details"}`), safeWidth));
+		if (omitted > 0) {
+			const suffix = expanded ? "" : ` · ${keyHint("app.tools.expand", "expand for details")}`;
+			lines.push(truncateToWidth(theme.fg("muted", `  … ${omitted} more`) + suffix, safeWidth));
+		}
 
 		if (expanded && details.body) {
 			lines.push("");
@@ -369,7 +371,7 @@ export class SessionResultCard implements Component {
 					: bodyLines;
 			lines.push(...capped);
 		} else if (!expanded && details.body) {
-			lines.push(truncateToWidth(theme.fg("dim", "  expand for details"), safeWidth));
+			lines.push(truncateToWidth(`  ${keyHint("app.tools.expand", "expand for details")}`, safeWidth));
 		}
 
 		this.cachedWidth = safeWidth;
