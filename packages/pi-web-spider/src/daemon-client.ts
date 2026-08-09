@@ -48,6 +48,13 @@ export interface ConnectOrStartOptions {
 	 * on where the handle file lives.
 	 */
 	env?: Record<string, string | undefined>;
+	/**
+	 * Override for the host platform, mirroring resolveWebSpiderPaths' own
+	 * options.platform so the spawn (bun-vs-shebang) decision and the path
+	 * layout decision always agree. Tests pass an explicit platform;
+	 * production callers leave this unset and get the real process.platform.
+	 */
+	platform?: NodeJS.Platform;
 }
 
 export async function connectOrStartWebSpiderClient(
@@ -58,7 +65,7 @@ export async function connectOrStartWebSpiderClient(
 		readHandle: () => readDaemonHandle(paths),
 		buildClient: (handle) => new WebSpiderClient(`http://${handle.host}:${handle.port}`, ensureAuthToken(paths)),
 		autoStart: true,
-		spawn: () => spawnWebSpiderDaemon(options.env),
+		spawn: () => spawnWebSpiderDaemon(options.env, options.platform),
 		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
 		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
 		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
@@ -80,7 +87,7 @@ export async function connectOrStartWebSpiderVehicleClient(
 		readHandle: () => readDaemonHandle(paths),
 		buildClient: (handle) => new RemoteVehicleClient({ baseUrl: `http://${handle.host}:${handle.port}`, token: ensureAuthToken(paths) }),
 		autoStart: true,
-		spawn: () => spawnWebSpiderDaemon(options.env),
+		spawn: () => spawnWebSpiderDaemon(options.env, options.platform),
 		fallbackMessage: "Web Spider daemon failed to start automatically; run `web-spider service install` or `web-spider serve` manually.",
 		startTimeoutMs: DAEMON_START_TIMEOUT_MS,
 		pollIntervalMs: DAEMON_START_POLL_INTERVAL_MS,
@@ -105,8 +112,21 @@ export async function connectOrStartWebSpiderVehicleClient(
  * connectWithPolicy's own poll-then-timeout already reports that as its usual, catchable
  * fallbackMessage error.
  */
-export function spawnWebSpiderDaemonProcess(command: string, args: string[], spawnOptions: SpawnPlatformOptions): void {
-	const child = spawnProcess(command, args, spawnOptions);
+export function spawnWebSpiderDaemonProcess(
+	command: string,
+	args: string[],
+	spawnOptions: SpawnPlatformOptions,
+	platform: NodeJS.Platform = process.platform,
+): void {
+	// cli.ts has shebang `#!/usr/bin/env bun` and is a TypeScript file. POSIX
+	// kernels honor the shebang via execve; Windows has no shebang handling at
+	// all, so node:child_process.spawn() returns EFTYPE for a `.ts` path used
+	// directly as `command`. Route through bun explicitly on win32 -- the
+	// daemon package's own scripts already run `bun src/cli.ts serve`, so bun
+	// is always the right interpreter regardless of platform. Verified
+	// end-to-end on real Windows 11 in
+	// https://github.com/DanyPops/web-spider/pull/7.
+	const child = platform === "win32" ? spawnProcess("bun", [command, ...args], spawnOptions) : spawnProcess(command, args, spawnOptions);
 	child.on("error", (error) => {
 		// biome-ignore lint/suspicious/noConsole: the only diagnostic surface for an otherwise-silent auto-spawn failure.
 		console.error(`Web Spider daemon auto-spawn failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -114,7 +134,7 @@ export function spawnWebSpiderDaemonProcess(command: string, args: string[], spa
 	child.unref();
 }
 
-function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefined): void {
+function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefined, platform: NodeJS.Platform = process.platform): void {
 	let cliPath: string;
 	try {
 		cliPath = resolveDaemonCliPath();
@@ -133,6 +153,6 @@ function spawnWebSpiderDaemon(env: Record<string, string | undefined> | undefine
 		binPath: cliPath,
 		args: ["serve"],
 		env: env ?? process.env,
-		spawn: spawnWebSpiderDaemonProcess,
+		spawn: (command, args, spawnOptions) => spawnWebSpiderDaemonProcess(command, args, spawnOptions, platform),
 	});
 }
