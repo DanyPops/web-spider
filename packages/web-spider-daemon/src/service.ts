@@ -334,8 +334,9 @@ export function createWebSpiderService(
 	// Same derivation as imagesDir above — a sibling of the database, or an
 	// isolated temp directory for :memory: (test) databases with no sibling
 	// directory to spill downloaded files into.
-	const downloadsBaseDir =
-		ownsTemporaryDirectories ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
+	const downloadsBaseDir = ownsTemporaryDirectories
+		? mkdtempSync(join(tmpdir(), "web-spider-downloads-"))
+		: join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
 	const store = new SQLiteCacheStore(db, { imagesDir });
 	const logger = deps.logger ?? createLogger("web-spider-daemon");
 	// Provider API keys are read from this (daemon) process's own environment only —

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
 import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import { createApp, createWebSpiderService, type WebSpiderService, UnknownOperationError } from "../src/service.ts";
+import { createApp, createWebSpiderService, UnknownOperationError, type WebSpiderService } from "../src/service.ts";
 import { VERSION } from "../src/version.ts";
 
 const TOKEN = "test-token";
