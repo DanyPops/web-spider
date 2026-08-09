@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider-daemon",
-	"version": "0.18.5",
+	"version": "0.19.0",
 	"license": "MIT",
 	"description": "Supervised Bun daemon for @danypops/web-spider: authenticated loopback fetch/crawl/search/cache operations",
 	"type": "module",
@@ -38,7 +38,7 @@
 		"@danypops/vehicle-server": "^0.18.2",
 		"@danypops/vehicle-client": "^0.7.0",
 		"@danypops/enigma-client": "^0.6.1",
-		"@danypops/web-spider": "^0.14.2"
+		"@danypops/web-spider": "^0.15.0"
 	},
 	"optionalDependencies": {
 		"playwright-core": "^1.60.0"

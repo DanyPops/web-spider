@@ -8,6 +8,9 @@ export { PageGraph } from "./crawl/graph.js";
 export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
+export { extractFetchedResource } from "./fetch/content-extractor.js";
+export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fetch/pdf-extractor.js";
+export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export { spider } from "./fetch/spider.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
@@ -15,7 +18,7 @@ export { parseGitHubUrl, queryGitHub } from "./sources/github.js";
 export { probeLlmsTxt } from "./sources/llms-txt.js";
 export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./sources/markdown-suffix.js";
 export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./sources/mediawiki.js";
-export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
+export { braveLlmContextSearch, braveSearch, envKeyForEngine, exaSearch, firecrawlKeylessSearch, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
  *
@@ -39,7 +42,7 @@ export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright
 export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
 export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
 export { fetchSitemapUrls } from "./sources/sitemap.js";
-export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";
+export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, FirecrawlKeylessSearchEngine, InMemorySiteAvailabilityTracker, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";
 export { ingestToScribe, pagesToNDJSON, pageToRecords } from "./scribe-bridge.js";
 // parse.ts, convert.ts, views.ts are internal implementation modules.
 // They are NOT exported here — they are consumed only by spider.ts.

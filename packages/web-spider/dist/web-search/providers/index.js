@@ -2,6 +2,7 @@
 export { BRAVE_FRESHNESS, BraveSearchEngine, braveSearch } from "./brave.js";
 export { BraveLlmContextSearchEngine, braveLlmContextSearch } from "./brave-llm.js";
 export { ExaSearchEngine, exaSearch } from "./exa.js";
+export { FirecrawlKeylessSearchEngine, firecrawlKeylessSearch, } from "./firecrawl-keyless.js";
 export { SerpApiSearchEngine, serpApiSearch } from "./serpapi.js";
 export { SerperSearchEngine, serperSearch } from "./serper.js";
 export { TavilySearchEngine, tavilySearch, tavilySearchForAnswer, } from "./tavily.js";

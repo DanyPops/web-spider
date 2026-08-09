@@ -1,6 +1,6 @@
 /**
  * Web search API integration — every provider (Brave, Tavily, Exa, Serper,
- * SerpApi, You.com), the composite selection strategies (fallback,
+ * SerpApi, You.com, Firecrawl keyless), the composite selection strategies (fallback,
  * round-robin, site/capability routing), and the engine registry each live
  * in their own file under this directory (providers/, composites/,
  * registry.ts, wiring.ts) -- this file is the package's public entrypoint:

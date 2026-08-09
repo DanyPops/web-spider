@@ -1,6 +1,6 @@
 /**
  * Web search API integration — every provider (Brave, Tavily, Exa, Serper,
- * SerpApi, You.com), the composite selection strategies (fallback,
+ * SerpApi, You.com, Firecrawl keyless), the composite selection strategies (fallback,
  * round-robin, site/capability routing), and the engine registry each live
  * in their own file under this directory (providers/, composites/,
  * registry.ts, wiring.ts) -- this file is the package's public entrypoint:
@@ -21,8 +21,8 @@ export type { SearchEngine } from "./shared.js";
 export { type DefaultAnswerEngineOptions, type DefaultSearchEngineOptions, defaultAnswerEngine, defaultSearchEngine, } from "./wiring.js";
 /**
  * Search using whichever engine is explicitly requested or has an API key
- * available. Throws when no provider key is configured — see
- * {@link defaultSearchEngine} for the "no engine configured" error shape.
+ * available, with bounded Firecrawl keyless search as the final fallback when
+ * no configured provider returns results.
  *
  * Prefer {@link defaultSearchEngine} + the fallback/round-robin composites
  * when you need composable retry / fallback behaviour.

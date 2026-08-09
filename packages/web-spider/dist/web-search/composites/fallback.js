@@ -28,9 +28,11 @@ export class FallbackSearchEngine {
         this.isQuotaError = opts.isQuotaError ?? isLikelyQuotaExceededError;
         this.now = opts.now ?? Date.now;
         this.onEngineFailure = opts.onEngineFailure;
+        this.preserveEarlierError = opts.preserveEarlierError ?? false;
         this.cooldownUntil = engines.map(() => 0);
     }
     async search(req) {
+        let firstError;
         let lastError;
         // Gates the final throw below: a later engine completing with zero hits
         // is a real empty result, never masked by an earlier engine's error.
@@ -38,6 +40,7 @@ export class FallbackSearchEngine {
         for (let i = 0; i < this.engines.length; i++) {
             if (this.cooldownUntil[i] > this.now()) {
                 const cooldownError = new Error(`engine ${i} skipped: in cooldown after a recent rate-limit/quota error`);
+                firstError ??= cooldownError;
                 lastError = cooldownError;
                 this.onEngineFailure?.(i, cooldownError, "cooldown");
                 continue;
@@ -52,6 +55,7 @@ export class FallbackSearchEngine {
             catch (err) {
                 if (!this.fallbackOnError)
                     throw err;
+                firstError ??= err;
                 lastError = err;
                 if (this.quotaCooldownMs > 0 && this.isQuotaError(err)) {
                     this.cooldownUntil[i] = this.now() + this.quotaCooldownMs;
@@ -66,6 +70,8 @@ export class FallbackSearchEngine {
                 // Error + fallbackOnError → try next engine
             }
         }
+        if (this.preserveEarlierError && firstError)
+            throw firstError;
         if (!anySucceeded && lastError)
             throw lastError;
         return [];

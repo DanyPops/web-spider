@@ -1,5 +1,18 @@
 /** Selects how much content spider() returns. */
 export type PageView = "lean" | "full" | "tree";
+/** Bounded PDF extraction metadata, present only for PDF resources. */
+export interface PdfPageInfo {
+    totalPages: number;
+    pageStart: number;
+    pageEnd: number;
+    /** True when the selected range does not cover the complete document. */
+    truncated: boolean;
+    /** 0.0-1.0 text-quality signal; 0 for no text layer, degraded by invalid/replacement glyphs. */
+    qualityScore?: number;
+    /** Page numbers (within the selected range) whose text was recovered by the OCR fallback. */
+    ocrPages?: number[];
+}
+export type ContentQualityWarning = "no-text-layer" | "garbled-text";
 /**
  * A single node in the simplified DOM tree.
  *
@@ -148,6 +161,12 @@ export interface LeanPage {
      * preserving the existing contract for the common case.
      */
     contentType?: string;
+    /** False when a binary text-layer extractor detected unusable content. */
+    contentOk?: boolean;
+    /** Honest reason for unusable extracted content; OCR is never implied. */
+    contentWarning?: ContentQualityWarning;
+    /** Selected/total page information for PDF resources. */
+    pdf?: PdfPageInfo;
     /**
      * Name of the query strategy that produced this page instead of the
      * generic fetch+Readability path (e.g. "llms.txt"). `url` reflects the
@@ -209,6 +228,12 @@ export interface SpideredPage {
      * preserving the existing contract for the common case.
      */
     contentType?: string;
+    /** False when a binary text-layer extractor detected unusable content. */
+    contentOk?: boolean;
+    /** Honest reason for unusable extracted content; OCR is never implied. */
+    contentWarning?: ContentQualityWarning;
+    /** Selected/total page information for PDF resources. */
+    pdf?: PdfPageInfo;
     /**
      * Name of the query strategy that produced this page instead of the
      * generic fetch+Readability path (e.g. "llms.txt"). `url` reflects the

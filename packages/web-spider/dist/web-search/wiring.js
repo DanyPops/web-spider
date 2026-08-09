@@ -1,11 +1,11 @@
 import { FallbackSearchEngine } from "./composites/fallback.js";
 import { CapabilityRoutedSearchEngine, SiteRoutedSearchEngine, } from "./composites/index.js";
 import { RoundRobinSearchEngine } from "./composites/round-robin.js";
-import { BraveSearchEngine, ExaSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./providers/index.js";
+import { BraveSearchEngine, ExaSearchEngine, FirecrawlKeylessSearchEngine, SerpApiSearchEngine, SerperSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./providers/index.js";
 import { resolveSearchEngine } from "./registry.js";
 /** Engines whose adapter maps {@link SearchQuery.wantFullContent} to a real vendor param (Tavily's include_raw_content, Exa's contents.text). Declared once here, not learned -- content support is a fixed vendor capability. */
 const CONTENT_CAPABLE_ENGINES = new Set(["tavily", "exa"]);
-/** No configured provider key at all -- the one error shared by every capability resolver (results, content, answer) when there's nothing to even consider. */
+/** No keyed answer-capable provider exists. Plain result search can still use the keyless fallback. */
 const NO_ENGINE_CONFIGURED_ERROR = "No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
     "TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.";
 /** Every engine configured from environment keys, by real name, in a fixed declaration order (brave/tavily/exa/serper/serpapi/you) -- the single source of which adapters exist, shared by every capability resolver ({@link defaultSearchEngine}, {@link defaultAnswerEngine}) so they never drift out of sync with each other. */
@@ -53,9 +53,9 @@ function isAnswerCapable(engine) {
  * (brave/tavily/exa/serper/serpapi/you) that actually has an API key
  * configured is round-robined as an equal-tier peer -- spreading quota
  * consumption across whichever are available instead of always hitting
- * one first. An engine with no key configured is auto-skipped, never
- * throws by itself; calling this with zero keys configured throws a
- * single descriptive error instead of silently returning a no-op engine.
+ * one first. An engine with no key configured is auto-skipped. Firecrawl's
+ * officially supported keyless endpoint is the bounded last resort, and is
+ * used directly when no provider keys are configured.
  *
  * The whole chain is wrapped in {@link SiteRoutedSearchEngine}: a query
  * with no site filter passes straight through to the round-robin/fallback
@@ -66,20 +66,12 @@ function isAnswerCapable(engine) {
  * Reddit, which blocked every crawler but Google-backed ones in 2024) is
  * learned once and skipped on later calls instead of re-paid every time.
  *
- * Returns the RoundRobinSearchEngine directly (before the SiteRoutedSearchEngine
- * wrap) when 2+ keys are configured -- no outer FallbackSearchEngine wrapper
- * for the unfiltered path. There's no keyless engine left to fall through to,
- * so a wrapper around a single entry (the round-robin group itself) would add
- * nothing but a duplicate, generically-named onEngineFailure report for a
- * failure the round-robin already reports by real engine name; its own
- * cooldown would also have to be force-disabled to avoid one member's
- * failure cooling down the whole group a second time.
- *
- * With exactly one keyed engine, wraps it in a single-entry
- * FallbackSearchEngine purely for the cooldown/quota-cooldown circuit
- * breaker -- without it, a provider already known to be quota-exhausted
- * would be hit again on every call instead of short-circuiting to a clear
- * "in cooldown" error.
+ * Keyed site/capability routing is wrapped with the keyless Strategy only at
+ * the outer boundary. The outer chain has no cooldown of its own, so one keyed
+ * peer never cools down the whole group; each keyed peer and the keyless
+ * adapter retain independent circuit-breaker state. If a keyed provider throws
+ * and keyless is empty or blocked, the earlier actionable provider error is
+ * preserved rather than converted to an empty-success result.
  *
  * The returned engine implements ISearchEngine — swap it for any stub
  * in tests without touching call sites.
@@ -87,9 +79,13 @@ function isAnswerCapable(engine) {
 export function defaultSearchEngine(opts = {}) {
     const env = opts.env ?? process.env;
     const { engines: rotationEngines, names: rotationNames } = buildConfiguredEngines(env, opts.onUsage);
-    if (rotationEngines.length === 0) {
-        throw new Error(NO_ENGINE_CONFIGURED_ERROR);
-    }
+    const keyless = new FallbackSearchEngine([opts.keylessEngine ?? new FirecrawlKeylessSearchEngine()], {
+        cooldownMs: opts.cooldownMs,
+        quotaCooldownMs: opts.quotaCooldownMs,
+        onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.("firecrawl", error, reason) : undefined,
+    });
+    if (rotationEngines.length === 0)
+        return keyless;
     const namedEngines = rotationEngines.map((engine, i) => ({
         name: rotationNames[i],
         engine,
@@ -114,7 +110,12 @@ export function defaultSearchEngine(opts = {}) {
         });
     }
     const contentAware = new CapabilityRoutedSearchEngine(namedEngines, plain);
-    return new SiteRoutedSearchEngine(namedEngines, contentAware, { tracker: opts.siteAvailabilityTracker });
+    const keyed = new SiteRoutedSearchEngine(namedEngines, contentAware, { tracker: opts.siteAvailabilityTracker });
+    return new FallbackSearchEngine([keyed, keyless], {
+        cooldownMs: 0,
+        quotaCooldownMs: 0,
+        preserveEarlierError: true,
+    });
 }
 /**
  * Resolves an {@link IAnswerSearchEngine} from configured provider keys, by

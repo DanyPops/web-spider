@@ -23,6 +23,12 @@ export interface FallbackSearchEngineOptions {
     now?: () => number;
     /** Called once per engine failure, including a cooldown skip -- e.g. wire to a logger. Not called for a genuine empty result. Index only, not a name -- a caller that wants names maps it itself. */
     onEngineFailure?: (engineIndex: number, error: unknown, reason: EngineFailureReason) => void;
+    /**
+     * When every later fallback is empty or also fails, rethrow the earliest
+     * actionable error instead of letting a last-resort empty/error mask it.
+     * Default false preserves the historical generic fallback behavior.
+     */
+    preserveEarlierError?: boolean;
 }
 /**
  * A composite ISearchEngine that tries each engine in order, falling back
@@ -50,6 +56,7 @@ export declare class FallbackSearchEngine implements ISearchEngine {
     private readonly isQuotaError;
     private readonly now;
     private readonly onEngineFailure;
+    private readonly preserveEarlierError;
     /** engines[i]'s cooldown expiry (epoch ms); 0 means never in cooldown. */
     private readonly cooldownUntil;
     constructor(engines: ISearchEngine[], opts?: FallbackSearchEngineOptions);

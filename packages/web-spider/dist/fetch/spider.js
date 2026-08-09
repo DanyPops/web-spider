@@ -1,18 +1,9 @@
-import { Readability } from "@mozilla/readability";
 import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
-import { chunk, toMarkdown } from "../extract/convert.js";
-import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "../extract/parse.js";
-import { buildTree } from "../extract/tree.js";
-import { toLean } from "../extract/views.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";
 import { probeMarkdownVariant } from "../sources/markdown-suffix.js";
 import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "../sources/mediawiki.js";
-import { classifyContentType } from "./content-type.js";
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-const WORDS_PER_MINUTE = 200;
+import { extractFetchedResource, } from "./content-extractor.js";
 // ---------------------------------------------------------------------------
 // Default HTTP client adapter
 // ---------------------------------------------------------------------------
@@ -71,160 +62,44 @@ function mimeFromUrl(src) {
     };
     return map[ext ?? ""] ?? "image/jpeg";
 }
-/**
- * Extract <img> elements from article HTML, resolve src URLs, and fetch
- * each as a base64-encoded ImageRef. data: URLs are included without fetching.
- * Failed fetches are silently skipped.
- */
-async function fetchImages(articleHtml, pageUrl, httpClient, maxImages, throttle) {
-    // Parse the article HTML to extract img elements.
-    const doc = parseDom(articleHtml, pageUrl);
-    const imgEls = [...doc.querySelectorAll("img")].slice(0, maxImages);
+/** Hydrate pure image candidates after extraction. Failed image fetches are silently skipped. */
+async function fetchImages(candidates, httpClient, throttle) {
     const results = [];
-    for (const el of imgEls) {
-        const rawSrc = el.getAttribute("src") ?? "";
-        if (!rawSrc)
-            continue;
-        const alt = el.getAttribute("alt") ?? "";
-        // data: URLs — include without fetching.
-        if (rawSrc.startsWith("data:")) {
-            const match = /^data:([^;]+);base64,(.+)$/.exec(rawSrc);
-            if (match) {
-                results.push({ src: rawSrc, mimeType: match[1], alt, base64: match[2] });
-            }
-            continue;
-        }
-        // Resolve relative URLs.
-        let absoluteSrc;
-        try {
-            absoluteSrc = new URL(rawSrc, pageUrl).toString();
-        }
-        catch {
+    for (const { src, alt } of candidates) {
+        if (src.startsWith("data:")) {
+            const match = /^data:([^;]+);base64,(.+)$/.exec(src);
+            if (match)
+                results.push({ src, mimeType: match[1], alt, base64: match[2] });
             continue;
         }
         try {
             if (throttle)
-                await throttle.wait(absoluteSrc);
+                await throttle.wait(src);
             const res = await httpClient.fetch({
-                url: absoluteSrc,
+                url: src,
                 headers: { "User-Agent": "web-spider/0.1", Accept: "image/*" },
             });
             if (!res.ok)
                 continue;
-            throttle?.success(absoluteSrc);
+            throttle?.success(src);
             const buf = await res.arrayBuffer();
             const base64 = Buffer.from(buf).toString("base64");
             const contentType = res.headers.get("content-type");
-            const mimeType = contentType?.split(";")[0].trim() || mimeFromUrl(absoluteSrc);
-            results.push({ src: absoluteSrc, mimeType, alt, base64 });
+            const mimeType = contentType?.split(";")[0].trim() || mimeFromUrl(src);
+            results.push({ src, mimeType, alt, base64 });
         }
         catch {
-            // Skip failed image fetches silently — a missing image should never
-            // cause the whole page scrape to fail.
+            // A missing image must never fail the page scrape.
         }
     }
     return results;
 }
-// ---------------------------------------------------------------------------
-// Non-HTML content (text/plain, JSON, XML/RSS/Atom, ...)
-// ---------------------------------------------------------------------------
-/** Pretty-prints parseable JSON for readability; returns the raw text unchanged for anything else (invalid JSON, JSONL, ...) rather than guessing. */
-function prettyPrintIfJson(rawText) {
-    try {
-        return JSON.stringify(JSON.parse(rawText), null, 2);
-    }
-    catch {
-        return rawText;
-    }
-}
-/** A human-meaningful fallback title when there is no <title> tag to read — the URL's last path segment, or the hostname for a bare root URL. */
 /** Minimal HTML-text escape for wrapping a MediaWiki API title in a synthetic <title> tag. */
 function escapeHtmlText(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function titleFromUrl(url) {
-    try {
-        const parsed = new URL(url);
-        return parsed.pathname.split("/").filter(Boolean).pop() ?? parsed.hostname;
-    }
-    catch {
-        return url;
-    }
-}
-/**
- * Extracts a heading outline from plain text using the same "#"/"##"/"###"
- * convention chunk() already looks for — real signal for text/markdown
- * content (READMEs, llms.txt-style docs), harmless (empty) for anything
- * else that happens not to use it.
- */
-function extractMarkdownHeadings(text) {
-    const headings = [];
-    for (const line of text.split("\n")) {
-        const match = /^(#{1,3})\s+(.+)/.exec(line.trim());
-        if (match)
-            headings.push({ level: match[1].length, text: match[2].trim() });
-    }
-    return headings;
-}
-/**
- * Builds a SpideredPage/LeanPage/TreePage directly from a non-HTML response
- * body — no linkedom, no Readability; there is no DOM to parse. JSON is
- * pretty-printed when it parses; everything else (plain text, XML/RSS/Atom,
- * unparseable JSON) is returned as the server sent it. `contentType` is
- * always set here (never on an HTML result) so callers can tell what
- * actually happened rather than silently getting an empty-looking page.
- */
-function buildNonHtmlPage(params) {
-    const { url, domain, fetchedAt, contentTypeHeader, rawText, view, isJson } = params;
-    const text = isJson ? prettyPrintIfJson(rawText) : rawText;
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    const headings = extractMarkdownHeadings(text);
-    const title = titleFromUrl(url);
-    const readingTimeMinutes = Math.ceil(wordCount / WORDS_PER_MINUTE);
-    const contentTypeField = contentTypeHeader ? { contentType: contentTypeHeader } : {};
-    if (view === "lean") {
-        return {
-            view: "lean",
-            url,
-            domain,
-            fetchedAt,
-            title,
-            lang: "",
-            tags: [],
-            wordCount,
-            readingTimeMinutes,
-            chunkCount: Math.max(0, Math.floor(wordCount / 150)),
-            headings: headings.map((h) => `${"#".repeat(h.level)} ${h.text}`),
-            links: [],
-            ...contentTypeField,
-        };
-    }
-    const chunks = chunk(text, url);
-    const base = {
-        url,
-        domain,
-        fetchedAt,
-        title,
-        description: "",
-        author: "",
-        publishedAt: "",
-        lang: "",
-        tags: [],
-        wordCount,
-        readingTimeMinutes,
-        headings,
-        chunks,
-        links: [],
-        markdown: text,
-        ...contentTypeField,
-    };
-    if (view === "tree") {
-        return { ...base, view: "tree", tree: { tag: "text", path: "text", text } };
-    }
-    return base;
-}
 export async function spider(url, opts) {
-    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, } = opts ?? {};
+    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, pdfPageStart, pdfPageEnd, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, contentExtractors = [], } = opts ?? {};
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {
@@ -236,6 +111,17 @@ export async function spider(url, opts) {
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
         throw new Error(`Unsupported protocol "${parsedUrl.protocol}" — only http and https are supported`);
     }
+    const extractionOptions = {
+        view,
+        rootSelector,
+        excludeSelectors,
+        tokenBudget,
+        pdfPageStart,
+        pdfPageEnd,
+        captureImages,
+        maxImages,
+    };
+    const extract = async (resource) => extractFetchedResource(resource, extractionOptions, contentExtractors);
     // Check robots.txt before fetching.
     if (robotsCache) {
         const { allowed, crawlDelayMs } = await robotsCache.check(url);
@@ -253,14 +139,12 @@ export async function spider(url, opts) {
         const probe = await probeLlmsTxt(url, httpClient, { timeoutMs, userAgent });
         if (probe) {
             const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
-            const page = buildNonHtmlPage({
+            const { page } = await extract({
                 url: probe.url,
                 domain: probeDomain,
                 fetchedAt: new Date().toISOString(),
-                contentTypeHeader: probe.contentType,
-                rawText: probe.content,
-                view,
-                isJson: false,
+                contentType: probe.contentType,
+                text: probe.content,
             });
             return { ...page, viaStrategy: "llms.txt" };
         }
@@ -271,14 +155,12 @@ export async function spider(url, opts) {
         const probe = await probeMarkdownVariant(url, httpClient, { timeoutMs, userAgent });
         if (probe) {
             const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
-            const page = buildNonHtmlPage({
+            const { page } = await extract({
                 url: probe.url,
                 domain: probeDomain,
                 fetchedAt: new Date().toISOString(),
-                contentTypeHeader: probe.contentType,
-                rawText: probe.content,
-                view,
-                isJson: false,
+                contentType: probe.contentType,
+                text: probe.content,
             });
             return { ...page, viaStrategy: "markdown-suffix" };
         }
@@ -289,19 +171,18 @@ export async function spider(url, opts) {
     if (preferGitHub) {
         const result = await queryGitHub(url, httpClient, { token: githubToken, timeoutMs, userAgent });
         if (result) {
-            const page = buildNonHtmlPage({
+            const { page } = await extract({
                 url,
                 domain: new URL(url).hostname.replace(/^www\./, ""),
                 fetchedAt: new Date().toISOString(),
-                contentTypeHeader: "text/markdown; charset=utf-8",
-                rawText: result.markdown,
-                view,
-                isJson: false,
+                contentType: "text/markdown; charset=utf-8",
+                text: result.markdown,
             });
             return { ...page, title: result.title, viaStrategy: "github" };
         }
     }
-    let html = "";
+    let responseText = "";
+    let responseBytes;
     let fetchError = null;
     let contentTypeHeader = null;
     let viaMediaWiki = false;
@@ -317,7 +198,7 @@ export async function spider(url, opts) {
             if (siteInfo) {
                 const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
                 if (page) {
-                    html = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
+                    responseText = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
                     contentTypeHeader = "text/html; charset=utf-8";
                     viaMediaWiki = true;
                 }
@@ -337,7 +218,7 @@ export async function spider(url, opts) {
             res = await httpClient.fetch({
                 url,
                 signal: controller.signal,
-                headers: { "User-Agent": userAgent, Accept: "text/html" },
+                headers: { "User-Agent": userAgent, Accept: "text/html, application/pdf;q=0.9" },
             });
         }
         catch (err) {
@@ -359,187 +240,39 @@ export async function spider(url, opts) {
         if (!res.ok)
             throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
         contentTypeHeader = res.headers.get("content-type");
-        const kind = classifyContentType(contentTypeHeader);
-        if (kind === "unsupported") {
-            throw new Error(`Cannot extract content from "${url}" — server returned "${contentTypeHeader ?? "an unknown content type"}", which web-spider cannot parse as text or structure`);
-        }
         throttle?.success(url);
-        html = await res.text();
+        responseBytes = new Uint8Array(await res.arrayBuffer());
+        responseText = new TextDecoder().decode(responseBytes);
+        if (responseBytes.byteLength === 0) {
+            // Preserve compatibility with structural IHttpClient fakes/adapters that
+            // historically supplied text() but used an empty arrayBuffer placeholder.
+            // A real consumed empty Response rejects text(); empty remains correct.
+            try {
+                responseText = await res.text();
+                responseBytes = new TextEncoder().encode(responseText);
+            }
+            catch {
+                // The real response body was empty and has already been consumed.
+            }
+        }
         fetchError = null;
         break;
     }
     if (fetchError)
         throw fetchError;
-    const domain = new URL(url).hostname.replace(/^www\./, "");
-    const fetchedAt = new Date().toISOString();
-    const contentKind = classifyContentType(contentTypeHeader);
-    // Non-HTML content (text/plain, JSON, XML/RSS/Atom, ...) never reaches
-    // linkedom/Readability at all — there is no DOM to parse. Return the raw
-    // (or, for JSON, pretty-printed) body directly instead.
-    if (contentKind !== "html") {
-        return buildNonHtmlPage({ url, domain, fetchedAt, contentTypeHeader, rawText: html, view, isJson: contentKind === "json" });
-    }
-    // Parse DOM via parse.ts — keeps the JSDOM dependency in one module.
-    const doc = parseDom(html, url);
-    // Apply excludeSelectors before Readability strips the DOM.
-    if (excludeSelectors) {
-        for (const sel of excludeSelectors
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)) {
-            for (const el of [...doc.querySelectorAll(sel)])
-                el.remove();
-        }
-    }
-    // Scope to rootSelector: replace body content with the matched element.
-    if (rootSelector) {
-        const root = doc.querySelector(rootSelector);
-        if (root) {
-            doc.body.innerHTML = root.outerHTML;
-        }
-    }
-    const links = extractLinks(doc, url);
-    const canonicalUrl = extractCanonicalUrl(doc, url);
-    // Readability content extraction (Firefox Reader View engine).
-    const readabilityResult = new Readability(doc).parse();
-    const jsRendered = !readabilityResult;
-    // Graceful degradation: if Readability finds nothing, return a partial page
-    // with jsRendered:true rather than throwing. The agent can decide what to do.
-    const article = readabilityResult ?? {
-        title: (doc.querySelector("title")?.textContent ?? "").trim(),
-        content: "",
-        textContent: "",
-        length: 0,
-        excerpt: "",
-        byline: "",
-        dir: "",
-        site_name: "",
-        lang: "",
-        publishedTime: null,
-        readingTimeMinutes: 0,
-    };
-    const meta = (name) => {
-        const el = doc.querySelector(`meta[name="${name}"]`) ??
-            doc.querySelector(`meta[property="og:${name}"]`) ??
-            doc.querySelector(`meta[property="${name}"]`);
-        return (el?.getAttribute("content") ?? "").trim();
-    };
-    // headings must come before tags so the heading fallback is available.
-    const headings = extractHeadings(article.content ?? "");
-    const tags = extractTags(doc);
-    // ---------------------------------------------------------------------------
-    // Lean fast-path — skip turndown + chunking entirely
-    // ---------------------------------------------------------------------------
-    if (view === "lean") {
-        const textContent = (article.textContent ?? "").trim();
-        const wordCount = textContent.split(/\s+/).filter(Boolean).length;
-        const chunkCount = Math.max(0, Math.floor(wordCount / 150));
-        const full = {
-            url,
-            domain,
-            fetchedAt,
-            ...(canonicalUrl !== undefined ? { canonicalUrl } : {}),
-            title: article.title ?? meta("title"),
-            description: meta("description"),
-            author: article.byline ?? meta("author"),
-            publishedAt: meta("article:published_time") ?? meta("date"),
-            // Readability's .parse() call above can mutate the document enough to
-            // null out documentElement on some real pages (confirmed against a
-            // live page, gitlab.com/gitlab-org/gitlab) -- optional chaining, not
-            // an assumption that it's always still there.
-            lang: doc.documentElement?.lang ?? "en",
-            tags,
-            wordCount,
-            readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
-            chunks: [], // placeholder — toLean reads chunks.length
-            headings,
-            links,
-            markdown: "",
-        };
-        const lean = toLean(full);
-        return { ...lean, chunkCount, ...(jsRendered ? { jsRendered: true } : {}), ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}) };
-    }
-    // ---------------------------------------------------------------------------
-    // Tree path — build semantic DOM tree, then also produce full markdown
-    // ---------------------------------------------------------------------------
-    if (view === "tree") {
-        const tree = buildTree(article.content ?? "", url);
-        const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
-        const wordCount = markdown.split(/\s+/).filter(Boolean).length;
-        const chunks = chunk(markdown, url);
-        const images = captureImages ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle) : undefined;
-        return {
-            view: "tree",
-            url,
-            domain,
-            fetchedAt,
-            ...(canonicalUrl !== undefined ? { canonicalUrl } : {}),
-            title: article.title ?? meta("title"),
-            description: meta("description"),
-            author: article.byline ?? meta("author"),
-            publishedAt: meta("article:published_time") ?? meta("date"),
-            // See the lean-view branch above: Readability can null out
-            // documentElement on some real pages.
-            lang: doc.documentElement?.lang ?? "en",
-            tags,
-            wordCount,
-            readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
-            headings,
-            chunks,
-            links,
-            markdown,
-            tree,
-            ...(images ? { images } : {}),
-            ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
-        };
-    }
-    // ---------------------------------------------------------------------------
-    // Full path — turndown + chunk
-    // ---------------------------------------------------------------------------
-    const markdown = toMarkdown(article.content ?? "", { keepImages: captureImages });
-    const wordCount = markdown.split(/\s+/).filter(Boolean).length;
-    // Chunk-aware tokenBudget: select whole chunks up to the budget rather
-    // than slicing markdown mid-sentence. Preserves chunk boundaries and
-    // returns the richest complete content that fits.
-    let allChunks = chunk(markdown, url);
-    if (tokenBudget !== undefined) {
-        const charBudget = tokenBudget * 4;
-        let remaining = charBudget;
-        let first = true;
-        allChunks = allChunks.filter((c) => {
-            // Always include at least the first chunk — agents need something
-            // even if it exceeds the budget.
-            if (!first && remaining <= 0)
-                return false;
-            first = false;
-            remaining -= c.text.length;
-            return true;
-        });
-    }
-    // Reconstruct markdown from selected chunks for full-page consumers.
-    const finalMarkdown = tokenBudget !== undefined ? allChunks.map((c) => c.text).join("\n\n") : markdown;
-    const images = captureImages ? await fetchImages(article.content ?? "", url, httpClient, maxImages, throttle) : undefined;
-    return {
+    const resource = {
         url,
-        domain,
-        fetchedAt,
-        ...(canonicalUrl !== undefined ? { canonicalUrl } : {}),
-        title: article.title ?? meta("title"),
-        description: meta("description"),
-        author: article.byline ?? meta("author"),
-        publishedAt: meta("article:published_time") ?? meta("date"),
-        // See the lean-view branch above: Readability can null out
-        // documentElement on some real pages.
-        lang: doc.documentElement?.lang ?? "en",
-        tags,
-        wordCount,
-        readingTimeMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
-        headings,
-        chunks: allChunks,
-        links,
-        markdown: finalMarkdown,
+        domain: new URL(url).hostname.replace(/^www\./, ""),
+        fetchedAt: new Date().toISOString(),
+        contentType: contentTypeHeader,
+        text: responseText,
+        ...(responseBytes ? { bytes: responseBytes } : {}),
+    };
+    const { page, imageCandidates } = await extract(resource);
+    const images = imageCandidates ? await fetchImages(imageCandidates, httpClient, throttle) : undefined;
+    return {
+        ...page,
         ...(images ? { images } : {}),
-        ...(jsRendered ? { jsRendered: true } : {}),
         ...(viaMediaWiki ? { viaStrategy: "mediawiki" } : {}),
     };
 }

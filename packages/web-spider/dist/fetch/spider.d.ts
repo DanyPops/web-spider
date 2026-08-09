@@ -1,5 +1,7 @@
 import type { IHttpClient, IRobotsChecker, IThrottle } from "../ports.js";
-import type { DOMNode, LeanPage, SpideredPage } from "../types.js";
+import type { LeanPage, SpideredPage } from "../types.js";
+import { type ContentExtractor, type TreePage } from "./content-extractor.js";
+export type { TreePage } from "./content-extractor.js";
 export interface SpiderOptions {
     /**
      * ms before aborting the fetch (default 10 000).
@@ -30,6 +32,10 @@ export interface SpiderOptions {
      * Default: unlimited.
      */
     tokenBudget?: number;
+    /** First PDF page to extract (1-based, inclusive). Defaults to 1. */
+    pdfPageStart?: number;
+    /** Last PDF page to extract (1-based, inclusive). At most 50 pages per request. */
+    pdfPageEnd?: number;
     /**
      * Per-domain throttle — shared across spider() calls to enforce rate limits
      * and exponential backoff on 429/503 responses.
@@ -105,11 +111,11 @@ export interface SpiderOptions {
     preferGitHub?: boolean;
     /** Explicit GitHub token for preferGitHub; falls back to GITHUB_TOKEN/GH_TOKEN env vars. Never logged. */
     githubToken?: string;
-}
-/** A page with its full DOM tree attached. */
-export interface TreePage extends SpideredPage {
-    readonly view: "tree";
-    tree: DOMNode;
+    /**
+     * Pure response-content Strategies tried before Web Spider's built-in HTML
+     * and textual extractors. First supporting extractor wins.
+     */
+    contentExtractors?: readonly ContentExtractor[];
 }
 export declare function spider(url: string, opts: SpiderOptions & {
     view: "lean";
