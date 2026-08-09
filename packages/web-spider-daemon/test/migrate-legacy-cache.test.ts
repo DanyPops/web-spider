@@ -42,7 +42,7 @@ describe("importLegacyJsonCache", () => {
 			legacy.set("https://a.example/2", page("https://a.example/2", "Two"));
 
 			const db = openWebSpiderDb(":memory:");
-			const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+			const imagesDir = mkdtempSync(join(root, "images-"));
 			const store = new SQLiteCacheStore(db, { imagesDir });
 
 			const result = importLegacyJsonCache(store, legacyPath);
@@ -61,7 +61,7 @@ describe("importLegacyJsonCache", () => {
 		const root = mkdtempSync(join(tmpdir(), "web-spider-migrate-"));
 		try {
 			const db = openWebSpiderDb(":memory:");
-			const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+			const imagesDir = mkdtempSync(join(root, "images-"));
 			const store = new SQLiteCacheStore(db, { imagesDir });
 			const result = importLegacyJsonCache(store, join(root, "does-not-exist.json"));
 			expect(result).toEqual({ imported: 0, skipped: true });
@@ -78,7 +78,7 @@ describe("importLegacyJsonCache", () => {
 			legacy.set("https://a.example/1", page("https://a.example/1", "One"));
 
 			const db = openWebSpiderDb(":memory:");
-			const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+			const imagesDir = mkdtempSync(join(root, "images-"));
 			const store = new SQLiteCacheStore(db, { imagesDir });
 			const result = importLegacyJsonCache(store, legacyPath);
 

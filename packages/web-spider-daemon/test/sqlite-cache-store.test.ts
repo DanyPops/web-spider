@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync as mkdtempSyncRaw, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
@@ -32,6 +32,17 @@ function page(overrides: Partial<SpideredPage> = {}): SpideredPage {
 		...overrides,
 	};
 }
+
+const tmpDirs: string[] = [];
+function mkdtempSync(prefix: string): string {
+	const dir = mkdtempSyncRaw(prefix);
+	tmpDirs.push(dir);
+	return dir;
+}
+
+afterEach(() => {
+	for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function storeWithTmpDir() {
 	const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));

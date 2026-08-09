@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync as mkdtempSyncRaw, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@danypops/vehicle-server/logging";
@@ -10,6 +10,16 @@ import { FetchService } from "../src/fetch/fetch-service.ts";
 import { ARTICLE_HTML, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const URL = "https://fixture.test/article";
+const tmpDirs: string[] = [];
+function mkdtempSync(prefix: string): string {
+	const dir = mkdtempSyncRaw(prefix);
+	tmpDirs.push(dir);
+	return dir;
+}
+
+afterEach(() => {
+	for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 // A minimal app shell with no extractable article content — Readability finds
 // nothing, so spider() reports jsRendered:true and FetchService retries with

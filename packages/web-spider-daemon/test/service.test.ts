@@ -5,18 +5,21 @@ import { join } from "node:path";
 import type { SpideredPage } from "@danypops/web-spider";
 import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
-import { createApp, createWebSpiderService, UnknownOperationError } from "../src/service.ts";
+import { createApp, createWebSpiderService, type WebSpiderService, UnknownOperationError } from "../src/service.ts";
 import { VERSION } from "../src/version.ts";
 
 const TOKEN = "test-token";
+const services: WebSpiderService[] = [];
+const tmpDirs: string[] = [];
 
 function app() {
 	const service = createWebSpiderService(":memory:");
+	services.push(service);
 	return { service, app: createApp({ service, token: TOKEN }) };
 }
 
-const tmpDirs: string[] = [];
 afterEach(() => {
+	for (const service of services.splice(0)) service.close();
 	for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -55,6 +58,7 @@ function appWithCachedPage(url: string): ReturnType<typeof app> {
 	new SQLiteCacheStore(seedDb, { imagesDir: join(dir, "images") }).set(url, page(url));
 	seedDb.close();
 	const service = createWebSpiderService(dbPath);
+	services.push(service);
 	return { service, app: createApp({ service, token: TOKEN }) };
 }
 

@@ -8,7 +8,7 @@
  * handleCacheListing/handleCacheSearch. Later tasks (fetch/crawl/search)
  * add operations here without touching the auth/transport shape.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { VehicleRegistry } from "@danypops/vehicle-server";
@@ -329,12 +329,13 @@ export function createWebSpiderService(
 	const db = openWebSpiderDb(path);
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
-	const imagesDir = path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-images-")) : join(dirname(path), "images");
+	const ownsTemporaryDirectories = path === ":memory:";
+	const imagesDir = ownsTemporaryDirectories ? mkdtempSync(join(tmpdir(), "web-spider-images-")) : join(dirname(path), "images");
 	// Same derivation as imagesDir above — a sibling of the database, or an
 	// isolated temp directory for :memory: (test) databases with no sibling
 	// directory to spill downloaded files into.
 	const downloadsBaseDir =
-		path === ":memory:" ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
+		ownsTemporaryDirectories ? mkdtempSync(join(tmpdir(), "web-spider-downloads-")) : join(dirname(path), SESSION_DOWNLOADS_DIRECTORY_NAME);
 	const store = new SQLiteCacheStore(db, { imagesDir });
 	const logger = deps.logger ?? createLogger("web-spider-daemon");
 	// Provider API keys are read from this (daemon) process's own environment only —
@@ -423,9 +424,15 @@ export function createWebSpiderService(
 			// above) -- found via a real leaked Chrome process still running hours after
 			// the fetch that launched it: nothing ever closed it, including on shutdown.
 			playwrightClient?.close?.().catch((err) => logger.warn("playwright_close_failed", { error: String(err) }));
-			void sessionRegistry.closeAll();
+			const sessionsClosed = sessionRegistry.closeAll();
 			db.exec("PRAGMA optimize");
 			db.close();
+			if (ownsTemporaryDirectories) {
+				rmSync(imagesDir, { recursive: true, force: true });
+				void sessionsClosed
+					.catch((err) => logger.warn("session_close_failed", { error: String(err) }))
+					.finally(() => rmSync(downloadsBaseDir, { recursive: true, force: true }));
+			}
 		},
 	};
 }

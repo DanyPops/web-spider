@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync as mkdtempSyncRaw, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
@@ -11,6 +11,16 @@ import { CrawlService } from "../src/fetch/crawl-service.ts";
 import { articleWithLinks, fakeHttpClient } from "./helpers/fake-http-client.ts";
 
 const ROOT = "https://fixture.test/";
+const tmpDirs: string[] = [];
+function mkdtempSync(prefix: string): string {
+	const dir = mkdtempSyncRaw(prefix);
+	tmpDirs.push(dir);
+	return dir;
+}
+
+afterEach(() => {
+	for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function noopThrottle(): IThrottle {
 	return { wait: async () => {}, success: () => {}, rateLimit: () => 0, setDomainDelay: () => {}, maxRetries: 0 };
