@@ -1,9 +1,9 @@
 import { Readability } from "@mozilla/readability";
+import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
 import { chunk, toMarkdown } from "../extract/convert.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "../extract/parse.js";
 import { buildTree } from "../extract/tree.js";
 import { toLean } from "../extract/views.js";
-import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";
 import { probeMarkdownVariant } from "../sources/markdown-suffix.js";

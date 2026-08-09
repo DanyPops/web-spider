@@ -5,9 +5,9 @@ export { SpiderCache } from "./cache/cache.js";
 export { canonicalizeUrl } from "./cache/cache-key.js";
 export { crawl } from "./crawl/crawl.js";
 export { PageGraph } from "./crawl/graph.js";
+export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
-export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
 export { spider } from "./fetch/spider.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
