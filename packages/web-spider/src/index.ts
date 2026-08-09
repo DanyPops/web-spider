@@ -14,7 +14,16 @@ export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportErr
 export type { QueryTreeOptions } from "./extract/tree.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
-export type { SpiderOptions, TreePage } from "./fetch/spider.js";
+export type {
+	ContentExtractionOptions,
+	ContentExtractionResult,
+	ContentExtractor,
+	ExtractedImageCandidate,
+	ExtractedPage,
+	FetchedResource,
+	TreePage,
+} from "./fetch/content-extractor.js";
+export type { SpiderOptions } from "./fetch/spider.js";
 export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
