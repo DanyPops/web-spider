@@ -262,6 +262,10 @@ export default async function (pi: ExtensionAPI) {
 				timeoutMs: params.timeoutMs,
 				query: params.query,
 				ignoreRobots: params.ignoreRobots,
+				discoverOnly: params.discoverOnly,
+				crawlUrls: params.crawlUrls,
+				maxTotalChars: params.maxTotalChars,
+				deadlineMs: params.deadlineMs,
 			},
 			callMeta,
 		);
@@ -595,6 +599,18 @@ export default async function (pi: ExtensionAPI) {
 		ignoreRobots: Type.Optional(
 			Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
 		),
+		discoverOnly: Type.Optional(
+			Type.Boolean({ description: "depth>0: URL map only -- pages are still fetched to discover links, but no content body is returned" }),
+		),
+		crawlUrls: Type.Optional(
+			Type.Array(Type.String(), {
+				description: "Selective second-phase crawl of exactly these URLs, no re-discovery -- routes to crawl even without depth>0",
+			}),
+		),
+		maxTotalChars: Type.Optional(Type.Number({ description: "depth>0: total extracted-content character cap across the whole crawl" })),
+		deadlineMs: Type.Optional(
+			Type.Number({ description: "depth>0: wall-clock cap for the whole crawl, in milliseconds (default 120000)" }),
+		),
 	});
 
 	pi.registerTool({
@@ -611,6 +627,8 @@ export default async function (pi: ExtensionAPI) {
 			"format trades the default full markdown for targeted views (lean/links/highlights/tree/source) -- see the format parameter. source is normalized textual content, not byte-identical wire data. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted. pdfPageStart/pdfPageEnd select a bounded 1-based PDF range.",
 			"",
 			"enhanced=true forces headless-browser rendering for SPAs/JS-heavy/bot-gated pages; default auto-falls back to it when needed.",
+			"",
+			"A depth>0 crawl best-first orders content-likely pages first and classifies each one's pageType (article/list/js_shell) with contentOk. discoverOnly=true returns a URL map without content bodies. crawlUrls=[...] selectively (re-)crawls exactly those URLs, no re-discovery. maxTotalChars/deadlineMs bound total extracted size and wall-clock time; nextAction reports why a crawl stopped.",
 			"",
 			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, human-directed bypass for one request -- never a default.",
 		].join("\n"),
@@ -638,7 +656,7 @@ export default async function (pi: ExtensionAPI) {
 					return await handleCacheListing(params, callMeta);
 				}
 
-				if ((params.depth ?? 0) > 0) return await handleCrawl(params, callMeta);
+				if ((params.depth ?? 0) > 0 || (params.crawlUrls?.length ?? 0) > 0) return await handleCrawl(params, callMeta);
 
 				return await handleSinglePage(params, callMeta);
 			} catch (err) {

@@ -7,14 +7,18 @@
  */
 
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, searchPages } from "@danypops/web-spider";
+import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, type PageClassification, searchPages } from "@danypops/web-spider";
 import type { CacheStore } from "../cache/cache-store.ts";
 import {
+	CRAWL_DEFAULT_DEADLINE_MS,
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,
 	CRAWL_HIGHLIGHTS_DEFAULT_TOP_N,
+	CRAWL_MAX_DEADLINE_MS_CEILING,
 	CRAWL_MAX_DEPTH_CEILING,
 	CRAWL_MAX_PAGES_CEILING,
+	CRAWL_MAX_TOTAL_CHARS_CEILING,
+	CRAWL_URLS_MAX_COUNT,
 	FETCH_DEFAULT_TIMEOUT_MS,
 	FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
 } from "../constants.ts";
@@ -42,6 +46,17 @@ export interface CrawlOperationInput {
 	 * the operator's own explicit choice on their own infrastructure.
 	 */
 	ignoreRobots?: boolean;
+	/** URL map only -- pages are still fetched to discover links, but no content body is returned. */
+	discoverOnly?: boolean;
+	/**
+	 * Selective second-phase crawl of exactly these URLs, no re-discovery.
+	 * Clamped server-side to CRAWL_URLS_MAX_COUNT entries.
+	 */
+	crawlUrls?: string[];
+	/** Total extracted-content character cap across the whole crawl. Clamped server-side. */
+	maxTotalChars?: number;
+	/** Wall-clock cap for the whole crawl, in milliseconds. Clamped server-side. */
+	deadlineMs?: number;
 }
 
 export type CrawlOperationOutput = Record<string, unknown>;
@@ -62,6 +77,18 @@ function clamp(value: number | undefined, fallback: number, ceiling: number, flo
 	return Math.max(floor, Math.min(ceiling, requested));
 }
 
+/** Clamps an optional cap: only bounds the ceiling when the caller actually supplied one; omitted stays uncapped. */
+function clampOptional(value: number | undefined, ceiling: number, floor = 1): number | undefined {
+	if (value === undefined || !Number.isFinite(value)) return undefined;
+	return Math.max(floor, Math.min(ceiling, Math.floor(value)));
+}
+
+/** Merges a crawl-level page_type/content_ok classification onto an already-shaped output page. */
+function withClassification(output: Record<string, unknown>, classification: PageClassification | undefined): Record<string, unknown> {
+	if (!classification) return output;
+	return { ...output, pageType: classification.pageType, contentOk: classification.contentOk };
+}
+
 export class CrawlService {
 	constructor(private readonly deps: CrawlServiceDeps) {}
 
@@ -72,6 +99,9 @@ export class CrawlService {
 		const format = input.format ?? "markdown";
 		const depth = clamp(input.depth, CRAWL_DEFAULT_MAX_DEPTH, CRAWL_MAX_DEPTH_CEILING);
 		const maxPages = clamp(input.maxPages, CRAWL_DEFAULT_MAX_PAGES, CRAWL_MAX_PAGES_CEILING, 1);
+		const deadlineMs = clamp(input.deadlineMs, CRAWL_DEFAULT_DEADLINE_MS, CRAWL_MAX_DEADLINE_MS_CEILING, 1_000);
+		const maxTotalChars = clampOptional(input.maxTotalChars, CRAWL_MAX_TOTAL_CHARS_CEILING);
+		const crawlUrls = input.crawlUrls?.slice(0, CRAWL_URLS_MAX_COUNT);
 
 		const result = await crawl(input.url, {
 			maxDepth: depth,
@@ -86,10 +116,15 @@ export class CrawlService {
 			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
 			respectRobots: !input.ignoreRobots,
 			httpClient: input.enhanced ? this.deps.getPlaywrightClient() : this.deps.defaultHttpClient,
+			discoverOnly: input.discoverOnly,
+			crawlUrls,
+			maxTotalChars,
+			deadlineMs,
 		});
 
 		const pages = [...result.pages.values()];
 		const errorsObj = result.errors.size ? { errors: result.errors.size, errorUrls: [...result.errors.keys()] } : {};
+		const nextActionObj = { nextAction: result.nextAction };
 
 		if (format === "highlights") {
 			if (!input.query?.trim()) throw new Error("highlights format requires a query");
@@ -101,12 +136,18 @@ export class CrawlService {
 				query: input.query,
 				pagesSearched: pages.length,
 				...errorsObj,
+				...nextActionObj,
 				hits: hits.map((hit) => ({ url: hit.url, ...highlightHit(hit, pages.find((p) => p.url === hit.url)?.chunks ?? []) })),
 			};
 		}
 
 		if (format === "lean") {
-			return { pagesFound: result.pages.size, ...errorsObj, pages: pages.map(leanOutput) };
+			return {
+				pagesFound: result.pages.size,
+				...errorsObj,
+				...nextActionObj,
+				pages: pages.map((page) => withClassification(leanOutput(page), result.classifications.get(page.url))),
+			};
 		}
 
 		// markdown (default) — crawl summary, not full page bodies; see docs/web-fetch-api.md "Crawl output".
@@ -116,8 +157,12 @@ export class CrawlService {
 		return {
 			pagesFound: result.pages.size,
 			...errorsObj,
+			...nextActionObj,
 			pages: pages.map((page) =>
-				omitEmpty({ url: page.url, title: page.title, description: page.description, wordCount: page.wordCount, tags: page.tags }),
+				withClassification(
+					omitEmpty({ url: page.url, title: page.title, description: page.description, wordCount: page.wordCount, tags: page.tags }),
+					result.classifications.get(page.url),
+				),
 			),
 		};
 	}

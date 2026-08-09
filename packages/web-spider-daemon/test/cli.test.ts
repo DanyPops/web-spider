@@ -156,6 +156,37 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect(operations[0]?.input).toMatchObject({ pdfPageStart: 2, pdfPageEnd: 4 });
 	});
 
+	test("--discover-only/--crawl-urls/--max-total-chars/--deadline-ms are all forwarded to the crawl operation", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ pagesFound: 2, pages: [] }) });
+		await runCli(
+			[
+				"fetch",
+				"https://x.test",
+				"--crawl-urls",
+				"https://x.test/a,https://x.test/b",
+				"--discover-only",
+				"--max-total-chars",
+				"5000",
+				"--deadline-ms",
+				"30000",
+			],
+			deps,
+		);
+		expect(operations[0]?.op).toBe("crawl");
+		expect(operations[0]?.input).toMatchObject({
+			crawlUrls: ["https://x.test/a", "https://x.test/b"],
+			discoverOnly: true,
+			maxTotalChars: 5000,
+			deadlineMs: 30000,
+		});
+	});
+
+	test("--crawl-urls alone (no --depth) still routes to the crawl operation", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ pagesFound: 1, pages: [] }) });
+		await runCli(["fetch", "https://x.test", "--crawl-urls", "https://x.test/a"], deps);
+		expect(operations[0]?.op).toBe("crawl");
+	});
+
 	test("--ignore-robots is forwarded as true; omitted entirely by default", async () => {
 		const { deps: withFlag, operations: withFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--ignore-robots"], withFlag);

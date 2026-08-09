@@ -47,3 +47,57 @@ established by `ContentExtractor` and the `ISearchEngine` composites. No
 `page_type`/`content_ok` fields were added to the public `SpideredPage`/
 `CrawlOptions` contract in this refactor; that is additive feature work for a
 later task, once this seam already exists to build it on.
+
+## Content-adaptive crawl (built on the above seam)
+
+`crawl()`'s defaults were upgraded from the inert `InsertionOrderLinkScorer`/
+`DefaultPageClassifier` to real implementations of the same two ports —
+matching the OCR fallback precedent (`docs/pdf-ocr-fallback.md`): a genuine
+capability upgrade, not an opt-in flag, because the plain versions remain
+exported for a caller that wants unweighted BFS or minimal classification.
+
+- **`HeuristicLinkScorer`**: boosts URL paths matching `/docs/`, `/guide/`,
+  `/api/`, `/blog/`, `/article/`, `/reference/`; penalizes `/login/`,
+  `/signin/`, `/signup/`, `/register/`, `/cart/`, `/checkout/`, `/submit/`,
+  `/logout/`, `/account/`, `/settings/`; and slightly prefers shallower
+  depth as a tie-break. Pure string/URL inspection — no network or DOM work.
+- **`HeuristicPageClassifier`**: classifies `"js_shell"` from the existing
+  `jsRendered` signal; `"list"` from high link density relative to word
+  count (>=15 links, <400 words — an index/nav-shaped page); `"article"`
+  from substantial word count (>=100 words); otherwise `"unknown"`. An
+  extractor that already reported `contentOk:false` (e.g. a scanned PDF) is
+  never overridden with a false-confidence classification.
+- **Content-adaptive shaping, not re-extraction**: `PageClassifier.classify()`
+  only sees an already-fully-extracted `SpideredPage` — the `ContentExtractor`
+  Strategy has already run inside `spider()` by the time `crawl()` sees a
+  page, so "content-adaptive extraction" cannot mean re-running extraction
+  with a different strategy without a much larger, unwarranted structural
+  change. Instead, `crawl()` honestly *reshapes* a `"list"`-classified page's
+  `markdown` into a clean rendered link list before storing it, leaving
+  `title`/`description`/`links`/`wordCount` untouched. This is a deliberate,
+  documented interpretation, not a claim that extraction itself is adaptive.
+- **`discoverOnly`**: still requires one real fetch per page (link discovery
+  is impossible without reading the page's HTML — there is no cheaper
+  "headers only" path in this architecture), but strips `markdown`/`chunks`
+  from what is stored/returned, giving an honest "URL map, no content body"
+  contract rather than a literal no-fetch claim.
+- **`crawlUrls`**: an alternative entry mode — when non-empty, the frontier
+  is exactly `crawlUrls` (still filtered through `shouldVisit`/budget), no
+  sitemap seeding runs, and no further link-following happens after that one
+  batch, regardless of `maxDepth` — "selective crawl of a chosen subset, no
+  re-discovery" taken literally.
+- **`DefaultCrawlBudget`**: combines `maxPages` (existing), `maxTotalChars`
+  (sum of each fetched page's `markdown.length`, tracked by `crawl()` and
+  passed in `CrawlBudgetState.charsUsed`), and `deadlineMs` (default
+  120000ms, compared against `CrawlBudgetState.elapsedMs`, also tracked by
+  `crawl()`). A budget is a pure function of the state `crawl()` computes —
+  it owns no clock of its own, keeping `CrawlBudget` implementations trivial
+  to unit test without fake timers. Its optional `reason(state)` method
+  reports *why* it is exhausted, surfaced as `CrawlResult.nextAction`
+  (`"complete" | "max-pages" | "max-total-chars" | "deadline"`) — a crawl
+  that simply ran out of frontier is `"complete"`, not budget-limited.
+
+No composed/decorator budget chain was introduced for the three caps — one
+small class checking three conditions is proportionate; the `CrawlBudget`
+port itself remains the real swappable extension point for a caller wanting
+an entirely different policy.

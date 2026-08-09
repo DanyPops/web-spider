@@ -299,8 +299,11 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			"--query",
 			"--path",
 			"--top-n",
+			"--crawl-urls",
+			"--max-total-chars",
+			"--deadline-ms",
 		],
-		["--enhanced", "--no-same-domain", "--ignore-robots"],
+		["--enhanced", "--no-same-domain", "--ignore-robots", "--discover-only"],
 	);
 	const url = parsed?.positional[0];
 	if (!parsed || !url) return usage(deps.stderr);
@@ -319,6 +322,14 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
 	const topN = parseIntFlag(parsed.values, "top-n");
 	if (Number.isNaN(topN)) return usage(deps.stderr);
+	const maxTotalChars = parseIntFlag(parsed.values, "max-total-chars");
+	if (Number.isNaN(maxTotalChars)) return usage(deps.stderr);
+	const deadlineMs = parseIntFlag(parsed.values, "deadline-ms");
+	if (Number.isNaN(deadlineMs)) return usage(deps.stderr);
+	const crawlUrls = parsed.values["crawl-urls"]
+		?.split(",")
+		.map((u) => u.trim())
+		.filter(Boolean);
 
 	try {
 		const shared = {
@@ -335,12 +346,16 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
 		};
 		const result =
-			(depth ?? 0) > 0
+			(depth ?? 0) > 0 || (crawlUrls && crawlUrls.length > 0)
 				? await deps.client.call("crawl", {
 						...shared,
 						depth,
 						maxPages,
 						sameDomain: parsed.flags.has("no-same-domain") ? false : undefined,
+						discoverOnly: parsed.flags.has("discover-only") || undefined,
+						crawlUrls: crawlUrls && crawlUrls.length > 0 ? crawlUrls : undefined,
+						maxTotalChars,
+						deadlineMs,
 					})
 				: await deps.client.call("fetch", { ...shared, path: parsed.values.path, topN });
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatFetchResult(result));

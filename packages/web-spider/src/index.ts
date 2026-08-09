@@ -5,14 +5,14 @@
 export type { SpiderCacheOptions } from "./cache/cache.js";
 export { SpiderCache } from "./cache/cache.js";
 export { canonicalizeUrl } from "./cache/cache-key.js";
-export type { CrawlBudget, CrawlBudgetState } from "./crawl/budget.js";
-export { MaxPagesBudget } from "./crawl/budget.js";
+export type { CrawlBudget, CrawlBudgetState, CrawlStopReason, DefaultCrawlBudgetOptions } from "./crawl/budget.js";
+export { DefaultCrawlBudget, MaxPagesBudget } from "./crawl/budget.js";
 export type { PageClassification, PageClassifier, PageType } from "./crawl/classifier.js";
-export { DefaultPageClassifier } from "./crawl/classifier.js";
+export { DefaultPageClassifier, HeuristicPageClassifier, renderLinkList } from "./crawl/classifier.js";
 export type { CrawlOptions, CrawlResult } from "./crawl/crawl.js";
 export { crawl } from "./crawl/crawl.js";
 export type { LinkScoreContext, LinkScorer } from "./crawl/frontier.js";
-export { InsertionOrderLinkScorer, orderFrontier } from "./crawl/frontier.js";
+export { HeuristicLinkScorer, InsertionOrderLinkScorer, orderFrontier } from "./crawl/frontier.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./crawl/graph.js";
 export { PageGraph } from "./crawl/graph.js";
 export type { FetchTransportErrorOptions, FetchTransportFailureKind } from "./errors.js";

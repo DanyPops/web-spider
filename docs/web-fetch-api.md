@@ -53,8 +53,14 @@ Pass either `url` or `searchQuery` for network work. Omitting both queries the l
 | `depth` | `number` | `0` | BFS hop depth. `0` = single page. `1` = page + all linked pages. `N` = N hops deep. |
 | `maxPages` | `number` | `10` | Hard cap on total pages fetched when `depth > 0`. |
 | `sameDomain` | `boolean` | `true` | When `depth > 0`, only follow links on the same domain as the start URL. |
+| `discoverOnly` | `boolean` | `false` | `depth > 0`: pages are still fetched to discover links, but no content body is returned -- an honest "URL map" result, not a claim that no fetch happened. |
+| `crawlUrls` | `string[]` | -- | Selective second-phase crawl of exactly these URLs, no re-discovery -- routes to crawl even without `depth > 0`. Useful after a `discoverOnly` pass narrows down which URLs are actually worth fetching in full. |
+| `maxTotalChars` | `number` | -- (uncapped) | `depth > 0`: total extracted-content character cap across the whole crawl -- stops the crawl once cumulative extracted content crosses this bound. |
+| `deadlineMs` | `number` | `120000` | `depth > 0`: wall-clock cap for the whole crawl, in milliseconds. |
 
 When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth=0` calls to any cached URL are free (no network).
+
+A crawl best-first orders discovered URLs (content-likely paths like `/docs/`, `/guide/`, `/api/` boosted; app-chrome paths like `/login/`, `/cart/`, `/checkout/` penalized; shallower depth preferred) rather than plain BFS discovery order, and classifies each fetched page's `pageType` (`"article"` \| `"list"` \| `"js_shell"` \| `"unknown"`) with a `contentOk` boolean. A `"list"`-classified page's `markdown` is reshaped into a clean rendered link list rather than noisy boilerplate. The crawl result's top-level `nextAction` (`"complete"` \| `"max-pages"` \| `"max-total-chars"` \| `"deadline"`) reports why the crawl actually stopped -- `"complete"` means the frontier simply ran out, not a budget limit.
 
 ---
 
@@ -288,14 +294,15 @@ When `depth > 0`, returns a summary rather than full page content:
 ```json
 {
   "pagesFound": 12,
+  "nextAction": "complete",
   "note": "All pages cached — use web_fetch(depth=0, format=highlights, query=…) to search them.",
   "pages": [
-    { "url": "…", "title": "…", "description": "…", "wordCount": 820, "tags": [] }
+    { "url": "…", "title": "…", "description": "…", "wordCount": 820, "tags": [], "pageType": "article", "contentOk": true }
   ]
 }
 ```
 
-With `format: "lean"`, each entry in `pages` is a full lean page object.
+With `format: "lean"`, each entry in `pages` is a full lean page object (also carrying `pageType`/`contentOk`). With `discoverOnly: true`, each page omits its content body entirely (`markdown`/`chunks` are empty) while `pageType`/`contentOk`/links are still populated.
 
 ---
 

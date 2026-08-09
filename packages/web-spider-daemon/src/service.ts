@@ -143,6 +143,13 @@ export function optionalBoolean(input: OperationInput, key: string): boolean | u
 	return value;
 }
 
+export function optionalStringArray(input: OperationInput, key: string): string[] | undefined {
+	const value = input[key];
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`${key} must be an array of strings`);
+	return value;
+}
+
 /**
  * Bug fix: the pre-Vehicle handler here used to build this object inline and
  * silently dropped siteFilter/wantFullContent -- both declared on
@@ -288,6 +295,10 @@ function handlers(
 				depth: optionalNumber(input, "depth"),
 				maxPages: optionalNumber(input, "maxPages"),
 				sameDomain: optionalBoolean(input, "sameDomain"),
+				discoverOnly: optionalBoolean(input, "discoverOnly"),
+				crawlUrls: optionalStringArray(input, "crawlUrls"),
+				maxTotalChars: optionalNumber(input, "maxTotalChars"),
+				deadlineMs: optionalNumber(input, "deadlineMs"),
 			}),
 		"session.create": (input) =>
 			sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),

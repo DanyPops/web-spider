@@ -110,6 +110,34 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 		}
 	});
 
+	test("crawl discoverOnly/crawlUrls/maxTotalChars/deadlineMs round-trip through the real /api/v1/ops HTTP boundary", async () => {
+		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
+		try {
+			const service = createWebSpiderService(":memory:");
+			const app = createApp({ service, token: TOKEN });
+
+			const discover = await post(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5, discoverOnly: true });
+			expect(discover.status).toBe(200);
+			const discoverResult = discover.body.result as { pages: Array<Record<string, unknown>>; nextAction: string };
+			expect(discoverResult.pages.length).toBeGreaterThanOrEqual(1);
+			expect(typeof discoverResult.pages[0]?.pageType).toBe("string");
+			expect(typeof discoverResult.nextAction).toBe("string");
+
+			const selective = await post(app, "crawl", { url: ARTICLE_URL, format: "lean", crawlUrls: [ARTICLE_URL] });
+			expect(selective.status).toBe(200);
+			const selectiveResult = selective.body.result as { pages: Array<{ url: string }> };
+			expect(selectiveResult.pages.map((p) => p.url)).toEqual([ARTICLE_URL]);
+
+			const budgeted = await post(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxTotalChars: 1, deadlineMs: 60_000 });
+			expect(budgeted.status).toBe(200);
+			expect((budgeted.body.result as { nextAction: string }).nextAction).toBe("max-total-chars");
+
+			await service.close();
+		} finally {
+			restore();
+		}
+	});
+
 	test("fetching an unmapped URL surfaces as a native failure through the operation dispatch (404 route → HTTP error)", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
@@ -177,6 +205,33 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 			const { status, body } = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5 });
 			expect(status).toBe(200);
 			expect((body.output?.pagesFound as number) ?? 0).toBeGreaterThanOrEqual(1);
+			await service.close();
+		} finally {
+			restore();
+		}
+	});
+
+	test("crawl discoverOnly/crawlUrls/maxTotalChars/deadlineMs actually reach CrawlService through /vehicle/invoke (the real handlers/fetch.ts registration pi-web-spider calls)", async () => {
+		const OTHER_URL = "https://example.com/another-fixture-page";
+		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML, [OTHER_URL]: ARTICLE_HTML });
+		try {
+			const service = createWebSpiderService(":memory:");
+			const app = createApp({ service, token: TOKEN });
+
+			const discover = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5, discoverOnly: true });
+			expect(discover.status).toBe(200);
+			const discoverPages = discover.body.output?.pages as Array<Record<string, unknown>>;
+			expect(discoverPages.length).toBeGreaterThanOrEqual(1);
+			expect(typeof discoverPages[0]?.pageType).toBe("string");
+
+			// crawlUrls targets a URL *different* from `url` -- if crawlUrls were
+			// silently dropped, this would fall back to a plain depth-0 fetch of
+			// `url` (ARTICLE_URL) instead, a genuinely distinguishing assertion.
+			const selective = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", crawlUrls: [OTHER_URL] });
+			expect(selective.status).toBe(200);
+			const selectivePages = selective.body.output?.pages as Array<{ url: string }>;
+			expect(selectivePages.map((p) => p.url)).toEqual([OTHER_URL]);
+
 			await service.close();
 		} finally {
 			restore();

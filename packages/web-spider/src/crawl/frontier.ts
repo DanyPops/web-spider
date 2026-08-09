@@ -44,3 +44,46 @@ export function orderFrontier(candidates: Array<{ url: string; context: LinkScor
 		.sort((a, b) => b.score - a.score || a.index - b.index)
 		.map((entry) => entry.candidate.url);
 }
+
+const BOOST_PATH_PATTERNS = [/\/docs?\//i, /\/guide/i, /\/api\//i, /\/blog\//i, /\/article/i, /\/reference/i];
+const PENALTY_PATH_PATTERNS = [
+	/\/login/i,
+	/\/signin/i,
+	/\/sign-in/i,
+	/\/signup/i,
+	/\/sign-up/i,
+	/\/register/i,
+	/\/cart/i,
+	/\/checkout/i,
+	/\/submit/i,
+	/\/logout/i,
+	/\/account/i,
+	/\/settings/i,
+];
+const BOOST_SCORE = 5;
+const PENALTY_SCORE = 10;
+const DEPTH_PENALTY_PER_HOP = 1;
+
+/**
+ * Best-first scorer: boosts URL paths that look like durable content
+ * (docs/guide/api/blog/article/reference), penalizes paths that look like
+ * app chrome or dead ends (login/signup/cart/checkout/submit/account/
+ * settings), and slightly prefers shallower depth as a tie-break. Pure
+ * string/URL inspection — no network or DOM work. An unparsable URL scores
+ * lowest so `shouldVisit`'s own validation is the real gate, not this scorer.
+ */
+export class HeuristicLinkScorer implements LinkScorer {
+	score(url: string, context: LinkScoreContext): number {
+		let path: string;
+		try {
+			path = new URL(url).pathname;
+		} catch {
+			return Number.NEGATIVE_INFINITY;
+		}
+		let score = 0;
+		for (const pattern of BOOST_PATH_PATTERNS) if (pattern.test(path)) score += BOOST_SCORE;
+		for (const pattern of PENALTY_PATH_PATTERNS) if (pattern.test(path)) score -= PENALTY_SCORE;
+		score -= context.depth * DEPTH_PENALTY_PER_HOP;
+		return score;
+	}
+}

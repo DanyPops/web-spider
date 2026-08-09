@@ -40,10 +40,12 @@ export function formatFetchResult(result: unknown): string {
 	if (typeof result.pagesFound === "number") {
 		const lines = [`Crawled ${result.pagesFound} page${result.pagesFound === 1 ? "" : "s"}`];
 		if (typeof result.errors === "number" && result.errors > 0) lines.push(`${result.errors} error(s)`);
+		if (typeof result.nextAction === "string" && result.nextAction !== "complete") lines.push(`Stopped early: ${result.nextAction}`);
 		const pages = Array.isArray(result.pages) ? result.pages : [];
 		for (const page of pages.slice(0, PREVIEW_ROW_LIMIT)) {
 			if (!isRecord(page)) continue;
-			lines.push(`  ${String(page.title ?? page.url ?? "")}  ${String(page.url ?? "")}`);
+			const type = typeof page.pageType === "string" ? ` [${page.pageType}]` : "";
+			lines.push(`  ${String(page.title ?? page.url ?? "")}${type}  ${String(page.url ?? "")}`);
 		}
 		if (pages.length > PREVIEW_ROW_LIMIT) lines.push(`  … ${pages.length - PREVIEW_ROW_LIMIT} more`);
 		if (typeof result.note === "string") lines.push(result.note);

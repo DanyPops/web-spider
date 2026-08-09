@@ -273,6 +273,32 @@ describe("crawl path — depth=1", () => {
 		expect(Array.isArray(body.hits)).toBe(true);
 		expect(typeof body.pagesSearched).toBe("number");
 	});
+
+	it("each page reports a pageType and contentOk, and the result reports nextAction", async () => {
+		const result = await execute("1", { url: MOCK_URL, depth: 1, maxPages: 3, format: "lean" });
+		const body = JSON.parse(result.content[0].text);
+		expect(typeof body.nextAction).toBe("string");
+		for (const page of body.pages) {
+			expect(typeof page.pageType).toBe("string");
+			expect(typeof page.contentOk).toBe("boolean");
+		}
+	});
+
+	it("discoverOnly:true returns page metadata with no markdown body", async () => {
+		const result = await execute("1", { url: MOCK_URL, depth: 1, maxPages: 3, format: "lean", discoverOnly: true });
+		const body = JSON.parse(result.content[0].text);
+		expect(body.pages.length).toBeGreaterThan(0);
+		for (const page of body.pages) {
+			expect(page).not.toHaveProperty("markdown");
+		}
+	});
+
+	it("crawlUrls selectively (re-)crawls exactly those URLs, routing to crawl even without depth", async () => {
+		const result = await execute("1", { url: MOCK_URL, format: "lean", crawlUrls: [`${server.baseUrl}/related`] });
+		const body = JSON.parse(result.content[0].text);
+		const urls = body.pages.map((p: { url: string }) => p.url);
+		expect(urls).toEqual([`${server.baseUrl}/related`]);
+	});
 });
 
 // ---------------------------------------------------------------------------

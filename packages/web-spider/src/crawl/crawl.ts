@@ -6,9 +6,9 @@ import { DomainThrottle } from "../fetch/throttle.js";
 import type { ICache } from "../ports.js";
 import { fetchSitemapUrls } from "../sources/sitemap.js";
 import type { SpideredPage } from "../types.js";
-import { type CrawlBudget, MaxPagesBudget } from "./budget.js";
-import { DefaultPageClassifier, type PageClassification, type PageClassifier } from "./classifier.js";
-import { InsertionOrderLinkScorer, type LinkScoreContext, type LinkScorer, orderFrontier } from "./frontier.js";
+import { type CrawlBudget, type CrawlStopReason, DefaultCrawlBudget } from "./budget.js";
+import { HeuristicPageClassifier, type PageClassification, type PageClassifier, renderLinkList } from "./classifier.js";
+import { HeuristicLinkScorer, type LinkScoreContext, type LinkScorer, orderFrontier } from "./frontier.js";
 import { PageGraph } from "./graph.js";
 
 export interface CrawlOptions extends SpiderOptions {
@@ -46,20 +46,45 @@ export interface CrawlOptions extends SpiderOptions {
 	useSitemap?: boolean;
 	/**
 	 * Strategy for ordering discovered candidate URLs within one frontier
-	 * level. Defaults to InsertionOrderLinkScorer, which preserves plain BFS
-	 * discovery order.
+	 * level. Defaults to HeuristicLinkScorer (best-first: content-likely paths
+	 * boosted, app-chrome paths penalized, shallower depth preferred).
 	 */
 	linkScorer?: LinkScorer;
 	/**
 	 * Strategy for classifying each fetched page (article/list/js_shell) and
-	 * reporting whether its content is usable. Defaults to DefaultPageClassifier.
+	 * reporting whether its content is usable. Defaults to HeuristicPageClassifier.
 	 */
 	pageClassifier?: PageClassifier;
 	/**
 	 * Strategy owning "should we stop fetching" bookkeeping. Defaults to
-	 * MaxPagesBudget(maxPages), reproducing today's page-count-only cap.
+	 * DefaultCrawlBudget(maxPages, maxTotalChars, deadlineMs).
 	 */
 	budget?: CrawlBudget;
+	/**
+	 * Total extracted-content character cap across the whole crawl (sum of
+	 * fetched pages' markdown.length). Only used when `budget` is not
+	 * supplied directly. Omit for no cap.
+	 */
+	maxTotalChars?: number;
+	/**
+	 * Wall-clock cap for the whole crawl, in milliseconds (default 120000).
+	 * Only used when `budget` is not supplied directly.
+	 */
+	deadlineMs?: number;
+	/**
+	 * When true, pages are still fetched to discover their links, but the
+	 * stored/returned pages have markdown/chunks stripped -- an honest
+	 * "URL map, no content body" result (default false).
+	 */
+	discoverOnly?: boolean;
+	/**
+	 * Selective second-phase crawl: when non-empty, the frontier is exactly
+	 * these URLs (still filtered by sameDomainOnly/urlFilter/budget) -- no
+	 * sitemap seeding, and no further link-following after that one batch,
+	 * regardless of maxDepth. `startUrl` is used only to resolve relative
+	 * same-domain checks, not fetched itself.
+	 */
+	crawlUrls?: string[];
 }
 
 export interface CrawlResult {
@@ -68,6 +93,8 @@ export interface CrawlResult {
 	errors: Map<string, Error>;
 	/** Classification recorded per successfully fetched page (see pageClassifier). */
 	classifications: Map<string, PageClassification>;
+	/** Why the crawl stopped -- "complete" means the frontier simply ran out, not a budget limit. */
+	nextAction: CrawlStopReason;
 }
 
 /**
@@ -94,9 +121,11 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		urlFilter,
 		respectRobots = true,
 		useSitemap = true,
-		linkScorer = new InsertionOrderLinkScorer(),
-		pageClassifier = new DefaultPageClassifier(),
-		budget = new MaxPagesBudget(maxPages),
+		linkScorer = new HeuristicLinkScorer(),
+		pageClassifier = new HeuristicPageClassifier(),
+		budget = new DefaultCrawlBudget({ maxPages, maxTotalChars: opts.maxTotalChars, deadlineMs: opts.deadlineMs }),
+		discoverOnly = false,
+		crawlUrls,
 		...spiderOpts
 	} = opts;
 
@@ -109,8 +138,12 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 	const errors = new Map<string, Error>();
 	const classifications = new Map<string, PageClassification>();
 	const seen = new Set<string>();
+	const crawlStartedAt = Date.now();
+	let charsUsed = 0;
+	let stopReason: CrawlStopReason = "complete";
 
-	const budgetExhausted = (): boolean => budget.isExhausted({ pagesUsed: pages.size, errorsUsed: errors.size });
+	const budgetState = () => ({ pagesUsed: pages.size, errorsUsed: errors.size, charsUsed, elapsedMs: Date.now() - crawlStartedAt });
+	const budgetExhausted = (): boolean => budget.isExhausted(budgetState());
 
 	const shouldVisit = (url: string): boolean => {
 		if (seen.has(url)) return false;
@@ -142,11 +175,32 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 
 					fetch_
 						.then((page) => {
-							pages.set(url, page);
+							const classification = pageClassifier.classify(page);
+							classifications.set(url, classification);
+							charsUsed += page.markdown.length;
+
+							// The shared cache always stores spider()'s real, unmodified
+							// extraction -- content-adaptive shaping and discoverOnly stripping
+							// are per-call presentation transforms, never persisted, so a later
+							// non-discoverOnly crawl/fetch of the same URL is never poisoned by
+							// this crawl's own reshaping.
 							cache.set(url, page);
 							graph.addPage(page);
-							classifications.set(url, pageClassifier.classify(page));
-							onPage?.(page, depth);
+
+							// Content-adaptive shaping: a "list" page's markdown is reshaped into
+							// a clean rendered link list -- this does not re-run extraction (see
+							// docs/crawl-strategies.md), it only reshapes what spider() already
+							// extracted.
+							let stored = page;
+							if (classification.pageType === "list") {
+								stored = { ...page, markdown: renderLinkList(page) };
+							}
+							if (discoverOnly) {
+								stored = { ...stored, markdown: "", chunks: [] };
+							}
+
+							pages.set(url, stored);
+							onPage?.(stored, depth);
 						})
 						.catch((err: unknown) => {
 							errors.set(url, err instanceof Error ? err : new Error(String(err)));
@@ -163,36 +217,61 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		});
 	};
 
-	let frontier = [startUrl];
-	seen.add(startUrl);
+	const selectiveMode = crawlUrls !== undefined && crawlUrls.length > 0;
 
-	if (useSitemap) {
-		const origin = new URL(startUrl).origin;
-		// Use a minimal default httpClient if none was injected
-		const client = httpClient ?? {
-			async fetch(req: { url: string; headers?: Record<string, string> }) {
-				return globalThis.fetch(req.url, { headers: req.headers });
-			},
-		};
-		const sitemapUrls = await fetchSitemapUrls(origin, client);
-		for (const u of sitemapUrls) {
-			if (shouldVisit(u)) {
-				seen.add(u);
-				frontier.push(u);
+	let frontier: string[];
+	if (selectiveMode) {
+		// crawlUrls: selective second-phase crawl, no sitemap seeding, no re-discovery.
+		frontier = crawlUrls.filter(shouldVisit);
+		for (const u of frontier) seen.add(u);
+	} else {
+		frontier = [startUrl];
+		seen.add(startUrl);
+
+		if (useSitemap) {
+			const origin = new URL(startUrl).origin;
+			// Use a minimal default httpClient if none was injected
+			const client = httpClient ?? {
+				async fetch(req: { url: string; headers?: Record<string, string> }) {
+					return globalThis.fetch(req.url, { headers: req.headers });
+				},
+			};
+			const sitemapUrls = await fetchSitemapUrls(origin, client);
+			for (const u of sitemapUrls) {
+				if (shouldVisit(u)) {
+					seen.add(u);
+					frontier.push(u);
+				}
 			}
 		}
 	}
 
-	for (let depth = 0; depth <= maxDepth; depth++) {
-		if (frontier.length === 0) break;
-		if (budgetExhausted()) break;
+	const effectiveMaxDepth = selectiveMode ? 0 : maxDepth;
 
-		const remaining = budget.remaining({ pagesUsed: pages.size, errorsUsed: errors.size });
+	for (let depth = 0; depth <= effectiveMaxDepth; depth++) {
+		// Checked before frontier emptiness: an exhausted budget can itself be
+		// *why* the frontier ended up empty (every remaining candidate was
+		// rejected by shouldVisit()'s own budget check) -- that must still be
+		// reported as a budget-limited stop, not "complete".
+		if (budgetExhausted()) {
+			stopReason = budget.reason?.(budgetState()) ?? "max-pages";
+			break;
+		}
+		if (frontier.length === 0) break;
+
+		const remaining = budget.remaining(budgetState());
 		const batch = frontier.slice(0, remaining);
+		const truncatedByBudget = batch.length < frontier.length;
 
 		await fetchBatch(batch, depth);
 
-		if (depth === maxDepth) break;
+		// A batch trimmed by budget.remaining() is a real budget-limited stop even
+		// when it also happens to coincide with reaching maxDepth right after.
+		if (truncatedByBudget) {
+			stopReason = budget.reason?.(budgetState()) ?? "max-pages";
+		}
+
+		if (depth === effectiveMaxDepth) break;
 
 		const candidates: Array<{ url: string; context: LinkScoreContext }> = [];
 		for (const url of batch) {
@@ -208,5 +287,5 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		frontier = orderFrontier(candidates, linkScorer);
 	}
 
-	return { pages, graph, errors, classifications };
+	return { pages, graph, errors, classifications, nextAction: stopReason };
 }

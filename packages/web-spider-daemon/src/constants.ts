@@ -44,6 +44,11 @@ export const CRAWL_DEFAULT_MAX_DEPTH = 0;
 export const CRAWL_MAX_DEPTH_CEILING = 5;
 export const CRAWL_DEFAULT_MAX_PAGES = 10;
 export const CRAWL_MAX_PAGES_CEILING = 200;
+export const CRAWL_DEFAULT_DEADLINE_MS = 120_000;
+export const CRAWL_MAX_DEADLINE_MS_CEILING = 300_000;
+export const CRAWL_MAX_TOTAL_CHARS_CEILING = 2_000_000;
+/** Server-side cap on how many URLs a single crawlUrls selective-crawl request may name. */
+export const CRAWL_URLS_MAX_COUNT = 50;
 export const SEARCH_DEFAULT_NUM_RESULTS = 10;
 export const SEARCH_MAX_NUM_RESULTS_CEILING = 50;
 export const FETCH_DEFAULT_TOKEN_BUDGET = 4_000;

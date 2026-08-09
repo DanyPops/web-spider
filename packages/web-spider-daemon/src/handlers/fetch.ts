@@ -14,7 +14,7 @@ import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, 
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { CrawlService } from "../fetch/crawl-service.ts";
 import type { FetchService } from "../fetch/fetch-service.ts";
-import { fetchInput, optionalBoolean, optionalNumber, optionalString } from "../service.ts";
+import { fetchInput, optionalBoolean, optionalNumber, optionalString, optionalStringArray } from "../service.ts";
 import { withVehicleErrorParity } from "./error-parity.ts";
 
 const OWNER = "web-spider";
@@ -67,6 +67,10 @@ export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchS
 				depth: { type: "number" },
 				maxPages: { type: "number" },
 				sameDomain: { type: "boolean" },
+				discoverOnly: { type: "boolean" },
+				crawlUrls: { type: "array" },
+				maxTotalChars: { type: "number" },
+				deadlineMs: { type: "number" },
 			},
 			["url"],
 		),
@@ -89,6 +93,10 @@ export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchS
 						depth: optionalNumber(input, "depth"),
 						maxPages: optionalNumber(input, "maxPages"),
 						sameDomain: optionalBoolean(input, "sameDomain"),
+						discoverOnly: optionalBoolean(input, "discoverOnly"),
+						crawlUrls: optionalStringArray(input, "crawlUrls"),
+						maxTotalChars: optionalNumber(input, "maxTotalChars"),
+						deadlineMs: optionalNumber(input, "deadlineMs"),
 					});
 				}),
 		),
