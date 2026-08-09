@@ -12,6 +12,7 @@ on:
   push:
     tags:
       - "v*"
+      - "web-spider-daemon-v*"
 
 permissions:
   id-token: write # Required for OIDC
