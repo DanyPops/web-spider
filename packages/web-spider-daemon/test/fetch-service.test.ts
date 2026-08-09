@@ -95,6 +95,73 @@ describe("FetchService — markdown/lean/links (default cache-eligible path)", (
 	});
 });
 
+describe("FetchService — bounded PDF text-layer extraction", () => {
+	const pdfUrl = "https://fixture.test/report.bin";
+	const pdfFixtures = join(import.meta.dir, "../../web-spider/test/fixtures/pdf");
+
+	function pdfClient(name: string, contentType = "application/octet-stream", onFetch?: () => void): IHttpClient {
+		const bytes = readFileSync(join(pdfFixtures, name));
+		return {
+			async fetch(): Promise<HttpResponse> {
+				onFetch?.();
+				return {
+					ok: true,
+					status: 200,
+					statusText: "OK",
+					headers: { get: (header) => (header.toLowerCase() === "content-type" ? contentType : null) },
+					text: async () => bytes.toString("utf8"),
+					arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+				};
+			},
+		};
+	}
+
+	test("forwards a bounded page range and exposes PDF/quality metadata on the markdown wire", async () => {
+		const { service } = makeService(pdfClient("multi-page.pdf"));
+		const result = await service.fetch({ url: pdfUrl, pdfPageStart: 2, pdfPageEnd: 3 });
+		expect(result).toMatchObject({
+			contentOk: true,
+			truncated: true,
+			pdf: { totalPages: 3, pageStart: 2, pageEnd: 3, truncated: true },
+		});
+		expect(result.markdown).toContain("--- Page 2 ---");
+		expect(result.markdown).toContain("--- Page 3 ---");
+		expect(result.markdown).not.toContain("--- Page 1 ---");
+	});
+
+	test("marks normalized source incomplete when the selected PDF range is partial", async () => {
+		const { service } = makeService(pdfClient("multi-page.pdf", "application/pdf"));
+		await expect(service.fetch({ url: pdfUrl, format: "source", pdfPageStart: 2, pdfPageEnd: 2 })).resolves.toMatchObject({
+			contentType: "application/pdf",
+			complete: false,
+			truncated: true,
+			pdf: { totalPages: 3, pageStart: 2, pageEnd: 2, truncated: true },
+		});
+	});
+
+	test("keeps explicit page ranges cache-ineligible while preserving default PDF cache behavior", async () => {
+		let calls = 0;
+		const { service } = makeService(pdfClient("multi-page.pdf", "application/pdf", () => calls++));
+		await service.fetch({ url: pdfUrl, pdfPageStart: 2, pdfPageEnd: 2 });
+		await service.fetch({ url: pdfUrl, pdfPageStart: 2, pdfPageEnd: 2 });
+		expect(calls).toBe(2);
+
+		const first = await service.fetch({ url: pdfUrl });
+		const second = await service.fetch({ url: pdfUrl });
+		expect(calls).toBe(3);
+		expect(second).toMatchObject({ contentOk: true, pdf: first.pdf, cache: "hit" });
+	});
+
+	test("preserves an honest no-text-layer signal for scanned PDFs", async () => {
+		const { service } = makeService(pdfClient("scanned.pdf", "application/pdf"));
+		await expect(service.fetch({ url: pdfUrl })).resolves.toMatchObject({
+			contentOk: false,
+			contentWarning: "no-text-layer",
+			pdf: { totalPages: 1 },
+		});
+	});
+});
+
 describe("FetchService — normalized source format", () => {
 	const sourceUrl = "https://fixture.test/data";
 

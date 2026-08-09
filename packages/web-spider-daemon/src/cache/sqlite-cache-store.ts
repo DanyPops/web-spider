@@ -65,6 +65,9 @@ interface PageRow {
 	links: string;
 	markdown: string;
 	response_content_type: string | null;
+	content_ok: number | null;
+	content_warning: string | null;
+	pdf_info: string | null;
 	js_rendered: number;
 	fetched_at: number;
 	expires_at: number;
@@ -186,16 +189,17 @@ export class SQLiteCacheStore implements CacheStore {
 				INSERT INTO pages (
 					url_key, url, canonical_url, domain, title, description, author, published_at, lang,
 					tags, word_count, reading_time_minutes, headings, links, markdown, response_content_type,
-					js_rendered, fetched_at, expires_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					content_ok, content_warning, pdf_info, js_rendered, fetched_at, expires_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(url_key) DO UPDATE SET
 					url = excluded.url, canonical_url = excluded.canonical_url, domain = excluded.domain,
 					title = excluded.title, description = excluded.description, author = excluded.author,
 					published_at = excluded.published_at, lang = excluded.lang, tags = excluded.tags,
 					word_count = excluded.word_count, reading_time_minutes = excluded.reading_time_minutes,
 					headings = excluded.headings, links = excluded.links, markdown = excluded.markdown,
-					response_content_type = excluded.response_content_type, js_rendered = excluded.js_rendered,
-					fetched_at = excluded.fetched_at, expires_at = excluded.expires_at
+					response_content_type = excluded.response_content_type, content_ok = excluded.content_ok,
+					content_warning = excluded.content_warning, pdf_info = excluded.pdf_info,
+					js_rendered = excluded.js_rendered, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at
 				RETURNING id
 			`)
 				.get(
@@ -215,6 +219,9 @@ export class SQLiteCacheStore implements CacheStore {
 					JSON.stringify(page.links),
 					page.markdown,
 					page.contentType ?? null,
+					page.contentOk === undefined ? null : page.contentOk ? 1 : 0,
+					page.contentWarning ?? null,
+					page.pdf ? JSON.stringify(page.pdf) : null,
 					page.jsRendered ? 1 : 0,
 					now,
 					expiresAt,
@@ -551,6 +558,9 @@ export class SQLiteCacheStore implements CacheStore {
 			...(imageRows.length > 0 ? { images: this.hydrateImages(imageRows) } : {}),
 			markdown: row.markdown,
 			...(row.response_content_type ? { contentType: row.response_content_type } : {}),
+			...(row.content_ok !== null ? { contentOk: row.content_ok === 1 } : {}),
+			...(row.content_warning ? { contentWarning: row.content_warning as SpideredPage["contentWarning"] } : {}),
+			...(row.pdf_info ? { pdf: JSON.parse(row.pdf_info) as NonNullable<SpideredPage["pdf"]> } : {}),
 			...(row.js_rendered ? { jsRendered: true } : {}),
 		};
 	}

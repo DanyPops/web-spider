@@ -14,6 +14,7 @@
 | Skim a page before reading | `{ url, format: "lean" }` |
 | Extract outbound links | `{ url, format: "links" }` |
 | Read JSON or textual API content | `{ url, format: "source" }` |
+| Read selected PDF pages | `{ url, pdfPageStart: 10, pdfPageEnd: 15 }` |
 | Find specific text on a page | `{ url, format: "highlights", query: "…" }` |
 | Inspect page structure | `{ url, format: "tree" }` |
 | Navigate to one node | `{ url, format: "tree", path: "article.section[1]" }` |
@@ -31,7 +32,7 @@
 | Parameter | Type | Description |
 |---|---|---|
 | `url` | `string` | Fully-qualified `http(s)://` URL to fetch or crawl. |
-| `searchQuery` | `string` | Web search query. Searches the web instead of fetching a URL. Requires at least one search API key to be set in the **daemon's own environment** (see [Search engines](#search-engines)) — never passed by the caller. |
+| `searchQuery` | `string` | Web search query. Searches the web instead of fetching a URL. Uses bounded keyless Firecrawl when no keyed provider is configured (see [Search engines](#search-engines)). |
 
 Pass either `url` or `searchQuery` for network work. Omitting both queries the local materialized cache: `query` performs full-text search, while no query lists cached pages.
 
@@ -64,6 +65,8 @@ When `depth > 0`, all fetched pages are cached in the session. Subsequent `depth
 | `rootSelector` | `string` | CSS selector. Scope extraction to the matched element; everything outside is discarded. Example: `"article"`, `".main-content"`, `"#post-body"`. |
 | `excludeSelectors` | `string` | Comma-separated CSS selectors to strip before extraction. Example: `"nav, footer, .sidebar, #ads"`. |
 | `tokenBudget` | `number` | Approximate max tokens to return (`~4 chars/token`), capped at 10,000. Truncation is chunk-aware where possible and always carries an explicit completeness marker. |
+| `pdfPageStart` | `number` | PDF only: 1-based inclusive first page. Defaults to `1`. Explicit ranges bypass the shared page cache. |
+| `pdfPageEnd` | `number` | PDF only: 1-based inclusive last page. Maximum range is 50 pages; the default extracts at most the first 50. |
 
 ---
 
@@ -204,7 +207,26 @@ Normalized textual source for structured APIs and non-HTML resources. This is de
 }
 ```
 
-Malformed JSON and JSONL remain textual source rather than being mislabeled as parsed JSON. Binary media types are rejected. When `tokenBudget` or the Pi delivery limit truncates content, `complete` is `false` and `truncated` is `true`; partial JSON is never claimed to be a complete document. `source` is a single-page (`depth: 0`) format.
+Malformed JSON and JSONL remain textual source rather than being mislabeled as parsed JSON. Unsupported binary media types are rejected; PDFs use the bounded text-layer extractor below. When `tokenBudget` or the Pi delivery limit truncates content, `complete` is `false` and `truncated` is `true`; partial JSON is never claimed to be a complete document. `source` is a single-page (`depth: 0`) format.
+
+---
+
+### PDF text-layer extraction
+
+PDFs are detected by `application/pdf` or a `%PDF-` header even when a server labels the response `application/octet-stream`. The default Markdown contains explicit page markers:
+
+```json
+{
+  "url": "https://example.com/report.pdf",
+  "title": "Quarterly Report",
+  "wordCount": 842,
+  "markdown": "--- Page 2 ---\n\n…\n\n--- Page 3 ---\n\n…",
+  "contentOk": true,
+  "pdf": { "totalPages": 20, "pageStart": 2, "pageEnd": 3, "truncated": true }
+}
+```
+
+Extraction is text-layer only, bounded to 20 MiB and 50 selected pages. An image-only/scanned PDF returns `contentOk: false` with `contentWarning: "no-text-layer"`; invalid CID/replacement-glyph dominated text returns `"garbled-text"`. Web Spider never claims OCR, multi-column reconstruction, or perfect tables. A real PDF outline is included as a bounded table of contents when available. Other binary formats remain unsupported.
 
 ---
 

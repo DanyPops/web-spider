@@ -130,6 +130,15 @@ const MIGRATION_5_RESPONSE_CONTENT_TYPE = `
 ALTER TABLE pages ADD COLUMN response_content_type TEXT;
 `;
 
+// Preserve PDF extraction quality and selected-page metadata on cache hits.
+// NULL means the historical/non-PDF shape; pdf_info remains a bounded JSON
+// object produced by core, never an opaque third-party parser value.
+const MIGRATION_6_PDF_EXTRACTION_METADATA = `
+ALTER TABLE pages ADD COLUMN content_ok INTEGER;
+ALTER TABLE pages ADD COLUMN content_warning TEXT;
+ALTER TABLE pages ADD COLUMN pdf_info TEXT CHECK(pdf_info IS NULL OR json_valid(pdf_info));
+`;
+
 export function openWebSpiderDb(path: string): Database {
 	return openSqliteWithPragmas(path, {
 		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
@@ -140,6 +149,7 @@ export function openWebSpiderDb(path: string): Database {
 			{ version: 3, up: (db) => db.exec(MIGRATION_3_CATEGORIES) },
 			{ version: 4, up: (db) => db.exec(MIGRATION_4_SEARCH_ENGINE_USAGE) },
 			{ version: 5, up: (db) => db.exec(MIGRATION_5_RESPONSE_CONTENT_TYPE) },
+			{ version: 6, up: (db) => db.exec(MIGRATION_6_PDF_EXTRACTION_METADATA) },
 		],
 	});
 }

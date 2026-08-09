@@ -26,6 +26,8 @@ const FETCH_PROPERTIES = {
 	rootSelector: { type: "string" },
 	excludeSelectors: { type: "string" },
 	tokenBudget: { type: "number" },
+	pdfPageStart: { type: "number" },
+	pdfPageEnd: { type: "number" },
 	enhanced: { type: "boolean" },
 	timeoutMs: { type: "number" },
 	query: { type: "string" },

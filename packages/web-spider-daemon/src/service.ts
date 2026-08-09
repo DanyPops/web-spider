@@ -170,6 +170,8 @@ export function fetchInput(input: OperationInput): FetchOperationInput {
 		rootSelector: optionalString(input, "rootSelector"),
 		excludeSelectors: optionalString(input, "excludeSelectors"),
 		tokenBudget: optionalNumber(input, "tokenBudget"),
+		pdfPageStart: optionalNumber(input, "pdfPageStart"),
+		pdfPageEnd: optionalNumber(input, "pdfPageEnd"),
 		enhanced: optionalBoolean(input, "enhanced"),
 		timeoutMs: optionalNumber(input, "timeoutMs"),
 		query: optionalString(input, "query"),

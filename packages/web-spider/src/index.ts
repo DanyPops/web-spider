@@ -23,6 +23,16 @@ export type {
 	FetchedResource,
 	TreePage,
 } from "./fetch/content-extractor.js";
+export { extractFetchedResource } from "./fetch/content-extractor.js";
+export type {
+	PdfExtractedPage,
+	PdfExtraction,
+	PdfExtractor,
+	PdfMetadata,
+	PdfOutlineEntry,
+	PdfPageRange,
+} from "./fetch/pdf-extractor.js";
+export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fetch/pdf-extractor.js";
 export type { SpiderOptions } from "./fetch/spider.js";
 export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
@@ -36,7 +46,20 @@ export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./
 export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./sources/markdown-suffix.js";
 export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./sources/mediawiki.js";
 export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./sources/mediawiki.js";
-export type { Chunk, ChunkType, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, SpideredPage, TreeHit } from "./types.js";
+export type {
+	Chunk,
+	ChunkType,
+	ContentQualityWarning,
+	DOMNode,
+	ImageRef,
+	LeanLink,
+	LeanPage,
+	Link,
+	PageView,
+	PdfPageInfo,
+	SpideredPage,
+	TreeHit,
+} from "./types.js";
 export type {
 	BraveLlmContextSearchOptions,
 	BraveSearchOptions,

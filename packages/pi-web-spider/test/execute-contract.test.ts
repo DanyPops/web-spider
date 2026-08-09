@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs";
 import { registerActivityBroker, unregisterActivityBroker } from "@danypops/vehicle-client-pi/activity-broker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import piFactory from "../src/index.js";
 import { type IsolatedDaemonEnv, isolatedDaemonEnv } from "./daemon-isolation.js";
 import { createExtensionHarness, type ExtensionHarness } from "./harness/index.ts";
 import { type FixtureServer, startFixtureServer } from "./helpers/fixture-server.js";
+
+interface ToolResult {
+	content: Array<{ text: string }>;
+	details: Record<string, unknown>;
+}
 
 let h: ExtensionHarness;
 let isolated: IsolatedDaemonEnv;
@@ -59,7 +65,7 @@ describe("execute() result and failure channels", () => {
 	});
 
 	it("missing url returns a typed cache listing", async () => {
-		const result = (await h.invokeTool("web_fetch", {})) as any;
+		const result = (await h.invokeTool("web_fetch", {})) as ToolResult;
 		expect(result).toHaveProperty("content");
 		const text = JSON.parse(result.content[0].text);
 		expect(text).not.toHaveProperty("error");
@@ -84,7 +90,7 @@ describe("execute() result and failure channels", () => {
 		server.set("/robots.txt", "User-agent: *\nDisallow: /private", "text/plain");
 		server.set("/private", "<html><body><article><h1>Secret</h1><p>Should never be fetched.</p></article></body></html>");
 
-		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/private` })) as any;
+		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/private` })) as ToolResult;
 		expect(JSON.parse(result.content[0].text)).toMatchObject({ blocked: true, reason: "robots.txt" });
 		expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" });
 	});
@@ -94,7 +100,7 @@ describe("execute() result and failure channels", () => {
 		const result = (await h.invokeTool("web_fetch", {
 			url: `${server.baseUrl}/source.json`,
 			format: "source",
-		})) as any;
+		})) as ToolResult;
 		const payload = JSON.parse(result.content[0].text);
 		expect(payload).toMatchObject({
 			url: `${server.baseUrl}/source.json`,
@@ -106,13 +112,32 @@ describe("execute() result and failure channels", () => {
 		expect(result.details).toMatchObject({ kind: "web", operation: "fetch", format: "source", complete: true, truncated: false });
 	});
 
+	it("forwards bounded PDF pages and preserves PDF/quality metadata through the Pi surface", async () => {
+		const pdf = readFileSync(new URL("../../web-spider/test/fixtures/pdf/multi-page.pdf", import.meta.url));
+		server.set("/report.bin", pdf, "application/octet-stream");
+		const result = (await h.invokeTool("web_fetch", {
+			url: `${server.baseUrl}/report.bin`,
+			pdfPageStart: 2,
+			pdfPageEnd: 3,
+		})) as ToolResult;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload).toMatchObject({
+			contentOk: true,
+			pdf: { totalPages: 3, pageStart: 2, pageEnd: 3, truncated: true },
+		});
+		expect(payload.markdown).toContain("--- Page 2 ---");
+		expect(payload.markdown).not.toContain("--- Page 1 ---");
+		expect(payload.truncated).toBe(true);
+		expect(result.details).toMatchObject({ format: "markdown", complete: false, truncated: true });
+	});
+
 	it("marks token-budget-truncated JSON source incomplete through the Pi surface", async () => {
 		server.set("/large-source.json", JSON.stringify({ value: "abcdefghijklmnopqrstuvwxyz" }), "application/json");
 		const result = (await h.invokeTool("web_fetch", {
 			url: `${server.baseUrl}/large-source.json`,
 			format: "source",
 			tokenBudget: 4,
-		})) as any;
+		})) as ToolResult;
 		const payload = JSON.parse(result.content[0].text);
 		expect(payload).toMatchObject({ contentType: "application/json", complete: false, truncated: true });
 		expect(() => JSON.parse(payload.content)).toThrow();
@@ -135,7 +160,7 @@ describe("execute() result and failure channels", () => {
 		await h.invokeTool("web_fetch", { url: `${server.baseUrl}/rust-ptp` });
 		await h.invokeTool("web_fetch", { url: `${server.baseUrl}/python` });
 
-		const result = (await h.invokeTool("web_fetch", { tag: "ptp" })) as any;
+		const result = (await h.invokeTool("web_fetch", { tag: "ptp" })) as ToolResult;
 		const text = JSON.parse(result.content[0].text);
 		expect(text.pages).toHaveLength(1);
 		expect(text.pages[0].url).toBe(`${server.baseUrl}/rust-ptp`);
@@ -193,33 +218,33 @@ describe("web_category: curated relevance categories, end to end", () => {
 			operation: "assign",
 			url: `${server.baseUrl}/category-me`,
 			category: "Code",
-		})) as any;
+		})) as ToolResult;
 		expect(JSON.parse(assignCode.content[0].text)).toMatchObject({ category: "Code" });
 
 		const assignPtp = (await h.invokeTool("web_category", {
 			operation: "assign",
 			url: `${server.baseUrl}/category-me`,
 			category: "PTP Protocol",
-		})) as any;
+		})) as ToolResult;
 		expect(JSON.parse(assignPtp.content[0].text)).toMatchObject({ category: "PTP Protocol" });
 
-		const list = (await h.invokeTool("web_category", { operation: "list" })) as any;
+		const list = (await h.invokeTool("web_category", { operation: "list" })) as ToolResult;
 		const categories = JSON.parse(list.content[0].text).categories;
 		expect(categories.map((c: { name: string }) => c.name).sort()).toEqual(["Code", "PTP Protocol"]);
 
 		// Overlap: the same page shows up under both categories independently.
-		const code = (await h.invokeTool("web_fetch", { category: "Code" })) as any;
+		const code = (await h.invokeTool("web_fetch", { category: "Code" })) as ToolResult;
 		expect(JSON.parse(code.content[0].text).pages.map((p: { url: string }) => p.url)).toEqual([`${server.baseUrl}/category-me`]);
-		const ptp = (await h.invokeTool("web_fetch", { category: "PTP Protocol" })) as any;
+		const ptp = (await h.invokeTool("web_fetch", { category: "PTP Protocol" })) as ToolResult;
 		expect(JSON.parse(ptp.content[0].text).pages.map((p: { url: string }) => p.url)).toEqual([`${server.baseUrl}/category-me`]);
 
 		const removed = (await h.invokeTool("web_category", {
 			operation: "remove",
 			url: `${server.baseUrl}/category-me`,
 			category: "Code",
-		})) as any;
+		})) as ToolResult;
 		expect(JSON.parse(removed.content[0].text)).toMatchObject({ removed: true });
-		const afterRemove = (await h.invokeTool("web_fetch", { category: "Code" })) as any;
+		const afterRemove = (await h.invokeTool("web_fetch", { category: "Code" })) as ToolResult;
 		expect(JSON.parse(afterRemove.content[0].text).pages).toEqual([]);
 	});
 
@@ -233,7 +258,7 @@ describe("web_category: curated relevance categories, end to end", () => {
 			operation: "rename",
 			category: "Old Name Unique",
 			newName: "Existing Name Unique",
-		})) as any;
+		})) as ToolResult;
 		expect(JSON.parse(renamed.content[0].text)).toMatchObject({ name: "Existing Name Unique", merged: true });
 	});
 

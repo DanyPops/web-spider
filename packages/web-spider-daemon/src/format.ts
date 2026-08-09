@@ -33,42 +33,63 @@ export function headingStrings(page: SpideredPage): string[] {
 	return page.headings.map((h) => `${"#".repeat(h.level)} ${h.text}`);
 }
 
+export function contentDiagnostics(page: SpideredPage): {
+	contentOk?: boolean;
+	contentWarning?: SpideredPage["contentWarning"];
+	pdf?: SpideredPage["pdf"];
+} {
+	return {
+		...(page.contentOk !== undefined ? { contentOk: page.contentOk } : {}),
+		...(page.contentWarning ? { contentWarning: page.contentWarning } : {}),
+		...(page.pdf ? { pdf: page.pdf } : {}),
+	};
+}
+
 export function leanOutput(page: SpideredPage): Record<string, unknown> {
-	return omitEmpty({
-		url: page.url,
-		title: page.title,
-		description: page.description,
-		author: page.author,
-		publishedAt: page.publishedAt,
-		tags: page.tags,
-		wordCount: page.wordCount,
-		headings: headingStrings(page),
-		bodyLinks: bodyLinks(page),
-		navLinksCount: navLinksCount(page) || undefined,
-		jsRendered: page.jsRendered || undefined,
-	});
+	return {
+		...omitEmpty({
+			url: page.url,
+			title: page.title,
+			description: page.description,
+			author: page.author,
+			publishedAt: page.publishedAt,
+			tags: page.tags,
+			wordCount: page.wordCount,
+			headings: headingStrings(page),
+			bodyLinks: bodyLinks(page),
+			navLinksCount: navLinksCount(page) || undefined,
+			jsRendered: page.jsRendered || undefined,
+		}),
+		...contentDiagnostics(page),
+	};
 }
 
 export function markdownOutput(page: SpideredPage): Record<string, unknown> {
-	return omitEmpty({
-		url: page.url,
-		title: page.title,
-		description: page.description,
-		author: page.author,
-		publishedAt: page.publishedAt,
-		wordCount: page.wordCount,
-		markdown: page.markdown,
-		jsRendered: page.jsRendered || undefined,
-	});
+	return {
+		...omitEmpty({
+			url: page.url,
+			title: page.title,
+			description: page.description,
+			author: page.author,
+			publishedAt: page.publishedAt,
+			wordCount: page.wordCount,
+			markdown: page.markdown,
+			jsRendered: page.jsRendered || undefined,
+		}),
+		...contentDiagnostics(page),
+	};
 }
 
 export function linksOutput(page: SpideredPage): Record<string, unknown> {
-	return omitEmpty({
-		url: page.url,
-		title: page.title,
-		bodyLinks: bodyLinks(page),
-		navLinksCount: navLinksCount(page) || undefined,
-	});
+	return {
+		...omitEmpty({
+			url: page.url,
+			title: page.title,
+			bodyLinks: bodyLinks(page),
+			navLinksCount: navLinksCount(page) || undefined,
+		}),
+		...contentDiagnostics(page),
+	};
 }
 
 export interface SourceOutput {
@@ -77,6 +98,9 @@ export interface SourceOutput {
 	content: string;
 	complete: boolean;
 	truncated: boolean;
+	contentOk?: boolean;
+	contentWarning?: SpideredPage["contentWarning"];
+	pdf?: SpideredPage["pdf"];
 }
 
 /**
@@ -90,13 +114,14 @@ export function sourceOutput(page: SpideredPage, tokenBudget?: number): SourceOu
 	const content = source.slice(0, maxCharacters);
 	const deliveredWordCount = page.chunks.reduce((total, item) => total + item.wordCount, 0);
 	const extractionWasTruncated = page.chunks.length > 0 && deliveredWordCount < page.wordCount;
-	const truncated = extractionWasTruncated || content.length < source.length;
+	const truncated = extractionWasTruncated || content.length < source.length || page.pdf?.truncated === true;
 	return {
 		url: page.url,
 		contentType: page.contentType ?? "text/html",
 		content,
 		complete: !truncated,
 		truncated,
+		...contentDiagnostics(page),
 	};
 }
 

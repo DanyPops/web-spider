@@ -30,7 +30,7 @@ import {
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "../constants.ts";
-import { highlightHit, leanOutput, linksOutput, markdownOutput, sourceOutput } from "../format.ts";
+import { contentDiagnostics, highlightHit, leanOutput, linksOutput, markdownOutput, sourceOutput } from "../format.ts";
 
 export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
 
@@ -40,6 +40,10 @@ export interface FetchOperationInput {
 	rootSelector?: string;
 	excludeSelectors?: string;
 	tokenBudget?: number;
+	/** 1-based inclusive PDF page range. Explicit ranges bypass the shared cache. */
+	pdfPageStart?: number;
+	/** 1-based inclusive PDF page range. Explicit ranges bypass the shared cache. */
+	pdfPageEnd?: number;
 	enhanced?: boolean;
 	timeoutMs?: number;
 	query?: string;
@@ -99,6 +103,8 @@ export class FetchService {
 			rootSelector: input.rootSelector,
 			excludeSelectors: input.excludeSelectors,
 			tokenBudget: input.tokenBudget !== undefined ? Math.min(input.tokenBudget, FETCH_MAX_TOKEN_BUDGET) : undefined,
+			pdfPageStart: input.pdfPageStart,
+			pdfPageEnd: input.pdfPageEnd,
 			timeoutMs: input.timeoutMs ?? FETCH_DEFAULT_TIMEOUT_MS,
 			throttle: this.deps.throttle,
 			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
@@ -108,7 +114,13 @@ export class FetchService {
 
 	/** Cache-eligible fetch/store round-trip — mirrors buildFetchPage()'s cacheEligible rule exactly. */
 	private async fetchPage(input: FetchOperationInput): Promise<{ page: SpideredPage; cache: "hit" | "miss" }> {
-		const cacheEligible = !input.rootSelector && !input.excludeSelectors && input.tokenBudget === undefined && !input.enhanced;
+		const cacheEligible =
+			!input.rootSelector &&
+			!input.excludeSelectors &&
+			input.tokenBudget === undefined &&
+			input.pdfPageStart === undefined &&
+			input.pdfPageEnd === undefined &&
+			!input.enhanced;
 		if (cacheEligible) {
 			const hit = this.deps.cache.get(input.url);
 			if (hit) return { page: hit, cache: "hit" };
@@ -124,7 +136,14 @@ export class FetchService {
 	}
 
 	private async fetchTree(input: FetchOperationInput): Promise<DOMNode> {
-		const key = JSON.stringify([input.url, input.rootSelector ?? "", input.excludeSelectors ?? "", input.enhanced ?? false]);
+		const key = JSON.stringify([
+			input.url,
+			input.rootSelector ?? "",
+			input.excludeSelectors ?? "",
+			input.pdfPageStart ?? "",
+			input.pdfPageEnd ?? "",
+			input.enhanced ?? false,
+		]);
 		const hit = this.treeCache.get(key);
 		if (hit) return hit;
 		const page = await spider(input.url, { ...this.buildSpiderOpts(input), view: "tree" });
@@ -184,13 +203,14 @@ export class FetchService {
 				title: page.title,
 				query: input.query,
 				cache: fetched.cache,
+				...contentDiagnostics(page),
 				hits: hits.map((hit) => highlightHit(hit, page.chunks)),
 			};
 		}
 
 		// markdown (default)
 		const deliveredWordCount = page.chunks.reduce((total, chunk) => total + chunk.wordCount, 0);
-		const truncated = page.chunks.length > 0 && deliveredWordCount < page.wordCount;
+		const truncated = (page.chunks.length > 0 && deliveredWordCount < page.wordCount) || page.pdf?.truncated === true;
 		return { ...markdownOutput(page), cache: fetched.cache, ...(truncated ? { truncated: true } : {}) };
 	}
 }

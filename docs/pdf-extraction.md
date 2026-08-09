@@ -30,7 +30,8 @@ core contract or wire format.
 - three selectable text pages (`multi-page.pdf`),
 - malformed object graph (`malformed.pdf`),
 - image-only/scanned page (`scanned.pdf`), and
-- invalid CID mapping producing U+FFFF (`cid-garbled.pdf`).
+- invalid CID mapping producing U+FFFF (`cid-garbled.pdf`), and
+- a nested, page-addressable outline (`outline.pdf`).
 
 The binary fixtures are small Apache-2.0 Mozilla PDF.js fixtures pinned and
 attributed in the fixture README. The malformed fixture is local.

@@ -71,6 +71,10 @@ export interface SpiderOptions {
 	 * Default: unlimited.
 	 */
 	tokenBudget?: number;
+	/** First PDF page to extract (1-based, inclusive). Defaults to 1. */
+	pdfPageStart?: number;
+	/** Last PDF page to extract (1-based, inclusive). At most 50 pages per request. */
+	pdfPageEnd?: number;
 	/**
 	 * Per-domain throttle — shared across spider() calls to enforce rate limits
 	 * and exponential backoff on 429/503 responses.
@@ -248,6 +252,8 @@ export async function spider(
 		rootSelector,
 		excludeSelectors,
 		tokenBudget,
+		pdfPageStart,
+		pdfPageEnd,
 		throttle,
 		robotsCache,
 		httpClient = defaultHttpClient,
@@ -277,6 +283,8 @@ export async function spider(
 		rootSelector,
 		excludeSelectors,
 		tokenBudget,
+		pdfPageStart,
+		pdfPageEnd,
 		captureImages,
 		maxImages,
 	};
@@ -344,7 +352,8 @@ export async function spider(
 		}
 	}
 
-	let html = "";
+	let responseText = "";
+	let responseBytes: Uint8Array | undefined;
 	let fetchError: Error | null = null;
 	let contentTypeHeader: string | null = null;
 	let viaMediaWiki = false;
@@ -361,7 +370,7 @@ export async function spider(
 			if (siteInfo) {
 				const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
 				if (page) {
-					html = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
+					responseText = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
 					contentTypeHeader = "text/html; charset=utf-8";
 					viaMediaWiki = true;
 				}
@@ -383,7 +392,7 @@ export async function spider(
 			res = await httpClient.fetch({
 				url,
 				signal: controller.signal,
-				headers: { "User-Agent": userAgent, Accept: "text/html" },
+				headers: { "User-Agent": userAgent, Accept: "text/html, application/pdf;q=0.9" },
 			});
 		} catch (err) {
 			clearTimeout(timer);
@@ -407,7 +416,19 @@ export async function spider(
 
 		contentTypeHeader = res.headers.get("content-type");
 		throttle?.success(url);
-		html = await res.text();
+		responseBytes = new Uint8Array(await res.arrayBuffer());
+		responseText = new TextDecoder().decode(responseBytes);
+		if (responseBytes.byteLength === 0) {
+			// Preserve compatibility with structural IHttpClient fakes/adapters that
+			// historically supplied text() but used an empty arrayBuffer placeholder.
+			// A real consumed empty Response rejects text(); empty remains correct.
+			try {
+				responseText = await res.text();
+				responseBytes = new TextEncoder().encode(responseText);
+			} catch {
+				// The real response body was empty and has already been consumed.
+			}
+		}
 		fetchError = null;
 		break;
 	}
@@ -419,7 +440,8 @@ export async function spider(
 		domain: new URL(url).hostname.replace(/^www\./, ""),
 		fetchedAt: new Date().toISOString(),
 		contentType: contentTypeHeader,
-		text: html,
+		text: responseText,
+		...(responseBytes ? { bytes: responseBytes } : {}),
 	};
 	const { page, imageCandidates } = await extract(resource);
 	const images = imageCandidates ? await fetchImages(imageCandidates, httpClient, throttle) : undefined;

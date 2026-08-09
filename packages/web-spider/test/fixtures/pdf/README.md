@@ -10,6 +10,7 @@ license:
 | `multi-page.pdf` | `test/pdfs/three_pages_with_number.pdf` | three independently selectable pages |
 | `scanned.pdf` | `test/pdfs/xobject-image.pdf` | image-only page with no text layer |
 | `cid-garbled.pdf` | `test/pdfs/arial_unicode_ab_cidfont.pdf` | text layer that decodes to invalid U+FFFF code points |
+| `outline.pdf` | `test/pdfs/nested_outline.pdf` | nested, page-addressable document outline |
 
 `malformed.pdf` is a deliberately invalid local fixture and contains no
 third-party content.

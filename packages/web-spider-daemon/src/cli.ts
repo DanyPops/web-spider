@@ -197,7 +197,8 @@ function usage(stderr: (line: string) => void): number {
 			"       web-spider service <install|start|stop|restart|status>",
 			"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree|source] [--depth N] [--max-pages N]",
 			"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
-			"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
+			"                          [--token-budget N] [--pdf-page-start N] [--pdf-page-end N] [--enhanced]",
+			"                          [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
 			"                          [--top-n N] [--ignore-robots] [--json]",
 			"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
@@ -292,6 +293,8 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			"--root-selector",
 			"--exclude-selectors",
 			"--token-budget",
+			"--pdf-page-start",
+			"--pdf-page-end",
 			"--timeout-ms",
 			"--query",
 			"--path",
@@ -308,6 +311,10 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 	if (Number.isNaN(maxPages)) return usage(deps.stderr);
 	const tokenBudget = parseIntFlag(parsed.values, "token-budget");
 	if (Number.isNaN(tokenBudget)) return usage(deps.stderr);
+	const pdfPageStart = parseIntFlag(parsed.values, "pdf-page-start");
+	if (Number.isNaN(pdfPageStart)) return usage(deps.stderr);
+	const pdfPageEnd = parseIntFlag(parsed.values, "pdf-page-end");
+	if (Number.isNaN(pdfPageEnd)) return usage(deps.stderr);
 	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");
 	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
 	const topN = parseIntFlag(parsed.values, "top-n");
@@ -320,6 +327,8 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			rootSelector: parsed.values["root-selector"],
 			excludeSelectors: parsed.values["exclude-selectors"],
 			tokenBudget,
+			pdfPageStart,
+			pdfPageEnd,
 			enhanced: parsed.flags.has("enhanced") || undefined,
 			timeoutMs,
 			query: parsed.values.query,

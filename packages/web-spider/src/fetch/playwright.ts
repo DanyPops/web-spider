@@ -151,6 +151,22 @@ export class PlaywrightHttpClient implements IHttpClient {
 			// page.content() returns the full serialised DOM after JS execution.
 			const html: string = await page.content();
 			const headers: Record<string, string> = await response.allHeaders();
+			const contentType = headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+			let bytes = new TextEncoder().encode(html);
+
+			// response.body() is unavailable after page.close(), so materialize any
+			// binary response while this adapter still owns the page. Keep rendered
+			// HTML as the byte representation for SPAs instead of regressing to the
+			// pre-JavaScript network body.
+			if (contentType !== "text/html" && contentType !== "application/xhtml+xml") {
+				try {
+					const body: Buffer = await response.body();
+					bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength).slice();
+				} catch {
+					// Some navigation responses expose no retrievable body. The rendered
+					// document remains a safe structural fallback.
+				}
+			}
 
 			return {
 				ok: status >= 200 && status < 300,
@@ -158,10 +174,7 @@ export class PlaywrightHttpClient implements IHttpClient {
 				statusText: response.statusText(),
 				headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
 				text: async () => html,
-				arrayBuffer: async () => {
-					const buf: Buffer = await response.body();
-					return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-				},
+				arrayBuffer: async () => bytes.slice().buffer,
 			};
 		} finally {
 			await page.close();

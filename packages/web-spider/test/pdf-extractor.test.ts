@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
+import type { ContentExtractionOptions, FetchedResource } from "../src/fetch/content-extractor.js";
 import {
 	extractFetchedResource,
+	type IHttpClient,
 	PdfContentExtractor,
-	PdfExtractionError,
+	type PdfExtractionError,
 	type PdfExtractor,
+	spider,
 	UnpdfPdfExtractor,
 } from "../src/index.js";
-import type { ContentExtractionOptions, FetchedResource } from "../src/fetch/content-extractor.js";
 
 const FIXTURES = new URL("./fixtures/pdf/", import.meta.url);
 
@@ -129,6 +131,31 @@ describe("PdfContentExtractor Strategy", () => {
 		expect(page).toMatchObject({ contentType: "application/pdf", contentOk: true, pdf: { totalPages: 1 } });
 		expect("markdown" in page ? page.markdown : "").toContain("Hello, world!");
 	});
+
+	it("receives original bytes from spider transport and detects a mislabelled PDF by magic", async () => {
+		const bytes = await fixture("multi-page.pdf");
+		let accept = "";
+		const httpClient: IHttpClient = {
+			async fetch(request) {
+				accept = request.headers?.Accept ?? "";
+				return {
+					ok: true,
+					status: 200,
+					statusText: "OK",
+					headers: { get: (name) => (name.toLowerCase() === "content-type" ? "application/octet-stream" : null) },
+					text: async () => {
+						throw new Error("binary response must not use text() as its primary body read");
+					},
+					arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+				};
+			},
+		};
+		const page = await spider("https://example.com/report.bin", { httpClient, pdfPageStart: 2, pdfPageEnd: 2 });
+		expect(accept).toContain("application/pdf");
+		expect(page).toMatchObject({ contentType: "application/pdf", pdf: { totalPages: 3, pageStart: 2, pageEnd: 2 } });
+		expect(page.markdown).toContain("--- Page 2 ---");
+		expect(page.markdown).not.toContain("--- Page 1 ---");
+	});
 });
 
 describe("UnpdfPdfExtractor fixture contract", () => {
@@ -149,6 +176,16 @@ describe("UnpdfPdfExtractor fixture contract", () => {
 				{ number: 3, text: "3" },
 			],
 		});
+	});
+
+	it("normalizes a real nested outline to a bounded three-level table of contents", async () => {
+		const result = await adapter.extract(await fixture("outline.pdf"), { startPage: 1, endPage: 9 });
+		expect(result.outline?.slice(0, 3)).toEqual([
+			{ title: "1. Introduction", page: 1, level: 1 },
+			{ title: "1.1 Background", page: 2, level: 2 },
+			{ title: "1.2 Motivation", page: 3, level: 2 },
+		]);
+		expect(result.outline?.length).toBeLessThanOrEqual(50);
 	});
 
 	it("returns an empty page for a scanned/image-only PDF instead of claiming OCR", async () => {

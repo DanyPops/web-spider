@@ -150,6 +150,12 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect(operations[0]?.input).toMatchObject({ format: "tree", path: "a.b", topN: 3, enhanced: true, tokenBudget: 500 });
 	});
 
+	test("--pdf-page-start/--pdf-page-end forward the bounded PDF range", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ url: "https://x.test/report.pdf", markdown: "--- Page 2 ---" }) });
+		await runCli(["fetch", "https://x.test/report.pdf", "--pdf-page-start", "2", "--pdf-page-end", "4"], deps);
+		expect(operations[0]?.input).toMatchObject({ pdfPageStart: 2, pdfPageEnd: 4 });
+	});
+
 	test("--ignore-robots is forwarded as true; omitted entirely by default", async () => {
 		const { deps: withFlag, operations: withFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--ignore-robots"], withFlag);

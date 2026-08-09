@@ -5,6 +5,7 @@ import { buildTree } from "../extract/tree.js";
 import { toLean } from "../extract/views.js";
 import type { DOMNode, LeanPage, PageView, SpideredPage } from "../types.js";
 import { classifyContentType } from "./content-type.js";
+import { PdfContentExtractor } from "./pdf-extractor.js";
 
 const WORDS_PER_MINUTE = 200;
 
@@ -27,6 +28,10 @@ export interface ContentExtractionOptions {
 	rootSelector?: string;
 	excludeSelectors?: string;
 	tokenBudget?: number;
+	/** 1-based inclusive PDF page range; ignored by non-PDF Strategies. */
+	pdfPageStart?: number;
+	/** 1-based inclusive PDF page range; ignored by non-PDF Strategies. */
+	pdfPageEnd?: number;
 	captureImages: boolean;
 	maxImages: number;
 }
@@ -297,7 +302,7 @@ const htmlExtractor: ContentExtractor = {
 	},
 };
 
-const BUILT_IN_EXTRACTORS: readonly ContentExtractor[] = [htmlExtractor, textualExtractor];
+const BUILT_IN_EXTRACTORS: readonly ContentExtractor[] = [new PdfContentExtractor(), htmlExtractor, textualExtractor];
 
 /** Select the first caller-provided Strategy that supports the resource, then fall back to built-ins. */
 export async function extractFetchedResource(

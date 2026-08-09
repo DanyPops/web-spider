@@ -75,7 +75,7 @@ The current operation registry (see `src/service.ts`):
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
 | `search` | Live web search via Brave/Tavily/Exa/Serper/SerpApi/You.com, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine`/`siteFilter`/`wantFullContent` -- the latter two are declarative ("restrict to this domain" / "give me full page content"), routed to whichever configured provider can satisfy them rather than naming one |
 | `search.usage` | Per-call usage/cost data each engine itself reported (`credits` for Tavily, `costUsd` for Exa, `rateLimitHeaders` for Brave when present) -- append-only, bounded to the most recent 10,000 rows, filterable by `engine`. Never a running account balance: no provider's search API exposes one, only what one call cost. |
-| `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree`/`source` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
+| `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree`/`source` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, bounded PDF `pdfPageStart`/`pdfPageEnd`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
 | `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
 | `papyrus.ingest` | Explicit opt-in: turns already-cached pages (`kind: "pages"`, by URL) or a caller-supplied search-result set (`kind: "search"`) into Papyrus `doc` artifacts (`subtype: "web"` / `"web-search-result"`), optionally linked to an existing artifact via `relatesTo`. Bounded to 20 items per call. Ingested Docs are immutable service output — never updated in place; re-ingesting the same URL creates a new Doc. Reaches Papyrus only through its own authenticated client, never its SQLite file directly. |
 | `session.create` | Launches a named, isolated Playwright browser **process** (not a shared-browser context) — tmux-style session semantics. Bounded to 5 concurrent sessions; rejects past the ceiling rather than queuing. Defaults to Playwright's own lighter `chromium-headless-shell` in headless mode; `forceChromeChannel: true` opts into the full installed Chrome for headed-rendering-exact fidelity. |
@@ -141,8 +141,8 @@ Every registered operation has a CLI route using the authenticated client only �
 ```bash
 web-spider fetch <url> [--format markdown|lean|links|highlights|tree|source] [--depth N] [--max-pages N]
                         [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]
-                        [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]
-                        [--top-n N] [--json]
+                        [--token-budget N] [--pdf-page-start N] [--pdf-page-end N] [--enhanced]
+                        [--timeout-ms N] [--query TEXT] [--path DOTPATH] [--top-n N] [--json]
 web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]
                         [--engine brave|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--json]
 web-spider usage [--engine NAME] [--limit N] [--json]

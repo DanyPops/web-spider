@@ -87,6 +87,27 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		expect(store.get("https://a.example/data.json")?.contentType).toBe("application/json");
 	});
 
+	test("preserves PDF page and honest quality metadata on cache hits", () => {
+		const { store } = storeWithTmpDir();
+		const url = "https://a.example/scanned.pdf";
+		store.set(
+			url,
+			page({
+				url,
+				contentType: "application/pdf",
+				contentOk: false,
+				contentWarning: "no-text-layer",
+				pdf: { totalPages: 3, pageStart: 1, pageEnd: 3, truncated: false },
+			}),
+		);
+		expect(store.get(url)).toMatchObject({
+			contentType: "application/pdf",
+			contentOk: false,
+			contentWarning: "no-text-layer",
+			pdf: { totalPages: 3, pageStart: 1, pageEnd: 3, truncated: false },
+		});
+	});
+
 	test("set() with one query-param order then get() with a different order hits the same cache entry, not a miss", () => {
 		const { store } = storeWithTmpDir();
 		store.set("https://a.example/search?b=2&a=1", page({ url: "https://a.example/search?b=2&a=1" }));

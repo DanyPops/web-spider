@@ -11,12 +11,12 @@ import type { AddressInfo } from "node:net";
 export interface FixtureServer {
 	baseUrl: string;
 	/** Register or replace the response body for an exact path (e.g. "/article"). 404 for anything unregistered. */
-	set(path: string, body: string, contentType?: string): void;
+	set(path: string, body: string | Uint8Array, contentType?: string): void;
 	close(): Promise<void>;
 }
 
 export async function startFixtureServer(): Promise<FixtureServer> {
-	const routes = new Map<string, { body: string; contentType: string }>();
+	const routes = new Map<string, { body: string | Uint8Array; contentType: string }>();
 	// robots.txt/sitemap.xml are fetched by the daemon's RobotsCache/fetchSitemapUrls
 	// directly; both fail open on a 404, so no explicit route is needed for them.
 	const server: Server = createServer((req, res) => {
