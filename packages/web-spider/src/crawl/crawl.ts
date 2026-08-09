@@ -6,6 +6,9 @@ import { DomainThrottle } from "../fetch/throttle.js";
 import type { ICache } from "../ports.js";
 import { fetchSitemapUrls } from "../sources/sitemap.js";
 import type { SpideredPage } from "../types.js";
+import { type CrawlBudget, MaxPagesBudget } from "./budget.js";
+import { DefaultPageClassifier, type PageClassification, type PageClassifier } from "./classifier.js";
+import { InsertionOrderLinkScorer, type LinkScoreContext, type LinkScorer, orderFrontier } from "./frontier.js";
 import { PageGraph } from "./graph.js";
 
 export interface CrawlOptions extends SpiderOptions {
@@ -41,12 +44,30 @@ export interface CrawlOptions extends SpiderOptions {
 	 * all known URLs. Falls back to normal BFS on any error (default true).
 	 */
 	useSitemap?: boolean;
+	/**
+	 * Strategy for ordering discovered candidate URLs within one frontier
+	 * level. Defaults to InsertionOrderLinkScorer, which preserves plain BFS
+	 * discovery order.
+	 */
+	linkScorer?: LinkScorer;
+	/**
+	 * Strategy for classifying each fetched page (article/list/js_shell) and
+	 * reporting whether its content is usable. Defaults to DefaultPageClassifier.
+	 */
+	pageClassifier?: PageClassifier;
+	/**
+	 * Strategy owning "should we stop fetching" bookkeeping. Defaults to
+	 * MaxPagesBudget(maxPages), reproducing today's page-count-only cap.
+	 */
+	budget?: CrawlBudget;
 }
 
 export interface CrawlResult {
 	pages: Map<string, SpideredPage>;
 	graph: PageGraph;
 	errors: Map<string, Error>;
+	/** Classification recorded per successfully fetched page (see pageClassifier). */
+	classifications: Map<string, PageClassification>;
 }
 
 /**
@@ -73,6 +94,9 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 		urlFilter,
 		respectRobots = true,
 		useSitemap = true,
+		linkScorer = new InsertionOrderLinkScorer(),
+		pageClassifier = new DefaultPageClassifier(),
+		budget = new MaxPagesBudget(maxPages),
 		...spiderOpts
 	} = opts;
 
@@ -83,11 +107,14 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 	const startDomain = new URL(startUrl).hostname;
 	const pages = new Map<string, SpideredPage>();
 	const errors = new Map<string, Error>();
+	const classifications = new Map<string, PageClassification>();
 	const seen = new Set<string>();
+
+	const budgetExhausted = (): boolean => budget.isExhausted({ pagesUsed: pages.size, errorsUsed: errors.size });
 
 	const shouldVisit = (url: string): boolean => {
 		if (seen.has(url)) return false;
-		if (pages.size + errors.size >= maxPages) return false;
+		if (budgetExhausted()) return false;
 		try {
 			const u = new URL(url);
 			if (!["http:", "https:"].includes(u.protocol)) return false;
@@ -118,6 +145,7 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 							pages.set(url, page);
 							cache.set(url, page);
 							graph.addPage(page);
+							classifications.set(url, pageClassifier.classify(page));
 							onPage?.(page, depth);
 						})
 						.catch((err: unknown) => {
@@ -157,28 +185,28 @@ export async function crawl(startUrl: string, opts: CrawlOptions = {}): Promise<
 
 	for (let depth = 0; depth <= maxDepth; depth++) {
 		if (frontier.length === 0) break;
-		if (pages.size + errors.size >= maxPages) break;
+		if (budgetExhausted()) break;
 
-		const remaining = maxPages - pages.size - errors.size;
+		const remaining = budget.remaining({ pagesUsed: pages.size, errorsUsed: errors.size });
 		const batch = frontier.slice(0, remaining);
 
 		await fetchBatch(batch, depth);
 
 		if (depth === maxDepth) break;
 
-		const nextFrontier: string[] = [];
+		const candidates: Array<{ url: string; context: LinkScoreContext }> = [];
 		for (const url of batch) {
 			const page = pages.get(url);
 			if (!page) continue;
 			for (const link of page.links) {
 				if (shouldVisit(link.href)) {
 					seen.add(link.href);
-					nextFrontier.push(link.href);
+					candidates.push({ url: link.href, context: { depth: depth + 1, sourceUrl: url, link } });
 				}
 			}
 		}
-		frontier = nextFrontier;
+		frontier = orderFrontier(candidates, linkScorer);
 	}
 
-	return { pages, graph, errors };
+	return { pages, graph, errors, classifications };
 }
