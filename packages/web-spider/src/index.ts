@@ -9,6 +9,8 @@ export type { CrawlOptions, CrawlResult } from "./crawl/crawl.js";
 export { crawl } from "./crawl/crawl.js";
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./crawl/graph.js";
 export { PageGraph } from "./crawl/graph.js";
+export type { FetchTransportErrorOptions, FetchTransportFailureKind } from "./errors.js";
+export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
 export type { QueryTreeOptions } from "./extract/tree.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";

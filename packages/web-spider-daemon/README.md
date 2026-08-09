@@ -22,20 +22,20 @@ The daemon binds `127.0.0.1` on an OS-assigned port — never a fixed or externa
 $XDG_DATA_HOME/web-spider/web-spider.db      # SQLite WAL, daemon-owned
 $XDG_STATE_HOME/web-spider/auth-token        # 0600, 64 hex chars
 $XDG_RUNTIME_DIR/web-spider/daemon.json      # 0600, { host, port, pid }
-$XDG_CONFIG_HOME/systemd/user/web-spider.service
+$XDG_CONFIG_HOME/systemd/user/armada-web-spider.service # Armada-owned native descriptor
 ```
 
 ## Install
 
 ```bash
 bun install
-bun src/cli.ts service install   # renders + enables + starts the systemd --user unit
+bun src/cli.ts service install   # registers with Armada, reconciles, and starts the native service
 bun src/cli.ts service status
 bun src/cli.ts service restart
 bun src/cli.ts service stop
 ```
 
-The unit runs `bun <cli.ts> serve` with `Restart=always`, `RestartSec=2`, `NoNewPrivileges=true`, `PrivateTmp=true` — it restarts automatically on failure and does not require root.
+Armada owns `armada-web-spider.service`. On systemd it runs `bun <cli.ts> serve` with restart-on-failure, `NoNewPrivileges=true`, `PrivateTmp=true`, and network-online ordering. These are required portable runtime capabilities: Armada fails explicitly rather than silently dropping them on an unsupported native manager.
 
 Run without installing a service (foreground, for development):
 
@@ -45,18 +45,16 @@ bun src/cli.ts serve
 
 ## Upgrade
 
-Reinstalling the service (`service install`) re-renders the unit against the currently installed `bun`/`cli.ts` paths and restarts the daemon; the SQLite database and auth token are untouched by an upgrade. A newer package version that bumps the internal SQLite schema version applies its migration automatically on the next `serve` startup — schema migrations here are forward-only and versioned via `PRAGMA user_version`, matching Papyrus/Jittor.
+Reinstalling the service (`service install`) updates Armada desired state against the currently installed `bun`/`cli.ts` paths, reconciles the native descriptor, and restarts the daemon; the SQLite database, auth token, local provider keys, and cached pages are untouched by an upgrade. A newer package version that bumps the internal SQLite schema version applies its migration automatically on the next `serve` startup — schema migrations here are forward-only and versioned via `PRAGMA user_version`, matching Papyrus/Jittor.
 
 ## Uninstall
 
 ```bash
 bun src/cli.ts service stop
-systemctl --user disable web-spider.service
-rm ~/.config/systemd/user/web-spider.service
-systemctl --user daemon-reload
+armada remove web-spider --json
 ```
 
-Removing the unit does not delete the SQLite database, auth token, or daemon handle files (`$XDG_DATA_HOME/web-spider`, `$XDG_STATE_HOME/web-spider`, `$XDG_RUNTIME_DIR/web-spider`) — delete those directories directly if a full reset is wanted.
+Removing the Armada registration does not delete the SQLite database, auth token, or daemon handle files (`$XDG_DATA_HOME/web-spider`, `$XDG_STATE_HOME/web-spider`, `$XDG_RUNTIME_DIR/web-spider`) — delete those directories directly if a full reset is wanted.
 
 ## Operations
 
@@ -80,9 +78,9 @@ The current operation registry (see `src/service.ts`):
 | `category.rename` | Renames a category everywhere it's used in one step (categories have a real id, not free text per page). Renaming into an already-existing name merges the two rather than erroring. |
 | `category.list` | Lists every known category with its page count. |
 
-Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `YOU_API_KEY`) and `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` are read once from the **daemon's own environment** — never passed through an operation input. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. `search` throws a clear error when zero provider keys are configured, rather than returning an empty result. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
+Provider API keys (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `YOU_API_KEY`) can be read from the daemon's environment for foreground/development launches, but service credentials should use the local key store or Enigma. They are never passed through an operation input or projected into Armada. Every configured keyed provider is round-robined as an equal-tier peer (spreading query volume so no single provider's quota gets hammered first), each with its own cooldown after a rate-limit-shaped failure. `search` throws a clear error when zero provider keys are configured, rather than returning an empty result. Throttling (500ms per-domain minimum) and robots.txt checking use daemon-process-wide singletons, replacing the pi-extension's previous per-session instances.
 
-A systemd `--user` service does **not** inherit your login shell's environment. `service install` reads all six provider key vars (plus `WEB_SPIDER_USE_ENIGMA`/`ENIGMA_CLIENT_TOKEN`, see below) from the shell that runs it and forwards any that are set into the unit's `Environment=` lines automatically — run `service install` from a shell that already has your key(s) exported, or add `Environment=` lines to the unit by hand afterward. Reinstalling (`service install` again) **replaces** the unit from scratch, re-reading only the current shell's environment — a var not currently exported is dropped, not preserved from the previous install. `WEB_SPIDER_PLAYWRIGHT_EXECUTABLE` is not auto-forwarded; set it in the unit directly if needed.
+`service install` deliberately ignores provider API keys and `ENIGMA_CLIENT_TOKEN`: secrets never enter Armada manifests or generated native descriptors. Configure provider keys with `web-spider search-key set <engine>`, or use Enigma's shared token file and the persistent opt-in below.
 
 ### Optional: a local, per-engine key file instead of an env var
 
@@ -98,24 +96,19 @@ This exists because a systemd `--user` service's env is not actually scoped to w
 
 ### Optional: credentials via Enigma, instead of a static key per provider
 
-Enigma involvement is opt-in — set `WEB_SPIDER_USE_ENIGMA=1` explicitly. Without it, the daemon never probes for Enigma at all, even if one happens to be running on the machine for some other daemon's sake: being reachable isn't the same as being wanted.
+Enigma involvement is opt-in. Run `web-spider enigma enable` to persist the non-secret choice in `$XDG_STATE_HOME/web-spider/enigma.json`; `web-spider enigma disable` and `web-spider enigma status` manage it. Without the opt-in, the daemon never probes for Enigma merely because one is reachable. The legacy `WEB_SPIDER_USE_ENIGMA` flag remains available for foreground launches and explicit overrides.
 
-With the flag set, the daemon asks Enigma at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
+With the opt-in enabled, the daemon asks Enigma at startup which provider backends it's registered for (`enigma client add`) and fills in each one's declared env var from the vault, ahead of whatever the daemon's own environment already has. Nothing is hardcoded — Enigma is the source of truth for both which backends this daemon has and which env var each one maps to (set once, at `enigma login apikey --env-var ...` time).
 
-Registering the client itself is Enigma's own administrative step (`enigma client add web-spider --backends ...`, printing a token once) and may need to run under Enigma's own service account rather than yours, depending on how Enigma is deployed — see Enigma's own docs for that part. Once you have the token, apply it the same way as a provider key rather than hand-editing the unit file:
-
-```bash
-WEB_SPIDER_USE_ENIGMA=1 ENIGMA_CLIENT_TOKEN=<printed token> web-spider service install
-```
-
-This re-renders the unit through the same tested path as the search API keys — no manual `sed`, no separate `daemon-reload`/`restart` step (`service install` does both already).
+Registering the client itself is Enigma's own administrative step (`enigma client add web-spider --backends ...`, printing a token once) and may need to run under Enigma's own service account rather than yours, depending on how Enigma is deployed — see Enigma's own docs for that part. Once Enigma's shared token file is available to the daemon's account, enable the integration and restart:
 
 ```bash
+web-spider enigma enable
+web-spider service restart
+
 enigma login apikey --name Brave --env-var BRAVE_SEARCH_API_KEY
 enigma client add web-spider --backends brave,tavily,exa
-# -> prints a token once; export it wherever the daemon is started
-export ENIGMA_CLIENT_TOKEN=<printed token>
-export WEB_SPIDER_USE_ENIGMA=1
+# -> stores the client registration in Enigma; the daemon uses Enigma's shared token file
 ```
 
 Without `ENIGMA_CLIENT_TOKEN`, Enigma's shared admin-token file is deliberately unreadable outside its own service account — the daemon falls straight through to its own environment's static keys, unchanged from before Enigma existed.
@@ -124,7 +117,7 @@ Without `ENIGMA_CLIENT_TOKEN`, Enigma's shared admin-token file is deliberately 
 
 Each engine resolves its key in this order, strongest wins:
 
-1. Enigma, if `WEB_SPIDER_USE_ENIGMA=1` and a credential is registered
+1. Enigma, if the persistent opt-in is enabled (or `WEB_SPIDER_USE_ENIGMA=1`) and a credential is registered
 2. This daemon's own local key file (`search-key set`)
 3. The raw process environment (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, ...)
 

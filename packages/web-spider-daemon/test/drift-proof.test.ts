@@ -75,8 +75,12 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 		},
 		stdout: () => {},
 		stderr: () => {},
-		systemctl: () => {},
-		installService: () => {},
+		service: {
+			unitName: "armada-web-spider.service",
+			install: () => ({ installed: true }),
+			action: () => {},
+		},
+		legacyService: { stopForCutover: () => false, restore: () => {}, remove: () => {} },
 		serve: () => {},
 		readEvalScript: () => "1+1",
 	};
@@ -188,8 +192,12 @@ describe("--json output is the exact operation result, not a reformatted copy", 
 				},
 				stdout: (line) => lines.push(line),
 				stderr: () => {},
-				systemctl: () => {},
-				installService: () => {},
+				service: {
+					unitName: "armada-web-spider.service",
+					install: () => ({ installed: true }),
+					action: () => {},
+				},
+				legacyService: { stopForCutover: () => false, restore: () => {}, remove: () => {} },
 				serve: () => {},
 				readEvalScript: () => "1+1",
 			};
@@ -223,7 +231,7 @@ describe("trust boundary — authentication", () => {
 				expect(response.status).toBe(401);
 			}
 		} finally {
-			service.close();
+			await service.close();
 		}
 	});
 
@@ -241,7 +249,7 @@ describe("trust boundary — authentication", () => {
 			);
 			expect(response.status).toBe(413);
 		} finally {
-			service.close();
+			await service.close();
 		}
 	});
 });

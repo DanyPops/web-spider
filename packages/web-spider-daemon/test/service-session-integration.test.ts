@@ -71,7 +71,7 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			const listAfterClose = await post(app, "session.list", {});
 			expect((listAfterClose.body.result as { sessions: unknown[] }).sessions).toHaveLength(0);
 		} finally {
-			service.close();
+			await service.close();
 		}
 	}, 30_000);
 
@@ -83,7 +83,7 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			expect(result.status).toBe(404);
 			expect(result.body.error).toMatch(/no such session/);
 		} finally {
-			service.close();
+			await service.close();
 		}
 	});
 
@@ -102,7 +102,7 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			const list = await post(app, "session.list", {});
 			expect((list.body.result as { sessions: unknown[] }).sessions).toHaveLength(0);
 		} finally {
-			service.close();
+			await service.close();
 		}
 	});
 });
@@ -153,7 +153,7 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 			const listAfterClose = await invoke(app, "session.list", {});
 			expect(((listAfterClose.body.output?.sessions ?? []) as unknown[]).length).toBe(0);
 		} finally {
-			service.close();
+			await service.close();
 		}
 	}, 30_000);
 
@@ -165,7 +165,7 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 			expect(result.status).toBe(404);
 			expect(result.body.error?.category).toBe("not_found");
 		} finally {
-			service.close();
+			await service.close();
 		}
 	});
 });

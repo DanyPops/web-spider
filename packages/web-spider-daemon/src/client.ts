@@ -43,7 +43,7 @@ export class WebSpiderClient {
 
 export function connectWebSpiderClient(paths: WebSpiderPaths = resolveWebSpiderPaths()): WebSpiderClient {
 	const handle = readDaemonHandle(paths);
-	if (!handle) throw new Error("Web Spider daemon is not running; install or start web-spider.service");
+	if (!handle) throw new Error("Web Spider daemon is not running; install or start armada-web-spider.service");
 	const token = ensureAuthToken(paths);
 	return new WebSpiderClient(`http://${handle.host}:${handle.port}`, token);
 }

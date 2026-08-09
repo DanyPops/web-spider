@@ -18,8 +18,8 @@ function app() {
 	return { service, app: createApp({ service, token: TOKEN }) };
 }
 
-afterEach(() => {
-	for (const service of services.splice(0)) service.close();
+afterEach(async () => {
+	await Promise.all(services.splice(0).map((service) => service.close()));
 	for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 

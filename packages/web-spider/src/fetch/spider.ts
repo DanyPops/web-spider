@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
 import { chunk, toMarkdown } from "../extract/convert.js";
 import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "../extract/parse.js";
 import { buildTree } from "../extract/tree.js";
@@ -522,8 +523,8 @@ export async function spider(
 			});
 		} catch (err) {
 			clearTimeout(timer);
-			if (err instanceof Error && err.name === "AbortError") {
-				throw new Error(`Timeout after ${timeoutMs}ms — ${url}`);
+			if (controller.signal.aborted || isLikelyFetchTransportFailure(err)) {
+				throw toFetchTransportError(err, { timedOut: controller.signal.aborted });
 			}
 			throw err;
 		}

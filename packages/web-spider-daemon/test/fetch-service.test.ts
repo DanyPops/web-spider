@@ -284,12 +284,18 @@ describe("FetchService — Playwright auto-fallback (jsRendered:true)", () => {
 		await expect(service.fetch({ url: URL })).rejects.toThrow("Map operation called on non-Map object");
 	});
 
-	test("propagates a Playwright timeout message", async () => {
+	test("translates a Playwright timeout to the same typed transport failure contract", async () => {
 		const { service, playwright } = serviceWithPlaywright(GH_SHELL_HTML);
 		playwright.setImpl(async () => {
 			throw new Error("Timeout 30000ms exceeded.");
 		});
-		await expect(service.fetch({ url: URL })).rejects.toThrow("Timeout");
+		const failure = await service.fetch({ url: URL }).catch((error) => error);
+		expect(failure).toMatchObject({
+			code: "fetch-transport-failed",
+			kind: "timeout",
+			diagnostic: "Connection timed out",
+			retryable: true,
+		});
 	});
 
 	test("normalizes a non-Error Playwright throw", async () => {

@@ -21,7 +21,7 @@ import {
 	DATABASE_FILENAME,
 	HANDLE_FILENAME,
 	LEGACY_CACHE_DEFAULT_RELATIVE_PATH,
-	SYSTEMD_UNIT_NAME,
+	LEGACY_SYSTEMD_UNIT_NAME,
 	TOKEN_FILENAME,
 	WEB_SPIDER_STATE_DIRECTORY,
 } from "./constants.ts";
@@ -54,7 +54,7 @@ export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderP
 			databaseFilename: DATABASE_FILENAME,
 			tokenFilename: TOKEN_FILENAME,
 			handleFilename: HANDLE_FILENAME,
-			systemdUnitName: SYSTEMD_UNIT_NAME,
+			systemdUnitName: LEGACY_SYSTEMD_UNIT_NAME,
 		},
 		options,
 	);

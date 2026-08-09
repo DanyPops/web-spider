@@ -18,7 +18,7 @@ SQLite (WAL) cache · IHttpClient/PlaywrightHttpClient · web search providers �
 
 The daemon (`packages/web-spider-daemon`, `@danypops/web-spider-daemon`) is the sole owner of the page cache and the sole process that performs network fetches, crawls, throttling, and robots.txt checks. The Pi extension (`packages/pi-web-spider`, `@danypops/pi-web-spider`) never touches the network or a cache file directly — it only reconstructs the exact historical `web_fetch` tool contract on top of the daemon's operation responses. `packages/web-spider` is the underlying library (spider/crawl/search primitives, ports) both the daemon and, for now, a few standalone scripts depend on directly.
 
-Every daemon operation has full CLI parity — see `packages/web-spider-daemon/README.md` for the complete operation/CLI reference, systemd service install, and health/readiness endpoints.
+Every daemon operation has full CLI parity — see `packages/web-spider-daemon/README.md` for the complete operation/CLI reference, Armada service install, and health/readiness endpoints.
 
 ## Storage and service
 
@@ -26,7 +26,7 @@ Every daemon operation has full CLI parity — see `packages/web-spider-daemon/R
 $XDG_DATA_HOME/web-spider/web-spider.db    # durable page cache + session audit journal (SQLite, WAL)
 $XDG_STATE_HOME/web-spider/auth-token      # bearer token, 0600
 $XDG_RUNTIME_DIR/web-spider/daemon.json    # private daemon discovery (host/port/pid)
-$XDG_CONFIG_HOME/systemd/user/web-spider.service
+$XDG_CONFIG_HOME/systemd/user/armada-web-spider.service  # Armada-owned native descriptor
 ```
 
 ```bash
@@ -42,7 +42,7 @@ web-spider papyrus ingest <url...> [--relates-to ARTIFACT_ID] [--json]
 web-spider session create|list|close|act <name> ...
 ```
 
-The extension auto-starts the daemon transparently on first use — `service install` is only needed for it to survive across reboots/logins, or to forward search-provider API keys into a systemd `--user` unit (a unit does not inherit the installing shell's environment).
+The extension auto-starts the daemon transparently on first use — `service install` is only needed for it to survive across reboots/logins. Provider credentials belong in the mode-0600 local key store (`web-spider search-key set <engine>`) or Enigma, never in Armada's manifest or generated unit.
 
 ## Upgrading from the pre-daemon library
 

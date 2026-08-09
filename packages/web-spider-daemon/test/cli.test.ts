@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type CliDependencies, renderSystemdUnit, runCli } from "../src/cli.ts";
+import { type CliDependencies, runCli, webSpiderServiceSpec } from "../src/cli.ts";
 import type { OperationInputs, OperationName, OperationOutputs } from "../src/service.ts";
 
 interface RecordedCall {
@@ -23,8 +23,22 @@ function fakeDeps(
 		},
 		stdout: (line) => calls.push(`stdout:${line}`),
 		stderr: (line) => calls.push(`stderr:${line}`),
-		systemctl: (...args) => calls.push(`systemctl:${args.join(" ")}`),
-		installService: () => calls.push("install"),
+		service: {
+			unitName: "armada-web-spider.service",
+			install: () => {
+				calls.push("service:install");
+				return { installed: true };
+			},
+			action: (action) => calls.push(`service:${action}:armada-web-spider.service`),
+		},
+		legacyService: {
+			stopForCutover: () => {
+				calls.push("legacy:stop");
+				return true;
+			},
+			restore: () => calls.push("legacy:restore"),
+			remove: () => calls.push("legacy:remove"),
+		},
 		serve: () => {
 			calls.push("serve");
 		},
@@ -34,99 +48,27 @@ function fakeDeps(
 	return { deps, calls, operations };
 }
 
-describe("renderSystemdUnit", () => {
-	// Delegates to vehicle-server's shared generateSystemdUnit (see cli.ts's webSpiderServiceSpec) --
-	// ExecStart is now shell-quoted per argument, and DAEMON_KIT_LAUNCH_PROVENANCE=service is always
-	// present (needed for startDaemon()'s idle-shutdown provenance check), unlike the old bespoke
-	// generator which never set it at all.
-	test("renders a restart-always, no-new-privileges, network-online-waiting unit invoking serve", () => {
-		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
-		expect(unit).toContain('ExecStart="/usr/bin/bun" "/opt/web-spider/cli.ts" "serve"');
-		expect(unit).toContain("Restart=always");
-		expect(unit).toContain("RestartSec=2");
-		expect(unit).toContain("NoNewPrivileges=true");
-		expect(unit).toContain("PrivateTmp=true");
-		expect(unit).toContain("After=default.target network-online.target");
-		expect(unit).toContain("Wants=network-online.target");
-		expect(unit).toContain('Environment="DAEMON_KIT_LAUNCH_PROVENANCE=service"');
-	});
-
-	test("emits only the DAEMON_KIT_LAUNCH_PROVENANCE line when no search API keys are supplied", () => {
-		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
-		const environmentLines = unit.split("\n").filter((line) => line.startsWith("Environment="));
-		expect(environmentLines).toEqual(['Environment="DAEMON_KIT_LAUNCH_PROVENANCE=service"']);
-	});
-
-	test("omits a key's own Environment= line when its value is undefined or empty", () => {
-		const unit = renderSystemdUnit({
+describe("webSpiderServiceSpec — Armada registration", () => {
+	test("declares the Armada-owned vehicle with required hardening and no environment material", () => {
+		const spec = webSpiderServiceSpec({
 			bunBin: "/usr/bin/bun",
 			cliPath: "/opt/web-spider/cli.ts",
-			searchApiKeys: { BRAVE_SEARCH_API_KEY: undefined, TAVILY_API_KEY: "", EXA_API_KEY: undefined },
+			handlePath: "/run/web-spider/daemon.json",
 		});
-		expect(unit).not.toContain("BRAVE_SEARCH_API_KEY");
-		expect(unit).not.toContain("TAVILY_API_KEY");
-		expect(unit).not.toContain("EXA_API_KEY");
-	});
-
-	test("renders one Environment= line per configured key, between ExecStart and Restart", () => {
-		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun",
-			cliPath: "/opt/web-spider/cli.ts",
-			searchApiKeys: { TAVILY_API_KEY: "test-tavily-key", EXA_API_KEY: "test-exa-key" },
+		expect(spec).toMatchObject({
+			name: "web-spider",
+			binPath: "/usr/bin/bun",
+			args: ["/opt/web-spider/cli.ts", "serve"],
+			handlePath: "/run/web-spider/daemon.json",
+			restartOnFailure: true,
+			restartSec: 2,
+			noNewPrivileges: true,
+			privateTmp: true,
+			waitForNetwork: true,
 		});
-		expect(unit).toContain('Environment="TAVILY_API_KEY=test-tavily-key"');
-		expect(unit).toContain('Environment="EXA_API_KEY=test-exa-key"');
-		expect(unit).not.toContain("BRAVE_SEARCH_API_KEY");
-		const execStartIndex = unit.indexOf("ExecStart=");
-		const environmentIndex = unit.indexOf("Environment=");
-		const restartIndex = unit.indexOf("Restart=always");
-		expect(execStartIndex).toBeLessThan(environmentIndex);
-		expect(environmentIndex).toBeLessThan(restartIndex);
-	});
-
-	test("escapes backslashes and double quotes in a key value", () => {
-		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun",
-			cliPath: "/opt/web-spider/cli.ts",
-			searchApiKeys: { BRAVE_SEARCH_API_KEY: 'weird"value\\with-escapes' },
-		});
-		expect(unit).toContain('Environment="BRAVE_SEARCH_API_KEY=weird\\"value\\\\with-escapes"');
-	});
-
-	test("forwards SERPER_API_KEY and SERPAPI_API_KEY, same as the other providers", () => {
-		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun",
-			cliPath: "/opt/web-spider/cli.ts",
-			searchApiKeys: { SERPER_API_KEY: "test-serper-key", SERPAPI_API_KEY: "test-serpapi-key" },
-		});
-		expect(unit).toContain('Environment="SERPER_API_KEY=test-serper-key"');
-		expect(unit).toContain('Environment="SERPAPI_API_KEY=test-serpapi-key"');
-	});
-
-	test("forwards WEB_SPIDER_USE_ENIGMA and ENIGMA_CLIENT_TOKEN, same as the search API keys", () => {
-		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun",
-			cliPath: "/opt/web-spider/cli.ts",
-			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1", ENIGMA_CLIENT_TOKEN: "test-enigma-token" },
-		});
-		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
-		expect(unit).toContain('Environment="ENIGMA_CLIENT_TOKEN=test-enigma-token"');
-	});
-
-	test("omits ENIGMA_CLIENT_TOKEN when WEB_SPIDER_USE_ENIGMA is set but no token is supplied (e.g. relying on Enigma's shared admin-token file)", () => {
-		const unit = renderSystemdUnit({
-			bunBin: "/usr/bin/bun",
-			cliPath: "/opt/web-spider/cli.ts",
-			enigmaEnv: { WEB_SPIDER_USE_ENIGMA: "1" },
-		});
-		expect(unit).toContain('Environment="WEB_SPIDER_USE_ENIGMA=1"');
-		expect(unit).not.toContain("ENIGMA_CLIENT_TOKEN");
-	});
-
-	test("re-rendering with no enigmaEnv given at all drops any previously configured Enigma vars -- installService always re-reads from its own current process.env, never merges with the prior unit", () => {
-		const unit = renderSystemdUnit({ bunBin: "/usr/bin/bun", cliPath: "/opt/web-spider/cli.ts" });
-		expect(unit).not.toContain("WEB_SPIDER_USE_ENIGMA");
-		expect(unit).not.toContain("ENIGMA_CLIENT_TOKEN");
+		expect(spec.env).toBeUndefined();
+		expect(JSON.stringify(spec)).not.toContain("API_KEY");
+		expect(JSON.stringify(spec)).not.toContain("ENIGMA_CLIENT_TOKEN");
 	});
 });
 
@@ -138,17 +80,31 @@ describe("runCli — serve / service (unchanged surface)", () => {
 		expect(calls).toContain("serve");
 	});
 
-	test("service install invokes installService", async () => {
+	test("service install stops the legacy unit, waits for Armada registration, then removes the legacy descriptor", async () => {
 		const { deps, calls } = fakeDeps();
 		expect(await runCli(["service", "install"], deps)).toBe(0);
-		expect(calls).toContain("install");
+		expect(calls).toEqual(["legacy:stop", "service:install", "legacy:remove"]);
+	});
+
+	test("service install reports an Armada registration failure without attempting restart", async () => {
+		const { deps, calls } = fakeDeps({
+			service: {
+				unitName: "armada-web-spider.service",
+				install: () => ({ installed: false, reason: "unsupported runtime requirement" }),
+				action: () => {
+					throw new Error("restart should not be called");
+				},
+			},
+		});
+		await expect(runCli(["service", "install"], deps)).rejects.toThrow("failed to install the Web Spider service");
+		expect(calls).toEqual(["legacy:stop", "legacy:restore"]);
 	});
 
 	for (const action of ["start", "stop", "restart", "status"]) {
-		test(`service ${action} calls systemctl --user ${action} web-spider.service`, async () => {
+		test(`service ${action} uses the shared service boundary for armada-web-spider.service`, async () => {
 			const { deps, calls } = fakeDeps();
 			expect(await runCli(["service", action], deps)).toBe(0);
-			expect(calls).toContain(`systemctl:${action} web-spider.service`);
+			expect(calls).toContain(`service:${action}:armada-web-spider.service`);
 		});
 	}
 
@@ -240,11 +196,11 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 	test("a client/daemon error is reported to stderr with exit code 1, not thrown", async () => {
 		const { deps, calls } = fakeDeps({
 			call: () => {
-				throw new Error("Web Spider daemon is not running; install or start web-spider.service");
+				throw new Error("Web Spider daemon is not running; install or start armada-web-spider.service");
 			},
 		});
 		expect(await runCli(["fetch", "https://x.test"], deps)).toBe(1);
-		expect(calls).toEqual(["stderr:Web Spider daemon is not running; install or start web-spider.service"]);
+		expect(calls).toEqual(["stderr:Web Spider daemon is not running; install or start armada-web-spider.service"]);
 	});
 });
 

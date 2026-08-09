@@ -40,13 +40,22 @@ describe("execute() result and failure channels", () => {
 		await expect(h.invokeTool("web_fetch", { url: "ftp://not-supported.example.com" })).rejects.toThrow("Unsupported protocol");
 	});
 
-	it("throws unreachable-host failures through Pi's native error channel", async () => {
-		await expect(
-			h.invokeTool("web_fetch", {
-				url: "http://this-host-does-not-exist-pivi-test.invalid",
+	it("preserves safe unreachable-host diagnostics through Pi's native error channel", async () => {
+		const failure = await h
+			.invokeTool("web_fetch", {
+				url: "http://this-host-does-not-exist-pivi-test.invalid?token=top-secret",
 				timeoutMs: 3000,
-			}),
-		).rejects.toThrow("web_fetch failed");
+			})
+			.catch((error) => error as Error);
+
+		expect(failure).toBeInstanceOf(Error);
+		expect(failure.message).toContain("web_fetch failed");
+		expect(failure.message).toContain("fetch-transport-failed");
+		// Bun reports its stable ConnectionRefused code even for a reserved .invalid
+		// host; the safe transport classification must still survive Vehicle and Pi.
+		expect(failure.message).toContain("kind=connection");
+		expect(failure.message).toContain("diagnostic=Remote endpoint unavailable");
+		expect(failure.message).not.toContain("top-secret");
 	});
 
 	it("missing url returns a typed cache listing", async () => {

@@ -309,6 +309,17 @@ export interface SchemaState {
 	required: number;
 }
 
+export interface AsyncDisposableHttpClient extends IHttpClient {
+	close(): Promise<void>;
+}
+
+export interface WebSpiderServiceDependencies {
+	logger?: Logger;
+	env?: Record<string, string | undefined>;
+	/** Lazy factory for the daemon-owned enhanced fetch client. Tests inject a fake; production constructs Playwright. */
+	enhancedClientFactory?: () => AsyncDisposableHttpClient;
+}
+
 export interface WebSpiderService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
@@ -319,13 +330,10 @@ export interface WebSpiderService {
 	importLegacyCacheIfEmpty(jsonPath: string): LegacyImportResult;
 	checkpoint(): void;
 	optimize(): void;
-	close(): void;
+	close(): Promise<void>;
 }
 
-export function createWebSpiderService(
-	path: string,
-	deps: { logger?: Logger; env?: Record<string, string | undefined> } = {},
-): WebSpiderService {
+export function createWebSpiderService(path: string, deps: WebSpiderServiceDependencies = {}): WebSpiderService {
 	const db = openWebSpiderDb(path);
 	// :memory: databases (tests) have no sibling directory to spill large images into —
 	// use an isolated temp directory instead of guessing a path relative to cwd.
@@ -367,15 +375,18 @@ export function createWebSpiderService(
 	// daemon is now the sole process performing fetches.
 	const throttle = new DomainThrottle({ minDelayMs: 500 });
 	const robotsCache = new RobotsCache();
-	// Typed as PlaywrightHttpClient (not the generic IHttpClient) specifically so
-	// close() below can release it — IHttpClient itself declares no close() method.
-	let playwrightClient: PlaywrightHttpClient | undefined;
-	const getPlaywrightClient = (): IHttpClient => {
-		if (!playwrightClient) {
+	// The composition root owns the enhanced client as a separate async-disposable
+	// capability; IHttpClient remains segregated for adapters that own no resource.
+	const enhancedClientFactory =
+		deps.enhancedClientFactory ??
+		(() => {
 			const executablePath = process.env.WEB_SPIDER_PLAYWRIGHT_EXECUTABLE;
-			playwrightClient = new PlaywrightHttpClient(executablePath ? { executablePath } : undefined);
-		}
-		return playwrightClient;
+			return new PlaywrightHttpClient(executablePath ? { executablePath } : undefined);
+		});
+	let enhancedClient: AsyncDisposableHttpClient | undefined;
+	const getPlaywrightClient = (): IHttpClient => {
+		enhancedClient ??= enhancedClientFactory();
+		return enhancedClient;
 	};
 	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
@@ -398,6 +409,25 @@ export function createWebSpiderService(
 	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage);
 	registerFetchVehicleOperations(vehicleRegistry, fetchService, crawlService);
 	registerSessionVehicleOperations(vehicleRegistry, sessionService);
+
+	let closePromise: Promise<void> | undefined;
+	const closeOwnedResources = async (): Promise<void> => {
+		const enhancedClientClosed = enhancedClient?.close().catch((error) => {
+			logger.warn("playwright_close_failed", { error: String(error) });
+		});
+		const sessionsClosed = sessionRegistry.closeAll().catch((error) => {
+			logger.warn("session_close_failed", { error: String(error) });
+		});
+		await Promise.all([enhancedClientClosed, sessionsClosed]);
+
+		db.exec("PRAGMA optimize");
+		db.close();
+		if (ownsTemporaryDirectories) {
+			rmSync(imagesDir, { recursive: true, force: true });
+			rmSync(downloadsBaseDir, { recursive: true, force: true });
+		}
+	};
+
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: () => ({ current: schemaVersion(db), required: SQLITE_SCHEMA_VERSION }),
@@ -419,21 +449,8 @@ export function createWebSpiderService(
 			db.exec("PRAGMA optimize");
 		},
 		close: () => {
-			// Best-effort — daemon shutdown must not hang or crash on a stuck browser process.
-			// playwrightClient (the enhanced:true fetch/crawl browser) is launched lazily
-			// once and reused for the daemon's whole lifetime (see getPlaywrightClient()
-			// above) -- found via a real leaked Chrome process still running hours after
-			// the fetch that launched it: nothing ever closed it, including on shutdown.
-			playwrightClient?.close?.().catch((err) => logger.warn("playwright_close_failed", { error: String(err) }));
-			const sessionsClosed = sessionRegistry.closeAll();
-			db.exec("PRAGMA optimize");
-			db.close();
-			if (ownsTemporaryDirectories) {
-				rmSync(imagesDir, { recursive: true, force: true });
-				void sessionsClosed
-					.catch((err) => logger.warn("session_close_failed", { error: String(err) }))
-					.finally(() => rmSync(downloadsBaseDir, { recursive: true, force: true }));
-			}
+			closePromise ??= closeOwnedResources();
+			return closePromise;
 		},
 	};
 }

@@ -11,7 +11,8 @@ export const WEB_SPIDER_STATE_DIRECTORY = "web-spider";
 export const DATABASE_FILENAME = "web-spider.db";
 export const TOKEN_FILENAME = "auth-token";
 export const HANDLE_FILENAME = "daemon.json";
-export const SYSTEMD_UNIT_NAME = "web-spider.service";
+/** Legacy descriptor retained only so migration tooling can locate and remove it after Armada is healthy. */
+export const LEGACY_SYSTEMD_UNIT_NAME = "web-spider.service";
 
 // ---------------------------------------------------------------------------
 // SQLite

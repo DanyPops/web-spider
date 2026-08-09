@@ -8,6 +8,8 @@ export { PageGraph } from "./crawl/graph.js";
 export type { QueryTreeOptions } from "./extract/tree.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
+export type { FetchTransportErrorOptions, FetchTransportFailureKind } from "./errors.js";
+export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
 export type { SpiderOptions, TreePage } from "./fetch/spider.js";
 export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";

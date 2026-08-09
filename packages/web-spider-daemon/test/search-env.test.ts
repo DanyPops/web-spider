@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EnigmaWhoAmI, TryEnigmaCredential, TryEnigmaWhoAmI, VaultCredential } from "@danypops/enigma-client";
+import { resolveEnigmaConfigPath, saveEnigmaConfig } from "../src/search/enigma-config.ts";
 import { resolveSearchEnv } from "../src/search/search-env.ts";
 import { createSearchKeyStore } from "../src/search/search-secrets.ts";
+import { resolveWebSpiderPaths } from "../src/state.ts";
 
 /**
  * Never a real filesystem path this machine might actually have search
@@ -26,7 +28,7 @@ function fakeDeps(who: EnigmaWhoAmI | undefined, credentials: Record<string, Vau
 describe("resolveSearchEnv: local file-store tier", () => {
 	it("leaves the base env untouched when nothing is stored locally", async () => {
 		const baseEnv = { TAVILY_API_KEY: "static-key" };
-		const env = await resolveSearchEnv(baseEnv, { searchKeysDir: NO_LOCAL_KEYS_DIR });
+		const env = await resolveSearchEnv(baseEnv, { searchKeysDir: NO_LOCAL_KEYS_DIR, useEnigma: false });
 		expect(env).toEqual(baseEnv);
 	});
 
@@ -34,7 +36,7 @@ describe("resolveSearchEnv: local file-store tier", () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
 		try {
 			createSearchKeyStore(dir, "brave").save("stored-brave-key");
-			const env = await resolveSearchEnv({}, { searchKeysDir: dir });
+			const env = await resolveSearchEnv({}, { searchKeysDir: dir, useEnigma: false });
 			expect(env.BRAVE_SEARCH_API_KEY).toBe("stored-brave-key");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -45,7 +47,7 @@ describe("resolveSearchEnv: local file-store tier", () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
 		try {
 			createSearchKeyStore(dir, "tavily").save("stored-tavily-key");
-			const env = await resolveSearchEnv({ TAVILY_API_KEY: "stale-env-key" }, { searchKeysDir: dir });
+			const env = await resolveSearchEnv({ TAVILY_API_KEY: "stale-env-key" }, { searchKeysDir: dir, useEnigma: false });
 			expect(env.TAVILY_API_KEY).toBe("stored-tavily-key");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -56,7 +58,7 @@ describe("resolveSearchEnv: local file-store tier", () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
 		try {
 			createSearchKeyStore(dir, "exa").save("stored-exa-key");
-			const env = await resolveSearchEnv({ TAVILY_API_KEY: "static-tavily" }, { searchKeysDir: dir });
+			const env = await resolveSearchEnv({ TAVILY_API_KEY: "static-tavily" }, { searchKeysDir: dir, useEnigma: false });
 			expect(env.EXA_API_KEY).toBe("stored-exa-key");
 			expect(env.TAVILY_API_KEY).toBe("static-tavily");
 			expect(env.BRAVE_SEARCH_API_KEY).toBeUndefined();
@@ -85,7 +87,7 @@ describe("resolveSearchEnv: local file-store tier", () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-keys-"));
 		try {
 			createSearchKeyStore(dir, "you").save("stored-you-key");
-			const env = await resolveSearchEnv({}, { searchKeysDir: dir });
+			const env = await resolveSearchEnv({}, { searchKeysDir: dir, useEnigma: false });
 			expect(env.YOU_API_KEY).toBe("stored-you-key");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -101,7 +103,7 @@ describe("resolveSearchEnv: opt-in switch", () => {
 			return { name: "web-spider", backends: ["Brave"] };
 		};
 		const baseEnv = { TAVILY_API_KEY: "static-key" };
-		const env = await resolveSearchEnv(baseEnv, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR });
+		const env = await resolveSearchEnv(baseEnv, { tryWhoAmI, searchKeysDir: NO_LOCAL_KEYS_DIR, useEnigma: false });
 		expect(called).toBe(false);
 		expect(env).toEqual(baseEnv);
 	});
@@ -129,6 +131,22 @@ describe("resolveSearchEnv: opt-in switch", () => {
 		const credentials = { Brave: { accessToken: "brave-vault-key", extra: { envVarName: "BRAVE_SEARCH_API_KEY" } } };
 		const env = await resolveSearchEnv({ WEB_SPIDER_USE_ENIGMA: "true" }, fakeDeps(who, credentials));
 		expect(env.BRAVE_SEARCH_API_KEY).toBe("brave-vault-key");
+	});
+
+	it("calls Enigma from the persisted opt-in without service environment data", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-enigma-config-"));
+		try {
+			const baseEnv = { XDG_STATE_HOME: dir };
+			saveEnigmaConfig(resolveEnigmaConfigPath(resolveWebSpiderPaths({ env: baseEnv })), { useEnigma: true });
+			const env = await resolveSearchEnv(baseEnv, {
+				tryWhoAmI: async () => ({ name: "web-spider", backends: ["Brave"] }),
+				tryCredential: async () => ({ accessToken: "brave-vault-key", extra: { envVarName: "BRAVE_SEARCH_API_KEY" } }),
+			});
+			expect(env.BRAVE_SEARCH_API_KEY).toBe("brave-vault-key");
+			expect(env.ENIGMA_CLIENT_TOKEN).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 

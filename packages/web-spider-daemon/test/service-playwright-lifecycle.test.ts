@@ -15,7 +15,7 @@
 import { describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { PlaywrightHttpClient } from "@danypops/web-spider";
+import type { HttpResponse, IHttpClient } from "@danypops/web-spider";
 import { createWebSpiderService } from "../src/service.ts";
 
 function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Record<string, unknown> }> } {
@@ -29,6 +29,47 @@ function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Recor
 		},
 		error: () => {},
 	};
+}
+
+function htmlResponse(): HttpResponse {
+	return {
+		ok: true,
+		status: 200,
+		statusText: "OK",
+		headers: { get: () => "text/html" },
+		text: async () =>
+			"<html><head><title>Fake</title></head><body><article><h1>Fake</h1><p>Enough deterministic content for the fake enhanced client response.</p></article></body></html>",
+		arrayBuffer: async () => new ArrayBuffer(0),
+	};
+}
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+class FakeEnhancedClient implements IHttpClient {
+	fetchCalls = 0;
+	closeCalls = 0;
+
+	constructor(private readonly closeImpl: () => Promise<void> = () => Promise.resolve()) {}
+
+	async fetch(): Promise<HttpResponse> {
+		this.fetchCalls++;
+		return htmlResponse();
+	}
+
+	close(): Promise<void> {
+		this.closeCalls++;
+		return this.closeImpl();
+	}
+}
+
+async function useEnhancedClient(service: ReturnType<typeof createWebSpiderService>): Promise<void> {
+	await service.execute("fetch", { url: "https://example.test/enhanced", enhanced: true, ignoreRobots: true });
 }
 
 function startFixtureServer(html: string): Promise<{ url: string; close: () => Promise<void> }> {
@@ -60,40 +101,68 @@ describe("createWebSpiderService — Playwright client lifecycle", () => {
 
 		// The real assertion: close() must complete (not hang, not throw) even
 		// though a real Playwright browser is live behind getPlaywrightClient().
-		await expect((async () => service.close())()).resolves.toBeUndefined();
+		await expect(service.close()).resolves.toBeUndefined();
 	}, 30_000);
 
-	test("close() never throws when enhanced:true was never used (no browser was ever launched)", () => {
-		const service = createWebSpiderService(":memory:");
-		expect(() => service.close()).not.toThrow();
+	test("close() waits for an injected enhanced client to finish closing", async () => {
+		const gate = deferred();
+		const client = new FakeEnhancedClient(() => gate.promise);
+		const service = createWebSpiderService(":memory:", { logger: fakeLogger(), enhancedClientFactory: () => client });
+		await useEnhancedClient(service);
+
+		const shutdown = service.close();
+		let settled = false;
+		void shutdown.then(() => {
+			settled = true;
+		});
+		await Promise.resolve();
+
+		expect(client.fetchCalls).toBe(1);
+		expect(client.closeCalls).toBe(1);
+		expect(settled).toBe(false);
+		gate.resolve();
+		await expect(shutdown).resolves.toBeUndefined();
+		expect(settled).toBe(true);
 	});
 
-	test("a rejecting playwrightClient.close() during shutdown is logged, not silently swallowed", async () => {
-		const originalClose = PlaywrightHttpClient.prototype.close;
-		PlaywrightHttpClient.prototype.close = async () => {
-			throw new Error("simulated browser.close() failure");
-		};
+	test("close() is idempotent and closes an enhanced client exactly once", async () => {
+		const gate = deferred();
+		const client = new FakeEnhancedClient(() => gate.promise);
+		const service = createWebSpiderService(":memory:", { logger: fakeLogger(), enhancedClientFactory: () => client });
+		await useEnhancedClient(service);
+
+		const first = service.close();
+		const second = service.close();
+		expect(second).toBe(first);
+		expect(client.closeCalls).toBe(1);
+		gate.resolve();
+		await Promise.all([first, second]);
+	});
+
+	test("close() before enhanced use never constructs the lazy client", async () => {
+		let factoryCalls = 0;
+		const service = createWebSpiderService(":memory:", {
+			enhancedClientFactory: () => {
+				factoryCalls++;
+				return new FakeEnhancedClient();
+			},
+		});
+
+		await expect(service.close()).resolves.toBeUndefined();
+		expect(factoryCalls).toBe(0);
+	});
+
+	test("an enhanced-client close rejection is awaited and logged without rejecting shutdown", async () => {
 		const logger = fakeLogger();
-		const service = createWebSpiderService(":memory:", { logger });
-		const fixture = await startFixtureServer(
-			"<html><head><title>T</title></head><body><article><h1>T</h1><p>Enough real article body text for readability to treat this as the main content here.</p></article></body></html>",
-		);
-		try {
-			await service.execute("fetch", { url: fixture.url, enhanced: true });
-		} finally {
-			await fixture.close();
-		}
+		const client = new FakeEnhancedClient(() => Promise.reject(new Error("simulated browser.close() failure")));
+		const service = createWebSpiderService(":memory:", { logger, enhancedClientFactory: () => client });
+		await useEnhancedClient(service);
 
-		expect(() => service.close()).not.toThrow();
-		// service.close() fires the rejecting close() and attaches .catch() synchronously,
-		// but the rejection itself resolves on a later microtask — flush the microtask queue.
-		await Promise.resolve();
-		await Promise.resolve();
-
-		PlaywrightHttpClient.prototype.close = originalClose;
+		await expect(service.close()).resolves.toBeUndefined();
+		expect(client.closeCalls).toBe(1);
 		expect(logger.warnCalls).toContainEqual({
 			msg: "playwright_close_failed",
 			fields: { error: "Error: simulated browser.close() failure" },
 		});
-	}, 30_000);
+	});
 });

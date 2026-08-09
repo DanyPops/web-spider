@@ -9,9 +9,10 @@
  *   2. This daemon's own local file-backed store (search-secrets.ts) --
  *      `web-spider search-key set <engine>`, one small JSON file per
  *      engine, scoped to exactly what this daemon needs.
- *   3. A running Enigma vault, opt-in via WEB_SPIDER_USE_ENIGMA -- checked
- *      last so it always wins when present, matching pipes'/tickets' own
- *      "vault first" precedent.
+ *   3. A running Enigma vault, opted into through this daemon's local
+ *      enigma.json configuration (or the legacy WEB_SPIDER_USE_ENIGMA flag)
+ *      -- checked last so it always wins when present, matching
+ *      pipes'/tickets' own "vault first" precedent.
  *
  * Enigma's own loop is data-driven, not a hardcoded backend list: this
  * client asks Enigma (`tryEnigmaWhoAmI`) what backends it's actually
@@ -25,7 +26,8 @@
  * Enigma involvement is opt-in, not inferred from Enigma merely being
  * reachable: a shared admin-token file can exist for a totally unrelated
  * daemon on the same machine, and being able to reach Enigma is not the
- * same as this daemon wanting to. The local file store carries no such
+ * same as this daemon wanting to. The opt-in is a non-secret local config
+ * value so it persists without entering Armada desired state. The local file store carries no such
  * ambient-reachability risk (nothing to reach but this daemon's own state
  * directory), so it is always consulted, unconditionally.
  *
@@ -37,11 +39,14 @@
 import { type TryEnigmaCredential, type TryEnigmaWhoAmI, tryEnigmaCredential, tryEnigmaWhoAmI } from "@danypops/enigma-client";
 import { envKeyForEngine, listRegisteredSearchEngines } from "@danypops/web-spider";
 import { resolveWebSpiderPaths } from "../state.ts";
+import { loadEnigmaConfig, resolveEnigmaConfigPath } from "./enigma-config.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search-secrets.ts";
 
-function enigmaOptedIn(env: Record<string, string | undefined>): boolean {
+function enigmaOptInOverride(env: Record<string, string | undefined>): boolean | undefined {
 	const flag = env.WEB_SPIDER_USE_ENIGMA;
-	return flag === "1" || flag === "true";
+	if (flag === "1" || flag === "true") return true;
+	if (flag === "0" || flag === "false") return false;
+	return undefined;
 }
 
 export interface ResolveSearchEnvDeps {
@@ -49,6 +54,8 @@ export interface ResolveSearchEnvDeps {
 	tryCredential?: TryEnigmaCredential;
 	/** Overridable for tests; defaults to this daemon's own real state directory. */
 	searchKeysDir?: string;
+	/** Overridable for tests; defaults to the persisted local Enigma opt-in. */
+	useEnigma?: boolean;
 }
 
 export async function resolveSearchEnv(
@@ -65,7 +72,11 @@ export async function resolveSearchEnv(
 		if (stored) env[envVar] = stored;
 	}
 
-	if (!enigmaOptedIn(baseEnv)) return env;
+	const useEnigma =
+		enigmaOptInOverride(baseEnv) ??
+		deps.useEnigma ??
+		loadEnigmaConfig(resolveEnigmaConfigPath(resolveWebSpiderPaths({ env: baseEnv }))).useEnigma;
+	if (!useEnigma) return env;
 
 	const tryWhoAmI = deps.tryWhoAmI ?? tryEnigmaWhoAmI;
 	const tryCredential = deps.tryCredential ?? tryEnigmaCredential;

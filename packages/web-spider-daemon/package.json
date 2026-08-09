@@ -19,9 +19,9 @@
 		"check": "bun x tsc --noEmit"
 	},
 	"dependencies": {
-		"@danypops/vehicle-core": "^0.12.3",
-		"@danypops/vehicle-server": "^0.17.1",
-		"@danypops/vehicle-client": "^0.5.1",
+		"@danypops/vehicle-core": "^0.12.5",
+		"@danypops/vehicle-server": "^0.18.2",
+		"@danypops/vehicle-client": "^0.7.0",
 		"@danypops/enigma-client": "^0.6.1",
 		"@danypops/web-spider": "^0.14.0"
 	},

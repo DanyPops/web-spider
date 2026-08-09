@@ -5,10 +5,13 @@
  * or write: resolveWebSpiderPaths() resolves from the real process env / os.homedir() directly.
  */
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCliToCompletion } from "@danypops/pi-process-harness";
+import { migrateLegacyServiceEnvironment } from "../src/cli.ts";
+import { loadEnigmaConfig } from "../src/search/enigma-config.ts";
+import { createSearchKeyStore } from "../src/search/search-secrets.ts";
 
 const CLI_PATH = join(import.meta.dir, "..", "src", "cli.ts");
 
@@ -150,6 +153,51 @@ describe("web-spider search-key remove (real subprocess)", () => {
 			const { code, stderr } = await runCliProcess(["search-key", "remove"], tempXdgEnv(dir));
 			expect(code).not.toBe(0);
 			expect(stderr).toContain("usage: web-spider search-key remove");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("legacy service environment migration", () => {
+	it("moves provider keys and Enigma opt-in to local stores but never persists the Enigma token", () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-legacy-env-"));
+		try {
+			const paths = {
+				database: join(dir, "data", "web-spider.db"),
+				token: join(dir, "state", "auth-token"),
+				handle: join(dir, "runtime", "daemon.json"),
+				systemdUnit: join(dir, "config", "web-spider.service"),
+			};
+			migrateLegacyServiceEnvironment(
+				"BRAVE_SEARCH_API_KEY=provider-secret WEB_SPIDER_USE_ENIGMA=1 ENIGMA_CLIENT_TOKEN=must-not-persist",
+				paths,
+			);
+			expect(createSearchKeyStore(join(dir, "state", "search-keys"), "brave").load()).toBe("provider-secret");
+			expect(loadEnigmaConfig(join(dir, "state", "enigma.json"))).toEqual({ useEnigma: true });
+			const persisted = `${readFileSync(join(dir, "state", "search-keys", "brave.json"), "utf8")} ${readFileSync(join(dir, "state", "enigma.json"), "utf8")}`;
+			expect(persisted).not.toContain("must-not-persist");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("web-spider enigma (real subprocess)", () => {
+	it("persists only the non-secret opt-in with mode 0600", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-enigma-"));
+		try {
+			const enabled = await runCliProcess(["enigma", "enable"], tempXdgEnv(dir));
+			expect(enabled.code).toBe(0);
+			const configPath = join(dir, "web-spider", "enigma.json");
+			expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({ useEnigma: true });
+			expect(Bun.file(configPath).size).toBeLessThan(100);
+			expect(statSync(configPath).mode & 0o777).toBe(0o600);
+			const status = await runCliProcess(["enigma", "status"], tempXdgEnv(dir));
+			expect(status.stdout.trim()).toBe("enabled");
+			const disabled = await runCliProcess(["enigma", "disable"], tempXdgEnv(dir));
+			expect(disabled.code).toBe(0);
+			expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({ useEnigma: false });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

@@ -13,9 +13,9 @@
  * language for humans — never parsed from the human text).
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
+import { createServiceCli, type ServiceAction, type ServiceCli, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { listRegisteredSearchEngines } from "@danypops/web-spider";
 import type { CachedPageListFilter } from "./cache/page.ts";
 import {
@@ -34,73 +34,40 @@ import {
 	formatSessionListResult,
 } from "./cli-format.ts";
 import { connectWebSpiderClient, type WebSpiderClient } from "./client.ts";
-import { SYSTEMD_UNIT_NAME } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import { promptMaskedSecret } from "./masked-prompt.ts";
+import { loadEnigmaConfig, resolveEnigmaConfigPath, saveEnigmaConfig } from "./search/enigma-config.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search/search-secrets.ts";
 import { isSessionAction } from "./session/session-audit.ts";
-import { resolveWebSpiderPaths } from "./state.ts";
+import { resolveWebSpiderPaths, type WebSpiderPaths } from "./state.ts";
 import { VERSION } from "./version.ts";
 
-/** Search provider env vars service install forwards into the unit — see README's "Provider API keys" note. */
-const SEARCH_API_KEY_VARS = [
-	"BRAVE_SEARCH_API_KEY",
-	"TAVILY_API_KEY",
-	"EXA_API_KEY",
-	"SERPER_API_KEY",
-	"SERPAPI_API_KEY",
-	"YOU_API_KEY",
-] as const;
+const LEGACY_PROVIDER_ENV: ReadonlyArray<readonly [string, string]> = [
+	["BRAVE_SEARCH_API_KEY", "brave"],
+	["TAVILY_API_KEY", "tavily"],
+	["EXA_API_KEY", "exa"],
+	["SERPER_API_KEY", "serper"],
+	["SERPAPI_API_KEY", "serpapi"],
+	["YOU_API_KEY", "you"],
+];
 
-/**
- * Forwarded the same way as the search API keys below, for the same reason:
- * a systemd --user service does not inherit the installing shell's
- * environment, so these would otherwise need to be typed directly into the
- * unit file by hand (or patched in with a fragile sed one-liner) instead of
- * flowing through the same install path every other daemon config does.
- * Also fixes a real bug this shape used to have: re-running `service
- * install` (e.g. after an upgrade) rewrites the unit from scratch, so
- * without forwarding these too, a previously configured Enigma opt-in would
- * be silently dropped on the next install.
- */
-const ENIGMA_ENV_VARS = ["WEB_SPIDER_USE_ENIGMA", "ENIGMA_CLIENT_TOKEN"] as const;
-
-export interface SystemdUnitOptions {
+export interface WebSpiderServiceSpecOptions {
 	bunBin: string;
 	cliPath: string;
-	/**
-	 * Search provider API keys to forward into the unit's Environment= lines.
-	 * A systemd --user service does not inherit the installing shell's
-	 * environment, so without this, `search` throws "no search engine
-	 * configured" even when a key is set in the shell that ran
-	 * `service install` — confirmed happening in practice during a real
-	 * dogfood smoke test. Only non-empty keys render a line; values are
-	 * never logged anywhere.
-	 */
-	searchApiKeys?: Partial<Record<(typeof SEARCH_API_KEY_VARS)[number], string | undefined>>;
-	/** WEB_SPIDER_USE_ENIGMA and ENIGMA_CLIENT_TOKEN, forwarded the same way and for the same reason as searchApiKeys. */
-	enigmaEnv?: Partial<Record<(typeof ENIGMA_ENV_VARS)[number], string | undefined>>;
+	handlePath?: string;
 }
 
-function webSpiderServiceSpec(options: SystemdUnitOptions): ServiceSpec {
-	const forwardedVars: [string, string | undefined][] = [
-		...SEARCH_API_KEY_VARS.map((name): [string, string | undefined] => [name, options.searchApiKeys?.[name]]),
-		...ENIGMA_ENV_VARS.map((name): [string, string | undefined] => [name, options.enigmaEnv?.[name]]),
-	];
-	const env = Object.fromEntries(
-		forwardedVars.filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0),
-	);
+/** Secret-free declaration projected into Armada desired state. */
+export function webSpiderServiceSpec(options: WebSpiderServiceSpecOptions): ServiceSpec {
 	return {
 		name: "web-spider",
 		displayName: "Web Spider search, query, and scraping daemon",
 		version: VERSION,
 		binPath: options.bunBin,
 		args: [options.cliPath, "serve"],
-		env,
-		handlePath: resolveWebSpiderPaths().handle,
-		// The Pi extension's own daemon-client auto-spawns (connectWithPolicy), but the bare
-		// CLI client fails closed -- kept as Restart=always/RestartSec=2 to preserve this
-		// unit's existing, already-shipped behavior rather than silently weakening it.
+		handlePath: options.handlePath ?? resolveWebSpiderPaths().handle,
+		// Preserve the legacy service's availability and hardening through Armada's
+		// portable runtime requirements; unsupported native managers fail explicitly.
 		restartOnFailure: true,
 		restartSec: 2,
 		noNewPrivileges: true,
@@ -109,36 +76,84 @@ function webSpiderServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 	};
 }
 
-/** Pure text generator, delegating to vehicle-server's shared generateSystemdUnit -- kept as its own named export since this package's own tests (and any external caller) call it directly with the same options shape as before. */
-export function renderSystemdUnit(options: SystemdUnitOptions): string {
-	return generateSystemdUnit(webSpiderServiceSpec(options));
+function defaultServiceCli(): ServiceCli {
+	return createServiceCli(
+		webSpiderServiceSpec({
+			bunBin: process.execPath,
+			cliPath: fileURLToPath(import.meta.url),
+		}),
+	);
 }
 
-function systemctl(...args: string[]): void {
-	execFileSync("systemctl", ["--user", ...args], { stdio: "inherit" });
+function legacyEnvironmentValue(environment: string, name: string): string | undefined {
+	const match = environment.match(new RegExp(`(?:^|\\s)"?${name}=([^"\\s]+)"?`));
+	return match?.[1];
 }
 
-function installService(): void {
-	const spec = webSpiderServiceSpec({
-		bunBin: process.execPath,
-		cliPath: fileURLToPath(import.meta.url),
-		searchApiKeys: Object.fromEntries(SEARCH_API_KEY_VARS.map((name) => [name, process.env[name]])),
-		enigmaEnv: Object.fromEntries(ENIGMA_ENV_VARS.map((name) => [name, process.env[name]])),
-	});
-	const result = installUserService(spec, createNodeServiceInstallDeps());
-	if (!result.installed) throw new Error(`failed to install the Web Spider service: ${result.reason}`);
-	// installUserService's Linux path is `enable --now` (starts if not already running) --
-	// an explicit restart on top ensures a re-install after an upgrade actually picks up the
-	// freshly-generated unit's new ExecStart/Environment lines, not just re-enables the old one.
-	systemctl("restart", SYSTEMD_UNIT_NAME);
+/** Moves legacy unit configuration into daemon-owned stores without ever logging the values. */
+export function migrateLegacyServiceEnvironment(environment: string, paths: WebSpiderPaths = resolveWebSpiderPaths()): void {
+	const searchKeysDir = resolveSearchKeysDir(paths);
+	for (const [name, engine] of LEGACY_PROVIDER_ENV) {
+		const value = legacyEnvironmentValue(environment, name);
+		if (value) createSearchKeyStore(searchKeysDir, engine).save(value);
+	}
+	const enigmaFlag = legacyEnvironmentValue(environment, "WEB_SPIDER_USE_ENIGMA");
+	if (enigmaFlag === "1" || enigmaFlag === "true") {
+		saveEnigmaConfig(resolveEnigmaConfigPath(paths), { useEnigma: true });
+	}
+	// ENIGMA_CLIENT_TOKEN is intentionally not migrated: Enigma's shared token
+	// file is the credential boundary, never Armada or Web Spider config.
+}
+
+export interface LegacyServiceMigration {
+	/** Stops the legacy unit if active and reports whether rollback should restart it. */
+	stopForCutover(): boolean;
+	restore(): void;
+	/** Called only after Armada reconciliation and readiness succeed. */
+	remove(): void;
+}
+
+function defaultLegacyServiceMigration(): LegacyServiceMigration {
+	const paths = resolveWebSpiderPaths();
+	const runSystemctl = (...args: string[]) => execFileSync("systemctl", ["--user", ...args], { stdio: "ignore" });
+	return {
+		stopForCutover() {
+			try {
+				const environment = execFileSync("systemctl", ["--user", "show", "web-spider.service", "--property=Environment", "--value"], {
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+				});
+				migrateLegacyServiceEnvironment(environment);
+			} catch {
+				// No legacy descriptor (or no readable environment) is the normal fresh-install case.
+			}
+			try {
+				runSystemctl("is-active", "--quiet", "web-spider.service");
+			} catch {
+				return false;
+			}
+			runSystemctl("stop", "web-spider.service");
+			return true;
+		},
+		restore: () => runSystemctl("start", "web-spider.service"),
+		remove() {
+			try {
+				runSystemctl("disable", "web-spider.service");
+			} catch {
+				// An already-disabled legacy unit is still safe to remove.
+			}
+			if (existsSync(paths.systemdUnit)) unlinkSync(paths.systemdUnit);
+			runSystemctl("daemon-reload");
+		},
+	};
 }
 
 export interface CliDependencies {
 	client: Pick<WebSpiderClient, "call">;
 	stdout(line: string): void;
 	stderr(line: string): void;
-	systemctl(...args: string[]): void;
-	installService(): void;
+	service: Pick<ServiceCli, "unitName" | "install" | "action">;
+	legacyService: LegacyServiceMigration;
 	serve(): void | Promise<void>;
 	/**
 	 * Reads an eval script body from a file (if scriptFile is given) or stdin
@@ -165,8 +180,12 @@ const DEFAULT_DEPENDENCIES: CliDependencies = {
 	},
 	stdout: console.log,
 	stderr: console.error,
-	systemctl,
-	installService,
+	get service() {
+		return defaultServiceCli();
+	},
+	get legacyService() {
+		return defaultLegacyServiceMigration();
+	},
 	serve: serveMain,
 	readEvalScript,
 };
@@ -188,6 +207,7 @@ function usage(stderr: (line: string) => void): number {
 			"       web-spider search-key list             list engines with a locally stored key, never the key itself",
 			"       web-spider search-key remove <engine>  delete a locally stored key",
 			"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
+			"       web-spider enigma <enable|disable|status>  persist the non-secret Enigma opt-in outside service environment data",
 			"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
 			"                          [--published-after ISO] [--published-before ISO]",
 			"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
@@ -419,6 +439,20 @@ async function runSearchKeyRemove(rest: string[], deps: CliDependencies): Promis
 	}
 	store.remove();
 	deps.stdout(`Removed search key for "${engine}".`);
+	return 0;
+}
+
+function runEnigma(rest: string[], deps: CliDependencies): number {
+	const [action, ...extra] = rest;
+	if (extra.length > 0 || !["enable", "disable", "status"].includes(action ?? "")) return usage(deps.stderr);
+	const path = resolveEnigmaConfigPath(resolveWebSpiderPaths());
+	if (action === "status") {
+		deps.stdout(loadEnigmaConfig(path).useEnigma ? "enabled" : "disabled");
+		return 0;
+	}
+	const enabled = action === "enable";
+	saveEnigmaConfig(path, { useEnigma: enabled });
+	deps.stdout(`Enigma integration ${enabled ? "enabled" : "disabled"}. Takes effect on the daemon's next restart.`);
 	return 0;
 }
 
@@ -674,6 +708,7 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	if (command === "fetch") return runFetch(rest, deps);
 	if (command === "search") return runSearch(rest, deps);
 	if (command === "usage") return runUsage(rest, deps);
+	if (command === "enigma") return runEnigma(rest, deps);
 	if (command === "search-key") {
 		const [subcommand, ...searchKeyRest] = rest;
 		if (subcommand === "set") return runSearchKeySet(searchKeyRest, deps);
@@ -704,25 +739,28 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 		return usage(deps.stderr);
 	}
 	if (command !== "service") return usage(deps.stderr);
-	switch (rest[0]) {
-		case "install":
-			deps.installService();
+	const action = rest[0];
+	if (action === "install") {
+		const restoreLegacy = deps.legacyService.stopForCutover();
+		let armadaHealthy = false;
+		try {
+			const result = deps.service.install();
+			if (!result.installed) throw new Error(`failed to install the Web Spider service: ${result.reason}`);
+			// Armada reconcile returns only after bounded handle readiness succeeds. The old
+			// descriptor is removed strictly after that point; a failed cutover restores it.
+			armadaHealthy = true;
+			deps.legacyService.remove();
 			return 0;
-		case "start":
-			deps.systemctl("start", SYSTEMD_UNIT_NAME);
-			return 0;
-		case "stop":
-			deps.systemctl("stop", SYSTEMD_UNIT_NAME);
-			return 0;
-		case "restart":
-			deps.systemctl("restart", SYSTEMD_UNIT_NAME);
-			return 0;
-		case "status":
-			deps.systemctl("status", SYSTEMD_UNIT_NAME);
-			return 0;
-		default:
-			return usage(deps.stderr);
+		} catch (error) {
+			if (!armadaHealthy && restoreLegacy) deps.legacyService.restore();
+			throw error;
+		}
 	}
+	if (["start", "stop", "restart", "status"].includes(action ?? "")) {
+		deps.service.action(action as ServiceAction);
+		return 0;
+	}
+	return usage(deps.stderr);
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {

@@ -11,10 +11,41 @@
  * a 500, and losing its own specific message in the process (a
  * VehicleFailure sent over the wire never carries an error's `cause`).
  */
-import { defineErrorMapping } from "@danypops/vehicle-core";
+import { defineErrorMapping, isVehicleError, VehicleError, type VehicleFailureCategory } from "@danypops/vehicle-core";
+import { FetchTransportError } from "@danypops/web-spider";
 import { SessionNotFoundError, StaleSnapshotError } from "../session/session-service.ts";
 
-export const withVehicleErrorParity = defineErrorMapping([
+const mapLegacyError = defineErrorMapping([
 	{ errorClass: SessionNotFoundError, category: "not_found", code: "session-not-found" },
 	{ errorClass: StaleSnapshotError, category: "conflict", code: "stale-snapshot" },
 ]);
+
+function transportFailureCategory(error: FetchTransportError): VehicleFailureCategory {
+	if (error.kind === "timeout") return "timeout";
+	if (error.kind === "aborted") return "cancelled";
+	return "unavailable";
+}
+
+/**
+ * Exception-translation boundary between protocol-independent Web Spider
+ * domain failures and Vehicle's wire contract. Only fixed, reviewed domain
+ * fields are serialized; the native cause intentionally remains in-process.
+ */
+export async function withVehicleErrorParity<T>(run: () => T | Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		if (isVehicleError(error)) throw error;
+		if (error instanceof FetchTransportError) {
+			throw new VehicleError(error.code, error.message, {
+				category: transportFailureCategory(error),
+				retryable: error.retryable,
+				details: { kind: error.kind, diagnostic: error.diagnostic },
+				cause: error,
+			});
+		}
+		return mapLegacyError(() => {
+			throw error;
+		});
+	}
+}

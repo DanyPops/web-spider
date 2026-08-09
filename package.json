@@ -26,6 +26,9 @@
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   },
+  "overrides": {
+    "malevich-tui-components": "0.24.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
     "eslint": "^10.8.0",

@@ -72,7 +72,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 			expect(listResult.total).toBe(1);
 			expect(listResult.pages[0]?.url).toBe(ARTICLE_URL);
 
-			service.close();
+			await service.close();
 		} finally {
 			restore();
 		}
@@ -88,7 +88,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 			const result = body.result as Record<string, unknown>;
 			expect(result).not.toHaveProperty("markdown");
 			expect(Array.isArray(result.headings)).toBe(true);
-			service.close();
+			await service.close();
 		} finally {
 			restore();
 		}
@@ -104,7 +104,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 			const result = body.result as { pagesFound: number; pages: Array<Record<string, unknown>> };
 			expect(result.pagesFound).toBeGreaterThanOrEqual(1);
 			expect(result.pages[0]).not.toHaveProperty("markdown");
-			service.close();
+			await service.close();
 		} finally {
 			restore();
 		}
@@ -118,7 +118,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 			const { status, body } = await post(app, "fetch", { url: "https://example.com/does-not-exist" });
 			expect(status).toBe(400);
 			expect(body.error).toContain("404");
-			service.close();
+			await service.close();
 		} finally {
 			restore();
 		}
@@ -134,7 +134,19 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 				body: JSON.stringify({ name, version: 1, input, permissions: ["web-spider:read", "web-spider:write"] }),
 			}),
 		);
-		return { status: response.status, body: (await response.json()) as { output?: Record<string, unknown>; error?: { category: string } } };
+		return {
+			status: response.status,
+			body: (await response.json()) as {
+				output?: Record<string, unknown>;
+				error?: {
+					code: string;
+					category: string;
+					message: string;
+					retryable: boolean;
+					details?: Record<string, unknown>;
+				};
+			},
+		};
 	}
 
 	test("fetch.markdown returns the same real article body /api/v1/ops already proved, and caches it", async () => {
@@ -151,7 +163,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 			const second = await invoke(app, "fetch", { url: ARTICLE_URL });
 			expect(second.body.output?.cache).toBe("hit");
 
-			service.close();
+			await service.close();
 		} finally {
 			restore();
 		}
@@ -165,9 +177,38 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 			const { status, body } = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5 });
 			expect(status).toBe(200);
 			expect((body.output?.pagesFound as number) ?? 0).toBeGreaterThanOrEqual(1);
-			service.close();
+			await service.close();
 		} finally {
 			restore();
+		}
+	});
+
+	test("fetch transport diagnostics survive the Vehicle wire without exposing the native cause", async () => {
+		const original = globalThis.fetch;
+		globalThis.fetch = (async () => {
+			const cause = Object.assign(new Error("connect ECONNREFUSED https://user:password@example.test?token=top-secret"), {
+				code: "ECONNREFUSED",
+			});
+			throw new TypeError("fetch failed", { cause });
+		}) as unknown as typeof fetch;
+		try {
+			const service = createWebSpiderService(":memory:");
+			const app = createApp({ service, token: TOKEN });
+			const { status, body } = await invoke(app, "fetch", { url: "https://example.test/private?api_key=top-secret" });
+
+			expect(status).toBe(503);
+			expect(body.error).toMatchObject({
+				code: "fetch-transport-failed",
+				category: "unavailable",
+				retryable: true,
+				details: { kind: "connection", diagnostic: "Remote endpoint unavailable" },
+			});
+			const serialized = JSON.stringify(body.error);
+			expect(serialized).not.toContain("top-secret");
+			expect(serialized).not.toContain("password");
+			await service.close();
+		} finally {
+			globalThis.fetch = original;
 		}
 	});
 
@@ -177,6 +218,6 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 		const { status, body } = await invoke(app, "fetch", {});
 		expect(status).toBe(400);
 		expect(body.error?.category).toBe("validation");
-		service.close();
+		await service.close();
 	});
 });
