@@ -16,6 +16,15 @@ ports (PageStore, ...) → SQLite adapters (WAL)
 
 The daemon binds `127.0.0.1` on an OS-assigned port — never a fixed or externally reachable port — and writes its handle only after a successful bind. Every HTTP request (including `/health`) requires `Authorization: Bearer <token>`.
 
+Bun-independent consumers can share the authenticated discovery implementation through precompiled Facade exports; neither subpath imports SQLite, Playwright, or daemon process composition:
+
+```ts
+import { connectWebSpiderClient } from "@danypops/web-spider-daemon/client";
+import { resolveWebSpiderPaths } from "@danypops/web-spider-daemon/state";
+```
+
+Both exports are tested under native Node ESM and Jiti with `tryNative` enabled and disabled.
+
 ## Storage and service
 
 ```text
@@ -66,7 +75,7 @@ The current operation registry (see `src/service.ts`):
 | `cache.search` | BM25F search across cached pages (full chunk text, not a truncated snippet) |
 | `search` | Live web search via Brave/Tavily/Exa/Serper/SerpApi/You.com, provider fallback chain, `numResults`/`timeRange`/`topic`/`searchEngine`/`siteFilter`/`wantFullContent` -- the latter two are declarative ("restrict to this domain" / "give me full page content"), routed to whichever configured provider can satisfy them rather than naming one |
 | `search.usage` | Per-call usage/cost data each engine itself reported (`credits` for Tavily, `costUsd` for Exa, `rateLimitHeaders` for Brave when present) -- append-only, bounded to the most recent 10,000 rows, filterable by `engine`. Never a running account balance: no provider's search API exposes one, only what one call cost. |
-| `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
+| `fetch` | Single-page fetch — `markdown`/`lean`/`links`/`highlights`/`tree`/`source` formats, `rootSelector`/`excludeSelectors`/`tokenBudget`, `enhanced` (Playwright). Robots-blocked pages return `{ blocked: true, reason: "robots.txt" }` instead of throwing. |
 | `crawl` | Depth-bounded BFS crawl — `depth` (≤ 5), `maxPages` (≤ 200), `sameDomain`, same formats as `fetch` plus a crawl summary. Bounds are enforced server-side regardless of what a caller requests. |
 | `papyrus.ingest` | Explicit opt-in: turns already-cached pages (`kind: "pages"`, by URL) or a caller-supplied search-result set (`kind: "search"`) into Papyrus `doc` artifacts (`subtype: "web"` / `"web-search-result"`), optionally linked to an existing artifact via `relatesTo`. Bounded to 20 items per call. Ingested Docs are immutable service output — never updated in place; re-ingesting the same URL creates a new Doc. Reaches Papyrus only through its own authenticated client, never its SQLite file directly. |
 | `session.create` | Launches a named, isolated Playwright browser **process** (not a shared-browser context) — tmux-style session semantics. Bounded to 5 concurrent sessions; rejects past the ceiling rather than queuing. Defaults to Playwright's own lighter `chromium-headless-shell` in headless mode; `forceChromeChannel: true` opts into the full installed Chrome for headed-rendering-exact fidelity. |
@@ -130,7 +139,7 @@ Each rung is independently optional; using only the env var works identically to
 Every registered operation has a CLI route using the authenticated client only — the CLI never opens SQLite directly. Human-readable output by default; `--json` prints the exact operation result for scripting.
 
 ```bash
-web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]
+web-spider fetch <url> [--format markdown|lean|links|highlights|tree|source] [--depth N] [--max-pages N]
                         [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]
                         [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]
                         [--top-n N] [--json]

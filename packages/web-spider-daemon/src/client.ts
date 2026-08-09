@@ -4,12 +4,9 @@
  * client.ts byte-for-byte). The Pi extension and CLI both use this;
  * neither opens SQLite directly.
  *
- * Note: packages/pi-web-spider/src/daemon-client.ts intentionally
- * duplicates a small, Bun-independent subset of this instead of importing
- * it -- see that file's header comment (jiti/native-ESM loader fragility
- * with a dependency's raw, unbuilt TypeScript). This migration does not
- * change that; daemon-kit itself is raw TypeScript too and would hit the
- * same risk if pi-extension ever imported it directly.
+ * The package's ./client facade bundles this module and its state dependency
+ * into Node/Jiti-safe JavaScript, so Pi and other consumers share this exact
+ * authentication/discovery implementation without importing Bun-only code.
  */
 import { AuthenticatedRpcClient, type FetchTransport } from "@danypops/vehicle-client/rpc-client";
 import type { OperationInputs, OperationName, OperationOutputs } from "./service.ts";

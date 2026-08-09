@@ -1,8 +1,7 @@
 /**
- * daemon-client.ts is a deliberate duplication of @danypops/web-spider-daemon's
- * client.ts/state.ts (see daemon-client.ts's own doc comment for why) — this
- * suite mirrors that package's state.test.ts/daemon.test.ts coverage so the
- * duplicate stays correct independently.
+ * Characterizes the shared daemon client/state Facade plus Pi's retained
+ * auto-start composition: XDG/auth/handle/call behavior must not drift while
+ * the duplicated implementation is removed.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
