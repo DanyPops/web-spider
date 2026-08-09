@@ -89,6 +89,36 @@ describe("execute() result and failure channels", () => {
 		expect(result.details).toMatchObject({ kind: "web", status: "blocked", blockedBy: "robots.txt" });
 	});
 
+	it("returns normalized JSON source with public completeness metadata", async () => {
+		server.set("/source.json", '{"answer":42,"nested":{"ok":true}}', "application/json");
+		const result = (await h.invokeTool("web_fetch", {
+			url: `${server.baseUrl}/source.json`,
+			format: "source",
+		})) as any;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload).toMatchObject({
+			url: `${server.baseUrl}/source.json`,
+			contentType: "application/json",
+			complete: true,
+			truncated: false,
+		});
+		expect(JSON.parse(payload.content)).toEqual({ answer: 42, nested: { ok: true } });
+		expect(result.details).toMatchObject({ kind: "web", operation: "fetch", format: "source", complete: true, truncated: false });
+	});
+
+	it("marks token-budget-truncated JSON source incomplete through the Pi surface", async () => {
+		server.set("/large-source.json", JSON.stringify({ value: "abcdefghijklmnopqrstuvwxyz" }), "application/json");
+		const result = (await h.invokeTool("web_fetch", {
+			url: `${server.baseUrl}/large-source.json`,
+			format: "source",
+			tokenBudget: 4,
+		})) as any;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload).toMatchObject({ contentType: "application/json", complete: false, truncated: true });
+		expect(() => JSON.parse(payload.content)).toThrow();
+		expect(result.details).toMatchObject({ format: "source", complete: false, truncated: true });
+	});
+
 	// Runs last in this describe block deliberately -- it fetches real pages from
 	// server.baseUrl without a robots.txt in place, which would otherwise warm the
 	// daemon's per-origin robots cache as "unrestricted" ahead of the robots-denial

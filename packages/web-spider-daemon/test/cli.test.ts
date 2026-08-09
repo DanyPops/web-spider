@@ -166,6 +166,21 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect(operations).toEqual([{ op: "crawl", input: expect.objectContaining({ ignoreRobots: true }) }]);
 	});
 
+	test("--format source forwards the normalized-source request and --json prints its completeness contract verbatim", async () => {
+		const output = {
+			url: "https://x.test/data.json",
+			contentType: "application/json",
+			content: '{\n  "ok": true\n}',
+			complete: true,
+			truncated: false,
+			cache: "miss",
+		};
+		const { deps, calls, operations } = fakeDeps({ call: () => output });
+		await runCli(["fetch", "https://x.test/data.json", "--format", "source", "--json"], deps);
+		expect(operations[0]).toEqual({ op: "fetch", input: expect.objectContaining({ format: "source" }) });
+		expect(calls).toEqual([`stdout:${JSON.stringify(output)}`]);
+	});
+
 	test("--json prints the raw operation result verbatim", async () => {
 		const { deps, calls } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--json"], deps);

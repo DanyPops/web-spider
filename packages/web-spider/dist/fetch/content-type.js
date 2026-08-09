@@ -29,7 +29,7 @@ export function classifyContentType(header) {
         return "html";
     if (mediaType === "text/html" || mediaType === "application/xhtml+xml")
         return "html";
-    if (mediaType === "application/json" || mediaType.endsWith("+json"))
+    if (["application/json", "application/jsonl", "application/x-jsonlines", "application/x-ndjson"].includes(mediaType) || mediaType.endsWith("+json"))
         return "json";
     if (mediaType === "application/xml" || mediaType === "text/xml" || mediaType.endsWith("+xml"))
         return "xml";

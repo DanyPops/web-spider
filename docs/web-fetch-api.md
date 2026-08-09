@@ -13,6 +13,7 @@
 | Read a page | `{ url }` |
 | Skim a page before reading | `{ url, format: "lean" }` |
 | Extract outbound links | `{ url, format: "links" }` |
+| Read JSON or textual API content | `{ url, format: "source" }` |
 | Find specific text on a page | `{ url, format: "highlights", query: "…" }` |
 | Inspect page structure | `{ url, format: "tree" }` |
 | Navigate to one node | `{ url, format: "tree", path: "article.section[1]" }` |
@@ -40,7 +41,7 @@ Pass either `url` or `searchQuery` for network work. Omitting both queries the l
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `format` | `"markdown"` \| `"lean"` \| `"links"` \| `"highlights"` \| `"tree"` | `"markdown"` | Controls the shape of the returned content (see [Formats](#formats)). |
+| `format` | `"markdown"` \| `"lean"` \| `"links"` \| `"highlights"` \| `"tree"` \| `"source"` | `"markdown"` | Controls the shape of the returned content (see [Formats](#formats)). |
 
 ---
 
@@ -186,6 +187,24 @@ BM25F search — returns matching chunks with scores. Requires `query`. Use when
 ```
 
 When `depth > 0`, `highlights` searches across **all cached pages** from that crawl — pass `query` to search the whole corpus in one call.
+
+---
+
+### `source`
+
+Normalized textual source for structured APIs and non-HTML resources. This is deliberately **not** byte-for-byte wire data: complete JSON is pretty-printed, HTML is represented by its extracted Markdown, and cache hits return the same normalized content as misses.
+
+```json
+{
+  "url": "https://api.example.com/items/42",
+  "contentType": "application/json",
+  "content": "{\n  \"id\": 42,\n  \"active\": true\n}",
+  "complete": true,
+  "truncated": false
+}
+```
+
+Malformed JSON and JSONL remain textual source rather than being mislabeled as parsed JSON. Binary media types are rejected. When `tokenBudget` or the Pi delivery limit truncates content, `complete` is `false` and `truncated` is `true`; partial JSON is never claimed to be a complete document. `source` is a single-page (`depth: 0`) format.
 
 ---
 

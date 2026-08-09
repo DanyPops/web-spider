@@ -95,6 +95,66 @@ describe("FetchService — markdown/lean/links (default cache-eligible path)", (
 	});
 });
 
+describe("FetchService — normalized source format", () => {
+	const sourceUrl = "https://fixture.test/data";
+
+	test("pretty-prints complete JSON and preserves identical cache semantics", async () => {
+		const { service } = makeService(
+			fakeHttpClient({
+				[sourceUrl]: { body: '{"answer":42,"items":[1,2]}', headers: { "content-type": "application/json" } },
+			}),
+		);
+		const first = await service.fetch({ url: sourceUrl, format: "source" as never });
+		expect(first).toEqual({
+			url: sourceUrl,
+			contentType: "application/json",
+			content: '{\n  "answer": 42,\n  "items": [\n    1,\n    2\n  ]\n}',
+			complete: true,
+			truncated: false,
+			cache: "miss",
+		});
+		const second = await service.fetch({ url: sourceUrl, format: "source" as never });
+		expect(second).toEqual({ ...first, cache: "hit" });
+	});
+
+	test.each([
+		["plain text", "text/plain", "hello source"],
+		["malformed JSON", "application/json", '{"broken":'],
+		["JSONL", "application/x-ndjson", '{"a":1}\n{"a":2}\n'],
+		["empty text", "text/plain", ""],
+	])("returns normalized textual source for %s", async (_name, contentType, body) => {
+		const { service } = makeService(fakeHttpClient({ [sourceUrl]: { body, headers: { "content-type": contentType } } }));
+		const result = await service.fetch({ url: sourceUrl, format: "source" as never });
+		expect(result).toMatchObject({ url: sourceUrl, contentType, content: body, complete: true, truncated: false });
+	});
+
+	test("returns extracted markdown for HTML and names its media type honestly", async () => {
+		const { service } = makeService(
+			fakeHttpClient({ [URL]: { body: ARTICLE_HTML, headers: { "content-type": "text/html; charset=utf-8" } } }),
+		);
+		const result = await service.fetch({ url: URL, format: "source" as never });
+		expect(result).toMatchObject({ url: URL, contentType: "text/html", complete: true, truncated: false });
+		expect(result.content).toContain("Section One");
+		expect(result.content).not.toContain("<!DOCTYPE html>");
+	});
+
+	test("rejects binary content instead of pretending it is textual source", async () => {
+		const { service } = makeService(
+			fakeHttpClient({ [sourceUrl]: { body: "not really bytes", headers: { "content-type": "application/octet-stream" } } }),
+		);
+		await expect(service.fetch({ url: sourceUrl, format: "source" as never })).rejects.toThrow(/cannot parse as text or structure/i);
+	});
+
+	test("bounds source content and marks truncated JSON as incomplete", async () => {
+		const body = JSON.stringify({ value: "abcdefghijklmnopqrstuvwxyz" });
+		const { service } = makeService(fakeHttpClient({ [sourceUrl]: { body, headers: { "content-type": "application/json" } } }));
+		const result = await service.fetch({ url: sourceUrl, format: "source" as never, tokenBudget: 4 });
+		expect(result).toMatchObject({ contentType: "application/json", complete: false, truncated: true });
+		expect((result.content as string).length).toBeLessThanOrEqual(16);
+		expect(() => JSON.parse(result.content as string)).toThrow();
+	});
+});
+
 describe("FetchService — highlights", () => {
 	test("throws when query is missing", async () => {
 		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));

@@ -195,7 +195,7 @@ function usage(stderr: (line: string) => void): number {
 		[
 			"Usage: web-spider serve",
 			"       web-spider service <install|start|stop|restart|status>",
-			"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree] [--depth N] [--max-pages N]",
+			"       web-spider fetch <url> [--format markdown|lean|links|highlights|tree|source] [--depth N] [--max-pages N]",
 			"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
 			"                          [--token-budget N] [--enhanced] [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
 			"                          [--top-n N] [--ignore-robots] [--json]",

@@ -17,7 +17,7 @@ export const LEGACY_SYSTEMD_UNIT_NAME = "web-spider.service";
 // ---------------------------------------------------------------------------
 // SQLite
 // ---------------------------------------------------------------------------
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 5;
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;

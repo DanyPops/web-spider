@@ -227,6 +227,16 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		);
 	});
 
+	test("fetch manifest advertises the normalized source format", async () => {
+		const { app: server } = app();
+		const response = await server.fetch(new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }));
+		const body = (await response.json()) as {
+			operations: Array<{ name: string; inputSchema: { properties?: { format?: { enum?: string[] } } } }>;
+		};
+		const fetch = body.operations.find((operation) => operation.name === "fetch");
+		expect(fetch?.inputSchema.properties?.format?.enum).toContain("source");
+	});
+
 	test("cache.list and cache.search round-trip through the real Vehicle wire protocol, matching the /api/v1/ops shape", async () => {
 		const { app: server } = appWithCachedPage("https://example.test/a");
 

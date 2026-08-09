@@ -123,6 +123,13 @@ CREATE INDEX search_engine_usage_engine_idx ON search_engine_usage(engine);
 CREATE INDEX search_engine_usage_observed_at_idx ON search_engine_usage(observed_at);
 `;
 
+// The normalized source format must have identical semantics on cache hits.
+// Preserve the response media type alongside the already-persisted Markdown;
+// NULL remains the historical HTML default for rows created before this field.
+const MIGRATION_5_RESPONSE_CONTENT_TYPE = `
+ALTER TABLE pages ADD COLUMN response_content_type TEXT;
+`;
+
 export function openWebSpiderDb(path: string): Database {
 	return openSqliteWithPragmas(path, {
 		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
@@ -132,6 +139,7 @@ export function openWebSpiderDb(path: string): Database {
 			{ version: 2, up: (db) => db.exec(MIGRATION_2_SESSION_AUDIT_LOG) },
 			{ version: 3, up: (db) => db.exec(MIGRATION_3_CATEGORIES) },
 			{ version: 4, up: (db) => db.exec(MIGRATION_4_SEARCH_ENGINE_USAGE) },
+			{ version: 5, up: (db) => db.exec(MIGRATION_5_RESPONSE_CONTENT_TYPE) },
 		],
 	});
 }

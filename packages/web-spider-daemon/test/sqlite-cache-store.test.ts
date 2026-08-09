@@ -81,6 +81,12 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		expect(store.has("https://a.example/1")).toBe(true);
 	});
 
+	test("preserves response contentType so normalized source is identical on cache hits", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/data.json", page({ url: "https://a.example/data.json", contentType: "application/json" }));
+		expect(store.get("https://a.example/data.json")?.contentType).toBe("application/json");
+	});
+
 	test("set() with one query-param order then get() with a different order hits the same cache entry, not a miss", () => {
 		const { store } = storeWithTmpDir();
 		store.set("https://a.example/search?b=2&a=1", page({ url: "https://a.example/search?b=2&a=1" }));

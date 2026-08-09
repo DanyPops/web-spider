@@ -71,6 +71,35 @@ export function linksOutput(page: SpideredPage): Record<string, unknown> {
 	});
 }
 
+export interface SourceOutput {
+	url: string;
+	contentType: string;
+	content: string;
+	complete: boolean;
+	truncated: boolean;
+}
+
+/**
+ * Presents the normalized textual source retained by SpideredPage. This is
+ * intentionally not advertised as byte-for-byte wire data: JSON may already
+ * be pretty-printed and HTML is the extracted Markdown materialized in cache.
+ */
+export function sourceOutput(page: SpideredPage, tokenBudget?: number): SourceOutput {
+	const source = page.markdown;
+	const maxCharacters = tokenBudget === undefined ? source.length : Math.max(0, Math.floor(tokenBudget * 4));
+	const content = source.slice(0, maxCharacters);
+	const deliveredWordCount = page.chunks.reduce((total, item) => total + item.wordCount, 0);
+	const extractionWasTruncated = page.chunks.length > 0 && deliveredWordCount < page.wordCount;
+	const truncated = extractionWasTruncated || content.length < source.length;
+	return {
+		url: page.url,
+		contentType: page.contentType ?? "text/html",
+		content,
+		complete: !truncated,
+		truncated,
+	};
+}
+
 /** A single highlights hit — full chunk text only (never both text and a redundant snippet). */
 export function highlightHit(
 	h: { heading: string; score: number; snippet: string; chunkId?: string },

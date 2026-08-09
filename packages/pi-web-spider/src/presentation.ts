@@ -11,7 +11,7 @@ import {
 } from "./constants.js";
 
 export type WebOperation = "search" | "fetch" | "crawl" | "cache-list" | "cache-search" | "tree-full" | "tree-query" | "tree-path";
-export type WebFormat = "search" | "markdown" | "lean" | "links" | "highlights" | "tree";
+export type WebFormat = "search" | "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
 export type WebStatus = "ok" | "empty" | "blocked";
 
 export interface WebItemDetails {
@@ -116,6 +116,32 @@ export function createWebDetails(input: CreateWebDetailsInput): WebPresentationD
 	};
 }
 
+function truncateSourcePayload(payload: Record<string, unknown>, originalCharacters: number): string | undefined {
+	if (typeof payload.content !== "string" || typeof payload.contentType !== "string") return undefined;
+	const base = {
+		...payload,
+		content: "",
+		complete: false,
+		truncated: true,
+		originalCharacters,
+		hint: "Use a lower tokenBudget or narrower request for complete normalized source.",
+	};
+	let low = 0;
+	let high = payload.content.length;
+	let best = JSON.stringify(base);
+	while (low <= high) {
+		const middle = Math.floor((low + high) / 2);
+		const candidate = JSON.stringify({ ...base, content: payload.content.slice(0, middle) });
+		if (candidate.length <= MODEL_CONTENT_MAX_CHARACTERS) {
+			best = candidate;
+			low = middle + 1;
+		} else {
+			high = middle - 1;
+		}
+	}
+	return best;
+}
+
 function truncateMarkdownPayload(payload: Record<string, unknown>, originalCharacters: number): string | undefined {
 	if (typeof payload.markdown !== "string") return undefined;
 	const base = {
@@ -170,7 +196,9 @@ export function createWebResult(payload: unknown, inputDetails: WebPresentationD
 		serialized.length <= MODEL_CONTENT_MAX_CHARACTERS
 			? serialized
 			: payload && typeof payload === "object" && !Array.isArray(payload)
-				? (truncateMarkdownPayload(payload as Record<string, unknown>, serialized.length) ?? truncatePayload(serialized))
+				? (truncateSourcePayload(payload as Record<string, unknown>, serialized.length) ??
+					truncateMarkdownPayload(payload as Record<string, unknown>, serialized.length) ??
+					truncatePayload(serialized))
 				: truncatePayload(serialized);
 	const truncated = inputDetails.truncated || serialized.length > MODEL_CONTENT_MAX_CHARACTERS;
 	const details: WebPresentationDetails = {
@@ -193,7 +221,7 @@ const OPERATIONS = new Set<WebOperation>([
 	"tree-query",
 	"tree-path",
 ]);
-const FORMATS = new Set<WebFormat>(["search", "markdown", "lean", "links", "highlights", "tree"]);
+const FORMATS = new Set<WebFormat>(["search", "markdown", "lean", "links", "highlights", "tree", "source"]);
 const STATUSES = new Set<WebStatus>(["ok", "empty", "blocked"]);
 
 export function parseWebDetails(value: unknown): WebPresentationDetails | undefined {

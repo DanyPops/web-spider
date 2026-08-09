@@ -32,7 +32,11 @@ export function classifyContentType(header: string | null | undefined): ContentK
 
 	if (mediaType === "text/html" || mediaType === "application/xhtml+xml") return "html";
 
-	if (mediaType === "application/json" || mediaType.endsWith("+json")) return "json";
+	if (
+		["application/json", "application/jsonl", "application/x-jsonlines", "application/x-ndjson"].includes(mediaType) ||
+		mediaType.endsWith("+json")
+	)
+		return "json";
 	if (mediaType === "application/xml" || mediaType === "text/xml" || mediaType.endsWith("+xml")) return "xml";
 
 	const topLevel = mediaType.split("/")[0];

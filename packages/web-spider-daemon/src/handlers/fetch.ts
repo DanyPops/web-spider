@@ -22,7 +22,7 @@ const LIMITS = { defaultTimeoutMs: 30_000, maxTimeoutMs: 120_000, maxRequestByte
 
 const FETCH_PROPERTIES = {
 	url: { type: "string" },
-	format: { type: "string", enum: ["markdown", "lean", "links", "highlights", "tree"] },
+	format: { type: "string", enum: ["markdown", "lean", "links", "highlights", "tree", "source"] },
 	rootSelector: { type: "string" },
 	excludeSelectors: { type: "string" },
 	tokenBudget: { type: "number" },
@@ -38,7 +38,7 @@ export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchS
 	const fetchOperation = defineVehicleOperation({
 		name: "fetch",
 		version: 1,
-		description: "Fetches one URL and returns clean content in the requested format (markdown/lean/links/highlights/tree).",
+		description: "Fetches one URL and returns clean content in the requested format (markdown/lean/links/highlights/tree/source).",
 		input: defineLooseObjectSchema(FETCH_PROPERTIES, ["url"]),
 		output: passthroughVehicleSchema,
 		permissions: ["web-spider:read"],

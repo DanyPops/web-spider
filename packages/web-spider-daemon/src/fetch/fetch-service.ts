@@ -30,9 +30,9 @@ import {
 	TREE_CACHE_MAX_ENTRIES,
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "../constants.ts";
-import { highlightHit, leanOutput, linksOutput, markdownOutput } from "../format.ts";
+import { highlightHit, leanOutput, linksOutput, markdownOutput, sourceOutput } from "../format.ts";
 
-export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree";
+export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
 
 export interface FetchOperationInput {
 	url: string;
@@ -170,6 +170,7 @@ export class FetchService {
 		const page = fetched.page;
 
 		if (format === "lean") return { ...leanOutput(page), cache: fetched.cache };
+		if (format === "source") return { ...sourceOutput(page, input.tokenBudget), cache: fetched.cache };
 		// Note: no top-level "links" count here — that is renderer-only metadata the
 		// historical tool computed for its details channel, never part of the content.
 		if (format === "links") return { ...linksOutput(page), cache: fetched.cache };

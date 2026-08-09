@@ -14,6 +14,8 @@ describe("classifyContentType", () => {
 		expect(classifyContentType("application/ld+json")).toBe("json");
 		expect(classifyContentType("application/geo+json")).toBe("json");
 		expect(classifyContentType("application/vnd.api+json")).toBe("json");
+		expect(classifyContentType("application/x-ndjson")).toBe("json");
+		expect(classifyContentType("application/jsonl")).toBe("json");
 	});
 
 	it("classifies application/xml, text/xml, and the +xml suffix convention as xml", () => {

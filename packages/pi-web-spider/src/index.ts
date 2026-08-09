@@ -460,6 +460,22 @@ export default async function (pi: ExtensionAPI) {
 			);
 		}
 
+		if (fmt === "source") {
+			const truncated = content.truncated === true;
+			return output(
+				content,
+				createWebDetails({
+					operation: "fetch",
+					format: "source",
+					url,
+					cache,
+					enhanced: params.enhanced,
+					truncated,
+					complete: content.complete === true && !truncated,
+				}),
+			);
+		}
+
 		if (fmt === "highlights") {
 			const hits = (content.hits as unknown[] | undefined) ?? [];
 			const withHint = hits.length === 0 ? { ...content, hint: "No matches. Try broader terms or use format=markdown." } : content;
@@ -524,8 +540,18 @@ export default async function (pi: ExtensionAPI) {
 
 		format: Type.Optional(
 			Type.Union(
-				[Type.Literal("markdown"), Type.Literal("lean"), Type.Literal("links"), Type.Literal("highlights"), Type.Literal("tree")],
-				{ description: "markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree" },
+				[
+					Type.Literal("markdown"),
+					Type.Literal("lean"),
+					Type.Literal("links"),
+					Type.Literal("highlights"),
+					Type.Literal("tree"),
+					Type.Literal("source"),
+				],
+				{
+					description:
+						"markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree, source=normalized textual source with contentType/completeness metadata",
+				},
 			),
 		),
 		query: Type.Optional(Type.String({ description: "Search text; required for format=highlights, optional for format=tree" })),
@@ -576,13 +602,13 @@ export default async function (pi: ExtensionAPI) {
 			"",
 			"depth=0 (default) fetches one URL, free on a cache hit. depth>0 BFS-crawls up to maxPages and caches every page.",
 			"",
-			"format trades the default full markdown for cheaper, targeted views (lean/links/highlights/tree) -- see the format parameter. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted.",
+			"format trades the default full markdown for targeted views (lean/links/highlights/tree/source) -- see the format parameter. source is normalized textual content, not byte-identical wire data. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted.",
 			"",
 			"enhanced=true forces headless-browser rendering for SPAs/JS-heavy/bot-gated pages; default auto-falls back to it when needed.",
 			"",
 			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, human-directed bypass for one request -- never a default.",
 		].join("\n"),
-		promptSnippet: "Fetch URL: format=markdown/lean/links/highlights, depth, rootSelector, tokenBudget",
+		promptSnippet: "Fetch URL: format=markdown/lean/links/highlights/tree/source, depth, rootSelector, tokenBudget",
 		parameters: paramsSchema,
 		renderCall(args, theme, context) {
 			return renderWebFetchCall(args, theme, context);
