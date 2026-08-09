@@ -105,7 +105,8 @@ it does not call `unpdf.extractText`, which fans out over every page.
 - Multi-column ordering and table reconstruction are benchmark targets, not MVP
   guarantees. OCR is not silently attempted.
 
-Cache keys must include page-range inputs so a partial result cannot poison or
-masquerade as the default cached document. Daemon Vehicle input, CLI forwarding,
-and Pi public input use the same `pdfPageStart`/`pdfPageEnd` names and server
+Explicit page-range requests are cache-ineligible so a partial result cannot
+poison or masquerade as the default cached document; the default bounded PDF
+result keeps normal cache behavior. Daemon Vehicle input, CLI forwarding, and
+Pi public input use the same `pdfPageStart`/`pdfPageEnd` names and server
 validation.
