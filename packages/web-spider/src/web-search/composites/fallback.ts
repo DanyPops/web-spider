@@ -24,6 +24,12 @@ export interface FallbackSearchEngineOptions {
 	now?: () => number;
 	/** Called once per engine failure, including a cooldown skip -- e.g. wire to a logger. Not called for a genuine empty result. Index only, not a name -- a caller that wants names maps it itself. */
 	onEngineFailure?: (engineIndex: number, error: unknown, reason: EngineFailureReason) => void;
+	/**
+	 * When every later fallback is empty or also fails, rethrow the earliest
+	 * actionable error instead of letting a last-resort empty/error mask it.
+	 * Default false preserves the historical generic fallback behavior.
+	 */
+	preserveEarlierError?: boolean;
 }
 
 /**
@@ -51,6 +57,7 @@ export class FallbackSearchEngine implements ISearchEngine {
 	private readonly isQuotaError: RateLimitPredicate;
 	private readonly now: () => number;
 	private readonly onEngineFailure: FallbackSearchEngineOptions["onEngineFailure"];
+	private readonly preserveEarlierError: boolean;
 	/** engines[i]'s cooldown expiry (epoch ms); 0 means never in cooldown. */
 	private readonly cooldownUntil: number[];
 
@@ -67,10 +74,12 @@ export class FallbackSearchEngine implements ISearchEngine {
 		this.isQuotaError = opts.isQuotaError ?? isLikelyQuotaExceededError;
 		this.now = opts.now ?? Date.now;
 		this.onEngineFailure = opts.onEngineFailure;
+		this.preserveEarlierError = opts.preserveEarlierError ?? false;
 		this.cooldownUntil = engines.map(() => 0);
 	}
 
 	async search(req: SearchQuery): Promise<WebSearchResult[]> {
+		let firstError: unknown;
 		let lastError: unknown;
 		// Gates the final throw below: a later engine completing with zero hits
 		// is a real empty result, never masked by an earlier engine's error.
@@ -79,6 +88,7 @@ export class FallbackSearchEngine implements ISearchEngine {
 		for (let i = 0; i < this.engines.length; i++) {
 			if ((this.cooldownUntil[i] as number) > this.now()) {
 				const cooldownError = new Error(`engine ${i} skipped: in cooldown after a recent rate-limit/quota error`);
+				firstError ??= cooldownError;
 				lastError = cooldownError;
 				this.onEngineFailure?.(i, cooldownError, "cooldown");
 				continue;
@@ -90,6 +100,7 @@ export class FallbackSearchEngine implements ISearchEngine {
 				// Empty + fallbackOnEmpty → try next engine
 			} catch (err) {
 				if (!this.fallbackOnError) throw err;
+				firstError ??= err;
 				lastError = err;
 				if (this.quotaCooldownMs > 0 && this.isQuotaError(err)) {
 					this.cooldownUntil[i] = this.now() + this.quotaCooldownMs;
@@ -104,6 +115,7 @@ export class FallbackSearchEngine implements ISearchEngine {
 			}
 		}
 
+		if (this.preserveEarlierError && firstError) throw firstError;
 		if (!anySucceeded && lastError) throw lastError;
 		return [];
 	}

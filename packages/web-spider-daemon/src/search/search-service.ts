@@ -66,11 +66,12 @@ export function createEngineResolver(
 	env: Record<string, string | undefined> = process.env,
 	onEngineFailure?: EngineFailureHandler,
 	onUsage?: EngineUsageHandler,
+	keylessEngine?: ISearchEngine,
 ): EngineResolver {
 	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
 		if (!name) {
-			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure, onUsage });
+			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure, onUsage, keylessEngine });
 			return cachedDefault;
 		}
 		const envVar = ENGINE_ENV_VARS[name];

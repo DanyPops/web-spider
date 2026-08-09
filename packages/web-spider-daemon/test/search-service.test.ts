@@ -103,9 +103,13 @@ describe("createEngineResolver", () => {
 		expect(() => resolver()).not.toThrow();
 	});
 
-	test("no forced engine and zero provider keys configured throws a clear error", () => {
-		const resolver = createEngineResolver({});
-		expect(() => resolver()).toThrow(/no search engine api key configured/i);
+	test("no forced engine and zero provider keys configured searches through the keyless fallback", async () => {
+		const keyless = new FakeEngine([{ url: "https://keyless.example", title: "Keyless", snippet: "fallback" }]);
+		const resolver = createEngineResolver({}, undefined, undefined, keyless);
+		await expect(new WebSearchService(resolver).search({ query: "no setup" })).resolves.toEqual({
+			query: "no setup",
+			results: [{ url: "https://keyless.example", title: "Keyless", snippet: "fallback" }],
+		});
 	});
 
 	test("the auto-detecting default is built once and reused across calls, not rebuilt per call", () => {
@@ -186,7 +190,9 @@ describe("createEngineResolver", () => {
 
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async (_input: string | URL | Request) =>
-			new Response(JSON.stringify({ results: [], usage: { credits: 1 } }), { status: 200 })) as typeof fetch;
+			new Response(JSON.stringify({ results: [{ url: "https://a.example", title: "A" }], usage: { credits: 1 } }), {
+				status: 200,
+			})) as typeof fetch;
 		try {
 			await engine.search({ query: "x" });
 		} finally {

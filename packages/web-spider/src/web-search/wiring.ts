@@ -10,6 +10,7 @@ import { RoundRobinSearchEngine } from "./composites/round-robin.js";
 import {
 	BraveSearchEngine,
 	ExaSearchEngine,
+	FirecrawlKeylessSearchEngine,
 	SerpApiSearchEngine,
 	SerperSearchEngine,
 	TavilySearchEngine,
@@ -24,22 +25,24 @@ import { resolveSearchEngine } from "./registry.js";
 export interface DefaultSearchEngineOptions {
 	/** Reads provider API keys from here. Defaults to process.env. */
 	env?: Record<string, string | undefined>;
-	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.cooldownMs. */
+	/** Applied to keyed engines and the keyless fallback's circuit breaker. See FallbackSearchEngineOptions.cooldownMs. */
 	cooldownMs?: number;
-	/** Applied to both the round-robin group and the outer fallback chain. See FallbackSearchEngineOptions.quotaCooldownMs. */
+	/** Applied to keyed engines and the keyless fallback's circuit breaker. See FallbackSearchEngineOptions.quotaCooldownMs. */
 	quotaCooldownMs?: number;
-	/** Reports every engine failure by its real name ("brave"/"tavily"/"exa"/"serper"/"serpapi"/"you") -- never a generic placeholder, whether the failure came from the sole configured engine or one member of the round-robin group. */
+	/** Reports every engine failure by its real name, including the last-resort "firecrawl" Strategy. */
 	onEngineFailure?: (engineName: string, error: unknown, reason: EngineFailureReason) => void;
 	/** Reports every successful call's own usage/cost data by real engine name, when the engine reported any. Never called for a call that failed or reported nothing. */
 	onUsage?: (engineName: string, usage: EngineUsage) => void;
 	/** Tracks per-site engine coverage for site-filtered queries. Defaults to a fresh InMemorySiteAvailabilityTracker (process-lifetime only); inject a persistent implementation for cross-restart memory. See {@link SiteRoutedSearchEngine}. */
 	siteAvailabilityTracker?: SiteAvailabilityTracker;
+	/** Last-resort keyless Strategy. Defaults to Firecrawl; injectable for deterministic tests. */
+	keylessEngine?: ISearchEngine;
 }
 
 /** Engines whose adapter maps {@link SearchQuery.wantFullContent} to a real vendor param (Tavily's include_raw_content, Exa's contents.text). Declared once here, not learned -- content support is a fixed vendor capability. */
 const CONTENT_CAPABLE_ENGINES = new Set(["tavily", "exa"]);
 
-/** No configured provider key at all -- the one error shared by every capability resolver (results, content, answer) when there's nothing to even consider. */
+/** No keyed answer-capable provider exists. Plain result search can still use the keyless fallback. */
 const NO_ENGINE_CONFIGURED_ERROR =
 	"No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
 	"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.";
@@ -101,9 +104,9 @@ function isAnswerCapable(engine: ISearchEngine): engine is ISearchEngine & IAnsw
  * (brave/tavily/exa/serper/serpapi/you) that actually has an API key
  * configured is round-robined as an equal-tier peer -- spreading quota
  * consumption across whichever are available instead of always hitting
- * one first. An engine with no key configured is auto-skipped, never
- * throws by itself; calling this with zero keys configured throws a
- * single descriptive error instead of silently returning a no-op engine.
+ * one first. An engine with no key configured is auto-skipped. Firecrawl's
+ * officially supported keyless endpoint is the bounded last resort, and is
+ * used directly when no provider keys are configured.
  *
  * The whole chain is wrapped in {@link SiteRoutedSearchEngine}: a query
  * with no site filter passes straight through to the round-robin/fallback
@@ -114,20 +117,12 @@ function isAnswerCapable(engine: ISearchEngine): engine is ISearchEngine & IAnsw
  * Reddit, which blocked every crawler but Google-backed ones in 2024) is
  * learned once and skipped on later calls instead of re-paid every time.
  *
- * Returns the RoundRobinSearchEngine directly (before the SiteRoutedSearchEngine
- * wrap) when 2+ keys are configured -- no outer FallbackSearchEngine wrapper
- * for the unfiltered path. There's no keyless engine left to fall through to,
- * so a wrapper around a single entry (the round-robin group itself) would add
- * nothing but a duplicate, generically-named onEngineFailure report for a
- * failure the round-robin already reports by real engine name; its own
- * cooldown would also have to be force-disabled to avoid one member's
- * failure cooling down the whole group a second time.
- *
- * With exactly one keyed engine, wraps it in a single-entry
- * FallbackSearchEngine purely for the cooldown/quota-cooldown circuit
- * breaker -- without it, a provider already known to be quota-exhausted
- * would be hit again on every call instead of short-circuiting to a clear
- * "in cooldown" error.
+ * Keyed site/capability routing is wrapped with the keyless Strategy only at
+ * the outer boundary. The outer chain has no cooldown of its own, so one keyed
+ * peer never cools down the whole group; each keyed peer and the keyless
+ * adapter retain independent circuit-breaker state. If a keyed provider throws
+ * and keyless is empty or blocked, the earlier actionable provider error is
+ * preserved rather than converted to an empty-success result.
  *
  * The returned engine implements ISearchEngine — swap it for any stub
  * in tests without touching call sites.
@@ -135,10 +130,13 @@ function isAnswerCapable(engine: ISearchEngine): engine is ISearchEngine & IAnsw
 export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
 	const env = opts.env ?? process.env;
 	const { engines: rotationEngines, names: rotationNames } = buildConfiguredEngines(env, opts.onUsage);
+	const keyless = new FallbackSearchEngine([opts.keylessEngine ?? new FirecrawlKeylessSearchEngine()], {
+		cooldownMs: opts.cooldownMs,
+		quotaCooldownMs: opts.quotaCooldownMs,
+		onEngineFailure: opts.onEngineFailure ? (_index, error, reason) => opts.onEngineFailure?.("firecrawl", error, reason) : undefined,
+	});
 
-	if (rotationEngines.length === 0) {
-		throw new Error(NO_ENGINE_CONFIGURED_ERROR);
-	}
+	if (rotationEngines.length === 0) return keyless;
 
 	const namedEngines: NamedSearchEngine[] = rotationEngines.map((engine, i) => ({
 		name: rotationNames[i] as string,
@@ -165,7 +163,12 @@ export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISea
 	}
 
 	const contentAware = new CapabilityRoutedSearchEngine(namedEngines, plain);
-	return new SiteRoutedSearchEngine(namedEngines, contentAware, { tracker: opts.siteAvailabilityTracker });
+	const keyed = new SiteRoutedSearchEngine(namedEngines, contentAware, { tracker: opts.siteAvailabilityTracker });
+	return new FallbackSearchEngine([keyed, keyless], {
+		cooldownMs: 0,
+		quotaCooldownMs: 0,
+		preserveEarlierError: true,
+	});
 }
 
 export interface DefaultAnswerEngineOptions {

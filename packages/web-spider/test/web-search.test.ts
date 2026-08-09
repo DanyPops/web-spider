@@ -1159,7 +1159,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 	});
 
 	function clearAllProviderKeys(): void {
-		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) {
 			delete process.env[key];
 		}
 	}
@@ -1170,9 +1170,10 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		expect(() => defaultSearchEngine()).not.toThrow();
 	});
 
-	it("with zero keyed providers configured, throws a clear no-engine-configured error", () => {
+	it("with zero keyed providers configured, resolves the keyless fallback", async () => {
 		clearAllProviderKeys();
-		expect(() => defaultSearchEngine()).toThrow(/no search engine api key configured/i);
+		const keyless = okEngine([RESULT_A]);
+		await expect(defaultSearchEngine({ keylessEngine: keyless }).search(REQ)).resolves.toEqual([RESULT_A]);
 	});
 
 	it("round-robins across every configured keyed provider (spreads calls instead of always hitting the same one)", async () => {
@@ -1240,7 +1241,7 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		expect(callCount).toBe(2); // every call reaches the one configured engine, nothing skipped
 	});
 
-	it("defaultSearchEngine returns the round-robin group directly -- one member's failure never cools down a healthy peer", async () => {
+	it("a keyed peer failure falls back keylessly without cooling down the healthy keyed peer", async () => {
 		clearAllProviderKeys();
 		process.env.TAVILY_API_KEY = "tavily-key";
 		process.env.SERPER_API_KEY = "serper-key";
@@ -1261,14 +1262,10 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 		}) as typeof fetch;
 
 		try {
-			const engine = defaultSearchEngine();
-			expect(engine).toBeInstanceOf(SiteRoutedSearchEngine); // SiteRoutedSearchEngine wraps the round-robin group, not an outer FallbackSearchEngine
-			// Tavily is checked before Serper, so the round-robin's first turn
-			// always lands on it -- that call legitimately throws (no keyless
-			// fallback exists to mask a real failure anymore). The point of this
-			// test is the *second* call: the round-robin's own per-engine cooldown
-			// routes it to the healthy Serper peer instead of also failing.
-			await expect(engine.search({ query: "q1" })).rejects.toThrow();
+			const engine = defaultSearchEngine({ keylessEngine: okEngine([RESULT_B]) });
+			// First rotation lands on failing Tavily and succeeds through the
+			// last-resort Strategy. The next rotation still reaches healthy Serper.
+			await expect(engine.search({ query: "q1" })).resolves.toEqual([RESULT_B]);
 			const second = await engine.search({ query: "q2" });
 			expect(second.length).toBeGreaterThan(0);
 		} finally {
@@ -2240,7 +2237,12 @@ describe("webSearch — wantAnswer/wantFullContent dispatch", () => {
 		let capturedBody: Record<string, unknown> = {};
 		globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
 			capturedBody = JSON.parse(init?.body as string);
-			return { ok: true, status: 200, statusText: "OK", json: async () => ({ results: [] }) };
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }),
+			};
 		}) as typeof fetch;
 		try {
 			await webSearch("test", { wantFullContent: true });
@@ -2270,12 +2272,16 @@ describe("defaultSearchEngine — you.com wiring", () => {
 		const originalFetch = globalThis.fetch;
 		const calledHosts: string[] = [];
 		globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-			calledHosts.push(new URL(url).host);
+			const host = new URL(url).host;
+			calledHosts.push(host);
 			return {
 				ok: true,
 				status: 200,
 				statusText: "OK",
-				json: async () => ({ results: [{ url: "https://a.example", title: "A" }], web: [] }),
+				json: async () =>
+					host === "api.ydc-index.io"
+						? { results: { web: [{ url: "https://a.example", title: "A", snippets: ["A"] }] } }
+						: { results: [{ url: "https://a.example", title: "A" }] },
 			};
 		}) as typeof fetch;
 

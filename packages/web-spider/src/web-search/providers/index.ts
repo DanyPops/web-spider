@@ -3,6 +3,12 @@
 export { BRAVE_FRESHNESS, BraveSearchEngine, type BraveSearchOptions, braveSearch } from "./brave.js";
 export { BraveLlmContextSearchEngine, type BraveLlmContextSearchOptions, braveLlmContextSearch } from "./brave-llm.js";
 export { ExaSearchEngine, type ExaSearchOptions, exaSearch } from "./exa.js";
+export {
+	FirecrawlKeylessSearchEngine,
+	type FirecrawlKeylessSearchOptions,
+	firecrawlKeylessSearch,
+	type SearchTransport,
+} from "./firecrawl-keyless.js";
 export { SerpApiSearchEngine, type SerpApiSearchOptions, serpApiSearch } from "./serpapi.js";
 export { SerperSearchEngine, type SerperSearchOptions, serperSearch } from "./serper.js";
 export {

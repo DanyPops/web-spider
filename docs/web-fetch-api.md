@@ -284,7 +284,7 @@ With `format: "lean"`, each entry in `pages` is a full lean page object.
 
 ## Search engines
 
-Every keyed engine with an API key set is round-robined as an equal-tier peer, spreading quota consumption instead of always hitting one first. Calling search with zero provider keys configured throws a clear error rather than returning an empty result.
+Every keyed engine with an API key set is round-robined as an equal-tier peer, spreading quota consumption instead of always hitting one first. Firecrawl's official keyless `/v2/search` endpoint is the bounded last resort, so search works with zero configuration. It is rate/credit limited per IP and may return an actionable `429`; configure a keyed provider for higher and more predictable limits.
 
 | Engine | Env var | Notes |
 |---|---|---|
@@ -301,7 +301,7 @@ Force a specific engine with `searchEngine: "brave"` | `"tavily"` | `"exa"` | `"
 
 A key can also live outside the daemon's raw process environment: `web-spider search-key set <engine>` stores it in a small local file instead (useful since a systemd `--user` service's environment is not actually scoped to what it needs), and Enigma can supply it too if configured. See the daemon README's "The full ladder" section for the exact precedence.
 
-DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it was removed. It's not a web search index — it only returns data for single named entities with a Wikipedia-style knowledge panel, and returns an empty (but HTTP-successful) response for nearly every other query. As the final entry in the fallback chain, an empty-but-successful DDG call masked real upstream failures (e.g. a quota-exhausted key) as an ordinary empty result instead of surfacing the error.
+DuckDuckGo's Instant Answer API was previously used as a zero-cost last-resort fallback; it remains removed. It is not a web search index and returns empty-success for most queries. The Firecrawl fallback uses an official structured web-search contract instead. If a keyed provider fails and Firecrawl is empty or blocked, Web Spider preserves the earlier actionable provider error rather than repeating the old empty-success masking bug.
 
 ### Site-restricted queries and per-domain routing
 

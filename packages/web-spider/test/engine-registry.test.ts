@@ -111,10 +111,10 @@ describe("defaultSearchEngine", () => {
 		expect(typeof engine.search).toBe("function");
 	});
 
-	it("throws a clear error when no provider key is configured", () => {
-		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"]) {
+	it("returns the keyless fallback when no provider key is configured", () => {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) {
 			delete process.env[key];
 		}
-		expect(() => defaultSearchEngine()).toThrow(/no search engine api key configured/i);
+		expect(typeof defaultSearchEngine().search).toBe("function");
 	});
 });

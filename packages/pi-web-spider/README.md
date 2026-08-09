@@ -40,13 +40,13 @@ SQLite (WAL) cache · fetch/crawl/search execution · optional Papyrus ingestion
 
 ## Configuring search
 
-Search needs at least one provider API key. Set it as an environment variable (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `YOU_API_KEY`) or store it locally:
+Search works without configuration through Firecrawl's bounded keyless fallback. For higher and more predictable limits, set a provider API key as an environment variable (`BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `YOU_API_KEY`) or store it locally:
 
 ```bash
 web-spider search-key set brave
 ```
 
-Configuring more than one provider gets you automatic round-robin quota spreading plus fallback — no code changes, just more keys.
+Configured providers are tried before keyless Firecrawl; configuring more than one gets automatic round-robin quota spreading plus fallback — no code changes, just more keys.
 
 ## Running as a service
 
