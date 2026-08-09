@@ -71,8 +71,10 @@ Rejected alternatives:
 - **Direct `pdfjs-dist`**: equal output and maximum control, but leaks a much
   larger low-level API into the adapter implementation and requires more
   lifecycle/text-normalization code with no fixture-quality gain.
-- **OCR/rendering packages**: outside this text-layer MVP and intentionally
-  remain in the dependent OCR task.
+- **OCR/rendering packages**: outside this text-layer MVP at the time this
+  document was written; a bounded OCR fallback (`tesseract.js` +
+  `unpdf`'s rasterization) has since landed as a dependent task — see
+  `docs/pdf-ocr-fallback.md`.
 
 ## Narrow contracts
 
@@ -104,7 +106,12 @@ it does not call `unpdf.extractText`, which fans out over every page.
 - Mark output dominated by invalid/replacement/private-use glyphs
   `contentOk: false` with `contentWarning: "garbled-text"`.
 - Multi-column ordering and table reconstruction are benchmark targets, not MVP
-  guarantees. OCR is not silently attempted.
+  guarantees.
+- A bounded OCR fallback automatically recovers empty/garbled pages where
+  possible and reports which pages it recovered plus a numeric
+  `pdf.qualityScore` — see `docs/pdf-ocr-fallback.md`. It is never silent:
+  a page that OCR cannot recover keeps its original, already-honest
+  `contentOk`/`contentWarning` signal.
 
 Explicit page-range requests are cache-ineligible so a partial result cannot
 poison or masquerade as the default cached document; the default bounded PDF

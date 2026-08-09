@@ -131,6 +131,17 @@ describe("execute() result and failure channels", () => {
 		expect(result.details).toMatchObject({ format: "markdown", complete: false, truncated: true });
 	});
 
+	it("recovers a genuinely image-only PDF via the OCR fallback and preserves ocrPages/qualityScore through the Pi surface", async () => {
+		const pdf = readFileSync(new URL("../../web-spider/test/fixtures/pdf/recoverable-scanned.pdf", import.meta.url));
+		server.set("/scan.bin", pdf, "application/octet-stream");
+		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/scan.bin` })) as ToolResult;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload.contentOk).toBe(true);
+		expect(payload.pdf).toMatchObject({ totalPages: 1, ocrPages: [1] });
+		expect(payload.pdf.qualityScore).toBeGreaterThan(0.5);
+		expect(payload.markdown).toContain("Recovered by OCR fallback");
+	}, 30_000);
+
 	it("marks token-budget-truncated JSON source incomplete through the Pi surface", async () => {
 		server.set("/large-source.json", JSON.stringify({ value: "abcdefghijklmnopqrstuvwxyz" }), "application/json");
 		const result = (await h.invokeTool("web_fetch", {

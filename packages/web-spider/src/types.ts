@@ -8,6 +8,10 @@ export interface PdfPageInfo {
 	pageEnd: number;
 	/** True when the selected range does not cover the complete document. */
 	truncated: boolean;
+	/** 0.0-1.0 text-quality signal; 0 for no text layer, degraded by invalid/replacement glyphs. */
+	qualityScore?: number;
+	/** Page numbers (within the selected range) whose text was recovered by the OCR fallback. */
+	ocrPages?: number[];
 }
 
 export type ContentQualityWarning = "no-text-layer" | "garbled-text";

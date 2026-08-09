@@ -160,6 +160,16 @@ describe("FetchService — bounded PDF text-layer extraction", () => {
 			pdf: { totalPages: 1 },
 		});
 	});
+
+	test("recovers a genuinely image-only PDF via the OCR fallback and exposes ocrPages/qualityScore on the wire", async () => {
+		const { service } = makeService(pdfClient("recoverable-scanned.pdf", "application/pdf"));
+		const result = await service.fetch({ url: pdfUrl });
+		const pdf = result.pdf as { totalPages: number; ocrPages?: number[]; qualityScore?: number } | undefined;
+		expect(result.contentOk).toBe(true);
+		expect(pdf).toMatchObject({ totalPages: 1, ocrPages: [1] });
+		expect(pdf?.qualityScore).toBeGreaterThan(0.5);
+		expect(result.markdown).toContain("Recovered by OCR fallback");
+	}, 30_000);
 });
 
 describe("FetchService — normalized source format", () => {

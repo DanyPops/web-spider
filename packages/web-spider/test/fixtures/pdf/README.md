@@ -15,5 +15,12 @@ license:
 `malformed.pdf` is a deliberately invalid local fixture and contains no
 third-party content.
 
+`recoverable-scanned.pdf` is a locally generated fixture (no third-party
+content): a single page with no text layer at all, containing only a
+rasterized image of the text "Recovered by OCR fallback / This page has no
+text layer." It exists to prove the OCR fallback (see
+`docs/pdf-ocr-fallback.md`) actually recovers real text end to end, as
+opposed to `scanned.pdf`, whose embedded image has no text in it at all.
+
 Source: <https://github.com/mozilla/pdf.js>
 License: <https://github.com/mozilla/pdf.js/blob/master/LICENSE>

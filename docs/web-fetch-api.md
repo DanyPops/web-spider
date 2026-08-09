@@ -222,11 +222,24 @@ PDFs are detected by `application/pdf` or a `%PDF-` header even when a server la
   "wordCount": 842,
   "markdown": "--- Page 2 ---\n\n…\n\n--- Page 3 ---\n\n…",
   "contentOk": true,
-  "pdf": { "totalPages": 20, "pageStart": 2, "pageEnd": 3, "truncated": true }
+  "pdf": { "totalPages": 20, "pageStart": 2, "pageEnd": 3, "truncated": true, "qualityScore": 1 }
 }
 ```
 
-Extraction is text-layer only, bounded to 20 MiB and 50 selected pages. An image-only/scanned PDF returns `contentOk: false` with `contentWarning: "no-text-layer"`; invalid CID/replacement-glyph dominated text returns `"garbled-text"`. Web Spider never claims OCR, multi-column reconstruction, or perfect tables. A real PDF outline is included as a bounded table of contents when available. Other binary formats remain unsupported.
+Extraction is text-layer only, bounded to 20 MiB and 50 selected pages. Every PDF result reports a numeric `pdf.qualityScore` (0.0–1.0). A page with no usable text automatically falls back to a bounded OCR pass (see below) before any quality signal is decided; a page OCR cannot recover keeps `contentOk: false` with `contentWarning: "no-text-layer"` (still no text at all) or `"garbled-text"` (invalid CID/replacement-glyph dominated text). Web Spider never claims multi-column reconstruction or perfect tables. A real PDF outline is included as a bounded table of contents when available. Other binary formats remain unsupported.
+
+#### OCR fallback
+
+An empty or garbled page is automatically re-rendered as an image and passed through an offline OCR engine (`tesseract.js`), bounded to at most 5 pages per request. A page it successfully recovers appears in `pdf.ocrPages` (1-based page numbers) with its recovered text merged into `markdown` as normal:
+
+```json
+{
+  "contentOk": true,
+  "pdf": { "totalPages": 1, "pageStart": 1, "pageEnd": 1, "truncated": false, "qualityScore": 0.95, "ocrPages": [1] }
+}
+```
+
+OCR recovery is reliable for genuinely scanned/image-only pages. It is *attempted but not guaranteed* for CID-corrupted text: some invalid-glyph encodings cannot be rasterized at all (a real, documented limitation — see `docs/pdf-ocr-fallback.md`), in which case the page keeps its original, already-honest `garbled-text` signal rather than silently failing or crashing the request.
 
 ---
 

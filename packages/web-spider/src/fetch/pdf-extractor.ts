@@ -1,5 +1,5 @@
 import { chunk } from "../extract/convert.js";
-import type { DOMNode, LeanPage, SpideredPage } from "../types.js";
+import type { ContentQualityWarning, DOMNode, LeanPage, SpideredPage } from "../types.js";
 import type {
 	ContentExtractionOptions,
 	ContentExtractionResult,
@@ -7,6 +7,7 @@ import type {
 	FetchedResource,
 	TreePage,
 } from "./content-extractor.js";
+import { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./pdf-ocr.js";
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const MAX_PDF_PAGES_PER_REQUEST = 50;
@@ -47,6 +48,8 @@ export interface PdfExtraction {
 	pages: PdfExtractedPage[];
 	outline?: PdfOutlineEntry[];
 	metadata?: PdfMetadata;
+	/** Page numbers whose text was recovered by an OCR fallback (see pdf-ocr.ts), if any. */
+	ocrPages?: number[];
 }
 
 /** Narrow parser port. Third-party PDF.js objects never cross this boundary. */
@@ -207,6 +210,8 @@ function titleFromUrl(url: string): string {
 	}
 }
 
+const GARBLED_TEXT_THRESHOLD = 0.2;
+
 function invalidGlyphRatio(text: string): number {
 	const visible = [...text].filter((character) => !/\s/u.test(character));
 	if (visible.length === 0) return 0;
@@ -214,10 +219,18 @@ function invalidGlyphRatio(text: string): number {
 	return invalid / visible.length;
 }
 
-function qualityOf(text: string): { contentOk: boolean; contentWarning?: "no-text-layer" | "garbled-text" } {
-	if (!text.trim()) return { contentOk: false, contentWarning: "no-text-layer" };
-	if (invalidGlyphRatio(text) >= 0.2) return { contentOk: false, contentWarning: "garbled-text" };
-	return { contentOk: true };
+/** True when a page's text is empty or dominated by invalid/replacement glyphs — the OCR fallback's trigger. */
+export function pageNeedsOcr(text: string): boolean {
+	if (!text.trim()) return true;
+	return invalidGlyphRatio(text) >= GARBLED_TEXT_THRESHOLD;
+}
+
+function qualityOf(text: string): { contentOk: boolean; contentWarning?: ContentQualityWarning; qualityScore: number } {
+	if (!text.trim()) return { contentOk: false, contentWarning: "no-text-layer", qualityScore: 0 };
+	const ratio = invalidGlyphRatio(text);
+	const qualityScore = Math.max(0, 1 - ratio);
+	if (ratio >= GARBLED_TEXT_THRESHOLD) return { contentOk: false, contentWarning: "garbled-text", qualityScore };
+	return { contentOk: true, qualityScore };
 }
 
 function outlineMarkdown(outline: readonly PdfOutlineEntry[]): string {
@@ -248,9 +261,19 @@ function boundedTree(pages: readonly PdfExtractedPage[], tokenBudget: number | u
 	return { tag: "pdf", path: "pdf", children };
 }
 
+/**
+ * The default parser: real text-layer extraction, with an automatic OCR fallback for
+ * pages that come back empty or garbled (see pdf-ocr.ts). Both OCR dependencies are only
+ * dynamically imported inside the rare code path that actually needs them, so constructing
+ * this has no cost for the common good-text-layer case.
+ */
+function defaultOcrEnabledParser(): PdfExtractor {
+	return new OcrFallbackPdfExtractor(new UnpdfPdfExtractor(), new UnpdfPageRasterizer(), new TesseractOcrEngine());
+}
+
 /** Content Strategy that normalizes the narrow PdfExtractor result into Web Spider pages. */
 export class PdfContentExtractor implements ContentExtractor {
-	constructor(private readonly parser: PdfExtractor = new UnpdfPdfExtractor()) {}
+	constructor(private readonly parser: PdfExtractor = defaultOcrEnabledParser()) {}
 
 	supports(resource: FetchedResource): boolean {
 		return normalizedMediaType(resource.contentType) === "application/pdf" || hasPdfHeader(resource.bytes);
@@ -271,11 +294,14 @@ export class PdfContentExtractor implements ContentExtractor {
 		const quality = qualityOf(fullText);
 		const wordCount = fullText.split(/\s+/u).filter(Boolean).length;
 		const metadata = extracted.metadata ?? {};
+		const ocrPages = (extracted.ocrPages ?? []).filter((page) => page >= pageStart && page <= pageEnd);
 		const pdf = {
 			totalPages: extracted.totalPages,
 			pageStart,
 			pageEnd,
 			truncated: pageEnd < extracted.totalPages || pageStart > 1,
+			qualityScore: quality.qualityScore,
+			...(ocrPages.length > 0 ? { ocrPages } : {}),
 		};
 		const identity = {
 			url: resource.url,

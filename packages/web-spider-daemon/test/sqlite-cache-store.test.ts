@@ -108,6 +108,25 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		});
 	});
 
+	test("preserves OCR-recovered qualityScore and ocrPages metadata on cache hits", () => {
+		const { store } = storeWithTmpDir();
+		const url = "https://a.example/ocr-recovered.pdf";
+		store.set(
+			url,
+			page({
+				url,
+				contentType: "application/pdf",
+				contentOk: true,
+				pdf: { totalPages: 1, pageStart: 1, pageEnd: 1, truncated: false, qualityScore: 0.97, ocrPages: [1] },
+			}),
+		);
+		expect(store.get(url)).toMatchObject({
+			contentType: "application/pdf",
+			contentOk: true,
+			pdf: { totalPages: 1, pageStart: 1, pageEnd: 1, truncated: false, qualityScore: 0.97, ocrPages: [1] },
+		});
+	});
+
 	test("set() with one query-param order then get() with a different order hits the same cache entry, not a miss", () => {
 		const { store } = storeWithTmpDir();
 		store.set("https://a.example/search?b=2&a=1", page({ url: "https://a.example/search?b=2&a=1" }));

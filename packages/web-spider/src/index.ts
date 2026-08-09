@@ -33,6 +33,8 @@ export type {
 	PdfPageRange,
 } from "./fetch/pdf-extractor.js";
 export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fetch/pdf-extractor.js";
+export type { OcrEngine, OcrResult, PdfPageImage, PdfPageRasterizer } from "./fetch/pdf-ocr.js";
+export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export type { SpiderOptions } from "./fetch/spider.js";
 export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";

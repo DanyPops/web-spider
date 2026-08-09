@@ -11,7 +11,7 @@ pi install npm:@danypops/pi-web-spider
 ### `web_fetch`
 Fetch a URL, crawl N hops deep, or search the web — one tool, three modes:
 
-- **Fetch**: `url` → clean markdown, lean outline, link list, BM25F highlights, or a semantic tree. JSON/text is normalized, while PDFs get bounded text-layer extraction with `pdfPageStart`/`pdfPageEnd` (1-based, inclusive, maximum 50 pages). Image-only PDFs report `contentOk: false` rather than implying OCR.
+- **Fetch**: `url` → clean markdown, lean outline, link list, BM25F highlights, or a semantic tree. JSON/text is normalized, while PDFs get bounded text-layer extraction with `pdfPageStart`/`pdfPageEnd` (1-based, inclusive, maximum 50 pages). Empty/garbled pages get an automatic, bounded OCR fallback; a page it still can't recover reports `contentOk: false` honestly rather than implying success.
 - **Crawl**: `url` + `depth` → BFS crawl same-domain links, `robots.txt`-respecting and per-domain throttled, with an explicit audited `ignoreRobots` opt-out for a human-directed one-off.
 - **Search**: `searchQuery` instead of `url` → real ranked results instead of a guessed slug. Routes across whichever of Brave, Brave LLM Context, Tavily, Exa, Serper, SerpApi, and You.com you've configured, round-robining for quota spread and falling back automatically on a rate limit or empty result.
 - **Cache query**: omit `url` entirely → full-text search or filter (domain, tag, curated category, date range) over every page already fetched, disk-backed, survives restarts, zero network cost.
