@@ -10,7 +10,7 @@
  * urls' full quote text is included) was dumped verbatim into the
  * terminal collapsed view, the same channel meant for a one-line summary.
  */
-import { type AgentToolResult, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, getMarkdownTheme, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Markdown, type MarkdownTheme, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	COLLAPSED_ITEM_PREVIEW,
@@ -281,7 +281,11 @@ export class QuotesResultCard implements Component {
 		const theme = this.theme;
 		const expanded = this.expanded;
 		const color = details.errors > 0 && details.quotesReturned === 0 ? "warning" : "success";
-		const lines = [truncateToWidth(theme.fg(color, summary(details)), safeWidth)];
+		// Quote text/citationUrl are never shown collapsed -- there is always more to see on
+		// expand, so the hint always applies here (unlike WebResultCard/session-presentation's
+		// own conditional placements, which only show it when something was actually omitted).
+		const headerText = expanded ? summary(details) : `${summary(details)} · ${keyHint("app.tools.expand", "expand for details")}`;
+		const lines = [truncateToWidth(theme.fg(color, headerText), safeWidth)];
 		const shown = expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW);
 		for (const item of shown) lines.push(truncateToWidth(theme.fg("accent", `  ${item}`), safeWidth));
 		if (!expanded && details.items.length > shown.length) lines.push(theme.fg("muted", `  … ${details.items.length - shown.length} more`));

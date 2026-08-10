@@ -62,6 +62,13 @@ describe("web_quotes dual-channel presentation", () => {
 		expect(text).toContain("2");
 	});
 
+	it("shows the real, possibly user-remapped expand keybinding hint only while collapsed", () => {
+		const resources = [resource("https://example.com/a", "a matching quote here", "https://example.com/a#:~:text=x")];
+		const result = createQuotesResult({ query: "q", urlsRequested: 1, resources }, createQuotesDetails("q", resources));
+		expect(render(result, false)).toContain("expand for details");
+		expect(render(result, true)).not.toContain("expand for details");
+	});
+
 	it("summarizes quote/error counts when collapsed and shows per-resource previews", () => {
 		const resources = [
 			resource("https://example.com/good", "a matching quote here", "https://example.com/good#:~:text=x"),
