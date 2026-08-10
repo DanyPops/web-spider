@@ -2,6 +2,8 @@
 	"name": "@danypops/pi-web-spider",
 	"version": "0.20.0",
 	"license": "MIT",
+	"author": "Daniel Popsuevich",
+	"homepage": "https://pi.dev/packages/@danypops/pi-web-spider",
 	"description": "Pi extension for web_fetch, web_search, and live browser sessions: 7 search providers (Brave, Brave LLM Context, Tavily, Exa, Serper, SerpApi, You.com) with automatic fallback, robots.txt-respecting crawl, GitHub/Wikipedia/llms.txt-aware fetching, and a disk-backed page cache, all behind a supervised daemon",
 	"keywords": [
 		"pi-package",

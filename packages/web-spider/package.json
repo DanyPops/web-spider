@@ -2,6 +2,20 @@
 	"name": "@danypops/web-spider",
 	"version": "0.15.0",
 	"license": "MIT",
+	"author": "Daniel Popsuevich",
+	"homepage": "https://github.com/DanyPops/web-spider/tree/main/packages/web-spider#readme",
+	"keywords": [
+		"web-scraping",
+		"readability",
+		"crawler",
+		"web-fetch",
+		"ai-agent",
+		"llm-tools",
+		"rag",
+		"markdown",
+		"pdf-extraction",
+		"headless-browser"
+	],
 	"files": [
 		"dist",
 		"package.json"
