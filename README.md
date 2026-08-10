@@ -2,6 +2,8 @@
 
 Search, fetch, and crawl the web for Pi — a supervised daemon owns the SQLite page cache, fetch/crawl/search execution, and (opt-in) Papyrus ingestion; the Pi extension is a thin authenticated client that renders results.
 
+This is the contributor-facing README (architecture, storage layout, development). Installing the Pi extension or using `web_fetch`/`web_session`? See **[`packages/pi-web-spider/README.md`](packages/pi-web-spider/README.md)** for the install command, feature overview, and quick-start examples.
+
 ## Architecture
 
 ```text

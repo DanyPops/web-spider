@@ -1,10 +1,42 @@
 # @danypops/pi-web-spider
 
+[![npm version](https://img.shields.io/npm/v/@danypops/pi-web-spider.svg)](https://www.npmjs.com/package/@danypops/pi-web-spider)
+[![license: MIT](https://img.shields.io/npm/l/@danypops/pi-web-spider.svg)](https://github.com/DanyPops/web-spider/blob/main/LICENSE)
+
 Web fetch, web search, and real browser sessions for [Pi](https://github.com/earendil-works/pi) — an agent-ready alternative to raw HTML scraping.
+
+## Why Web Spider
+
+- **Zero-config search** — works with no API key via a bounded keyless fallback (Firecrawl); configure any of 7 keyed providers (Brave, Brave LLM Context, Tavily, Exa, Serper, SerpApi, You.com) for higher limits, with automatic round-robin quota-spreading and fallback once you do.
+- **Honest PDF extraction** — bounded text-layer extraction with an automatic OCR fallback for scanned or garbled pages. A page that genuinely can't be recovered reports `contentOk: false`, never a false-success claim.
+- **Real structured extraction, not scraping** — GitHub (REST/GraphQL), MediaWiki (Wikipedia and any MediaWiki wiki), `llms.txt`, and `.md`-suffix docs (AWS-docs-style) are queried through their actual APIs.
+- **A disk-backed page cache that survives restarts** — every fetch is cached to SQLite (WAL) and searchable by full text, domain, tag, curated category, or date range, at zero network cost on a hit.
+- **Real interactive browser sessions** — `web_session` for pages a single fetch can't handle: type, click, select, wait on async results, read tables, screenshot, handle native dialogs, capture downloads.
 
 ```
 pi install npm:@danypops/pi-web-spider
 ```
+
+## Quick Start
+
+```js
+// Fetch a page as clean markdown
+web_fetch({ url: "https://example.com/docs/getting-started" })
+
+// Crawl one hop of same-domain links
+web_fetch({ url: "https://example.com", depth: 1 })
+
+// Search the web instead of fetching a URL
+web_fetch({ searchQuery: "readability extraction library comparison" })
+
+// Query everything already cached, no network call
+web_fetch({ query: "readability extraction", domain: "github.com" })
+
+// Open an interactive browser session for a page that needs real input
+web_session({ operation: "create", name: "research" })
+```
+
+See [`docs/web-fetch-api.md`](https://github.com/DanyPops/web-spider/blob/main/docs/web-fetch-api.md) for the full parameter/output reference behind these examples.
 
 ## Tools
 
@@ -25,6 +57,8 @@ Persistent, named browser sessions for pages that need real interaction, not a s
 Your own curated relevance categories over cached pages (e.g. "Code", "PTP Protocol") — distinct from a page's domain or its publisher's own tags. A page can belong to more than one category; assign, remove, rename, or list.
 
 ## Architecture
+
+![Web Spider architecture: Pi → pi-web-spider thin client → authenticated loopback daemon → operation registry → web-spider core library (SQLite cache, HTTP client, PDF+OCR, search providers)](./assets/architecture.png)
 
 A supervised daemon (`@danypops/web-spider-daemon`) owns the SQLite page cache and every network fetch, crawl, throttle, and robots.txt check. This extension is a thin authenticated client — it never touches the network or a cache file directly, and auto-starts the daemon transparently on first use.
 

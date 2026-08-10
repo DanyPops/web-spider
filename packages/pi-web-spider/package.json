@@ -20,12 +20,14 @@
 	"type": "module",
 	"main": "./src/index.ts",
 	"files": [
-		"src"
+		"src",
+		"assets"
 	],
 	"pi": {
 		"extensions": [
 			"./src/index.ts"
-		]
+		],
+		"image": "https://raw.githubusercontent.com/DanyPops/web-spider/main/packages/pi-web-spider/assets/architecture.png"
 	},
 	"dependencies": {
 		"@danypops/vehicle-client": "^0.7.0",
