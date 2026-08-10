@@ -30,12 +30,12 @@
 		"image": "https://raw.githubusercontent.com/DanyPops/web-spider/main/packages/pi-web-spider/assets/architecture.png"
 	},
 	"dependencies": {
-		"@danypops/vehicle-client": "^0.7.0",
-		"@danypops/vehicle-client-pi": "^0.19.0",
-		"@danypops/vehicle-core": "^0.12.5",
+		"@danypops/vehicle-client": "^0.7.1",
+		"@danypops/vehicle-client-pi": "^0.25.1",
+		"@danypops/vehicle-core": "^0.14.0",
 		"@danypops/web-spider": "^0.15.0",
 		"@danypops/web-spider-daemon": "^0.19.0",
-		"malevich-tui-components": "0.24.0"
+		"malevich-tui-components": "0.25.0"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
