@@ -25,6 +25,7 @@ import {
 	formatCategoryListResult,
 	formatCategoryRemoveResult,
 	formatCategoryRenameResult,
+	formatDaemonDiagnoseResult,
 	formatFetchResult,
 	formatSearchResult,
 	formatSearchTestKeysResult,
@@ -212,6 +213,7 @@ function usage(stderr: (line: string) => void): number {
 			"       web-spider search-key test <engine>    live-test every locally stored key for this engine [--json]",
 			"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
 			"       web-spider enigma <enable|disable|status>  persist the non-secret Enigma opt-in outside service environment data",
+			"       web-spider daemon diagnose [--history-limit N] [--json]  this daemon's own identity + recent restart history",
 			"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
 			"                          [--published-after ISO] [--published-before ISO]",
 			"                          [--sort-by fetchedAt|publishedAt|url|domain] [--sort-order asc|desc] [--offset N] [--limit N] [--json]",
@@ -661,6 +663,21 @@ async function runCategoryList(rest: string[], deps: CliDependencies): Promise<n
 	}
 }
 
+async function runDaemonDiagnose(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, ["--history-limit"], []);
+	if (!parsed) return usage(deps.stderr);
+	const historyLimit = parseIntFlag(parsed.values, "history-limit");
+	if (Number.isNaN(historyLimit)) return usage(deps.stderr);
+	try {
+		const result = await deps.client.call("daemon.diagnose", { historyLimit });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatDaemonDiagnoseResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
 async function runSessionCreate(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(rest, [], ["--force-chrome-channel"]);
 	const name = parsed?.positional[0];
@@ -811,6 +828,11 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 		if (subcommand === "remove") return runCategoryRemove(categoryRest, deps);
 		if (subcommand === "rename") return runCategoryRename(categoryRest, deps);
 		if (subcommand === "list") return runCategoryList(categoryRest, deps);
+		return usage(deps.stderr);
+	}
+	if (command === "daemon") {
+		const [subcommand, ...daemonRest] = rest;
+		if (subcommand === "diagnose") return runDaemonDiagnose(daemonRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command === "session") {

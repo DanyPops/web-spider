@@ -8,10 +8,17 @@
  * handleCacheListing/handleCacheSearch. Later tasks (fetch/crawl/search)
  * add operations here without touching the auth/transport shape.
  */
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { VehicleRegistry } from "@danypops/vehicle-server";
+import {
+	type DaemonIdentity,
+	type DaemonLifecycleEvent,
+	type DaemonLifecycleLog,
+	diagnoseDaemon,
+} from "@danypops/vehicle-server/daemon-lifecycle";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
@@ -32,11 +39,13 @@ import {
 	SESSION_DOWNLOADS_DIRECTORY_NAME,
 	SQLITE_SCHEMA_VERSION,
 } from "./constants.ts";
+import { resolveCurrentIdentityOrWait } from "./daemon-lifecycle.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./fetch/crawl-service.ts";
 import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch/fetch-service.ts";
 import { registerCacheVehicleOperations } from "./handlers/cache.ts";
 import { registerCategoryVehicleOperations } from "./handlers/category.ts";
+import { registerDaemonVehicleOperations } from "./handlers/daemon.ts";
 import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
 import { registerSearchVehicleOperations } from "./handlers/search.ts";
 import { registerSessionVehicleOperations } from "./handlers/session.ts";
@@ -67,6 +76,7 @@ import { SQLiteSessionAuditJournal } from "./session/sqlite-session-audit-journa
 import { VERSION } from "./version.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
+	"daemon.diagnose",
 	"cache.list",
 	"cache.search",
 	"search",
@@ -86,6 +96,7 @@ export const EXPECTED_OPERATION_NAMES = [
 export type OperationName = (typeof EXPECTED_OPERATION_NAMES)[number];
 
 export interface OperationInputs {
+	"daemon.diagnose": { historyLimit?: number };
 	"cache.list": CachedPageListFilter;
 	"cache.search": { query: string; limit?: number };
 	search: WebSearchInput;
@@ -103,6 +114,7 @@ export interface OperationInputs {
 	"category.list": Record<string, never>;
 }
 export interface OperationOutputs {
+	"daemon.diagnose": Awaited<ReturnType<typeof diagnoseDaemon>>;
 	"cache.list": CachedPageListResult;
 	"cache.search": CachedPageSearchResult;
 	search: WebSearchOutput;
@@ -270,8 +282,17 @@ function handlers(
 	sessionService: SessionService,
 	searchUsage: SearchUsageJournal,
 	loadSearchKeys: (engine: string) => string[],
+	lifecycleLog: DaemonLifecycleLog,
+	getCurrentIdentity: () => DaemonIdentity | undefined,
 ): Record<OperationName, OperationHandler> {
 	return {
+		"daemon.diagnose": async (input) => {
+			// See resolveCurrentIdentityOrWait's own doc comment (daemon-lifecycle.ts): a real,
+			// narrow race, not a hypothetical -- the daemon handle a real client polls for becomes
+			// visible before this daemon's own onListen populates getCurrentIdentity().
+			const current = await resolveCurrentIdentityOrWait(getCurrentIdentity);
+			return diagnoseDaemon({ lifecycleLog, current, historyLimit: optionalNumber(input, "historyLimit") });
+		},
 		"cache.list": (input) =>
 			store.list({
 				grep: optionalString(input, "grep"),
@@ -350,6 +371,25 @@ export interface WebSpiderServiceDependencies {
 	loadSearchKeys?: (engine: string) => string[];
 	/** Lazy factory for the daemon-owned enhanced fetch client. Tests inject a fake; production constructs Playwright. */
 	enhancedClientFactory?: () => AsyncDisposableHttpClient;
+	/** Persistent, durable-across-restarts structured event log for daemon.diagnose (see daemon-lifecycle.ts). Defaults to an in-memory, this-process-only log for callers (most tests) that don't care about restart history -- daemon.diagnose still works out of the box, it just has nothing from a prior instance to report. Production wiring (daemon.ts) passes a real file-backed one. */
+	lifecycleLog?: DaemonLifecycleLog;
+	/** Lazily resolves this daemon's own current identity for daemon.diagnose. Defaults to one fixed identity minted at construction time -- real production wiring (daemon.ts) passes a getter reading a ref populated once the real daemon has actually bound (see vehicle-server daemon.ts's own onListen doc comment on why identity isn't known any earlier). May return undefined during that narrow pre-bind window; the handler fails safely rather than crashing when it does. */
+	getCurrentIdentity?: () => DaemonIdentity | undefined;
+}
+
+/** This-process-only default for callers who don't care about lifecycle history surviving a restart (most tests, and any daemon.ts that hasn't wired a real file-backed one yet) -- daemon.diagnose still works, it just always reports empty history. */
+function createInMemoryLifecycleLog(): DaemonLifecycleLog {
+	const events: DaemonLifecycleEvent[] = [];
+	return {
+		async record(event) {
+			const full = { ...event, at: new Date().toISOString() };
+			events.push(full);
+			return full;
+		},
+		async recent(limit) {
+			return limit === undefined ? [...events] : events.slice(-limit);
+		},
+	};
 }
 
 export interface WebSpiderService {
@@ -429,7 +469,25 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
-	const registry = handlers(store, webSearch, fetchService, crawlService, sessionService, searchUsage, deps.loadSearchKeys ?? (() => []));
+	const defaultIdentity: DaemonIdentity = {
+		instanceId: randomUUID(),
+		pid: process.pid,
+		startedAt: new Date().toISOString(),
+		provenance: "unknown",
+	};
+	const lifecycleLog: DaemonLifecycleLog = deps.lifecycleLog ?? createInMemoryLifecycleLog();
+	const getCurrentIdentity = deps.getCurrentIdentity ?? (() => defaultIdentity);
+	const registry = handlers(
+		store,
+		webSearch,
+		fetchService,
+		crawlService,
+		sessionService,
+		searchUsage,
+		deps.loadSearchKeys ?? (() => []),
+		lifecycleLog,
+		getCurrentIdentity,
+	);
 	const vehicleRegistry = new VehicleRegistry({
 		name: "web-spider",
 		packageJsonUrl: new URL("../package.json", import.meta.url),
@@ -438,6 +496,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	// withVehicleErrorParity() already converts every real handler error into a well-formed
 	// VehicleError, so this only affects a genuine registration/binding bug.
 	vehicleRegistry.setExposeHandlerFailureDetails(true);
+	registerDaemonVehicleOperations(vehicleRegistry, lifecycleLog, getCurrentIdentity);
 	registerCategoryVehicleOperations(vehicleRegistry, store);
 	registerCacheVehicleOperations(vehicleRegistry, store);
 	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage, deps.loadSearchKeys ?? (() => []));

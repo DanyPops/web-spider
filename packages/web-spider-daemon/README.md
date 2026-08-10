@@ -176,6 +176,7 @@ web-spider session act <name> --action navigate --snapshot-version N --url URL [
 web-spider session act <name> --action click --snapshot-version N --selector CSS [--timeout-ms N] [--json]
 web-spider session act <name> --action eval --snapshot-version N [--script-file PATH] [--json]
 web-spider session act <name> --action screenshot --snapshot-version N [--json]
+web-spider daemon diagnose [--history-limit N] [--json]
 ```
 
 `session act --action eval` never accepts the script as a plain flag value (shell history and `ps` would leak it) — it reads the script from `--script-file PATH`, or from stdin if that's omitted:
@@ -190,6 +191,8 @@ Every `session act` call needs the session's current `snapshotVersion` (from `se
 `papyrus ingest` requires each URL to already be cached (`web-spider fetch <url>` first) and requires a running, authenticated Papyrus daemon — it fails closed with Papyrus's own actionable "daemon is not running" message when Papyrus isn't installed or started. It is never automatic: nothing is pushed to Papyrus except in direct response to this explicit call.
 
 `fetch` and `crawl` share one command: `--depth N` (N > 0) or `--crawl-urls URL,URL,...` (a selective, no-re-discovery crawl of exactly those URLs, even without `--depth`) routes to the `crawl` operation, matching the `web_fetch` tool's own single-entry-point shape. Bounds (`depth` ≤ 5, `maxPages` ≤ 200, `crawlUrls` ≤ 50 entries, `deadlineMs` ≤ 300000ms, etc.) are enforced by the daemon regardless of what the CLI requests.
+
+`daemon diagnose` reports this daemon's own current instance identity (`instanceId`/`pid`/`startedAt`/`provenance`) plus its recent restart history (`started`/`already_running`/`stopped`/`crashed` events, each carrying an instance id, pid, timestamp, and shutdown reason where applicable) -- bounded to the 50 most recent events, surviving a restart (backed by `@danypops/vehicle-server`'s shared daemon-lifecycle log, a persistent file under this daemon's own state directory). Use it to tell whether the daemon is flapping without reading its state files directly: `--history-limit N` bounds how much history comes back, defaulting to everything retained.
 
 ### UI-audit toolkit (internal library, not yet a daemon operation)
 

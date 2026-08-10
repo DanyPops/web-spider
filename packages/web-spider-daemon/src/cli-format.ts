@@ -14,6 +14,7 @@ import type {
 } from "./cache/page.ts";
 import type { WebSearchOutput } from "./search/search-service.ts";
 import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
+import type { OperationOutputs } from "./service.ts";
 import type { SessionInfo } from "./session/session.ts";
 import type { SessionActOutput } from "./session/session-service.ts";
 
@@ -185,6 +186,19 @@ export function formatCategoryListResult(result: CategoryListResult): string {
 		`${result.categories.length} categor${result.categories.length === 1 ? "y" : "ies"}`,
 		...result.categories.map((c) => `  ${c.name}  (${c.pageCount} page(s), id=${c.id})`),
 	].join("\n");
+}
+
+export function formatDaemonDiagnoseResult(result: OperationOutputs["daemon.diagnose"]): string {
+	const lines = [
+		`instance ${result.instanceId} (pid ${result.pid}, ${result.provenance})`,
+		`started ${result.startedAt}`,
+		result.history.length === 0 ? "No recorded restart history yet." : `Recent history (${result.history.length}):`,
+		...result.history.map((event) => {
+			const reason = event.reason ? ` -- ${event.reason}` : "";
+			return `  ${event.at}  ${event.type}  instance=${event.instanceId} pid=${event.pid}${reason}`;
+		}),
+	];
+	return lines.join("\n");
 }
 
 function formatSessionInfoLine(session: SessionInfo): string {

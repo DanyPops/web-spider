@@ -20,6 +20,7 @@ import { createApp, createWebSpiderService, EXPECTED_OPERATION_NAMES, type Opera
 
 /** One CLI invocation per operation that must dispatch to exactly that operation. */
 const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
+	"daemon.diagnose": ["daemon", "diagnose"],
 	"cache.list": ["cache", "list"],
 	"cache.search": ["cache", "search", "drift-proof-query"],
 	search: ["search", "drift-proof-query"],
@@ -71,6 +72,11 @@ function fakeDeps(): { deps: CliDependencies; ops: OperationName[] } {
 					removed: true,
 					merged: false,
 					categories: [],
+					instanceId: "drift-proof-instance",
+					pid: 1,
+					startedAt: "2026-01-01T00:00:00.000Z",
+					provenance: "unknown",
+					history: [],
 				} as never;
 			},
 		},

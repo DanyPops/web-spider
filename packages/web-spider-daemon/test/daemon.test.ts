@@ -15,7 +15,13 @@ import { VERSION } from "../src/version.ts";
 
 const CLI_PATH = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
-async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+// The daemon's own stop() now always awaits a real (JSON read-modify-write, atomic-rename)
+// lifecycle-log write *before* removing the handle file (see vehicle-server daemon.ts) -- a few
+// extra ms under normal conditions, but this file spawns several real `bun` subprocesses across
+// its own tests, and disk/process-scheduling contention from that stacks up. 10s (not the
+// previous 5s) is comfortable headroom for a real subprocess round-trip, not a sign anything here
+// is actually slow in the steady state (measured consistently under 500ms in isolation).
+async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
 		if (predicate()) return;
@@ -81,6 +87,66 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 			rmSync(root, { recursive: true, force: true });
 		}
 	}, 15_000);
+
+	test("daemon.diagnose reports this instance's own identity, and a restarted daemon sees the prior instance's real history", async () => {
+		const root = mkdtempSync(join(tmpdir(), "web-spider-e2e-diagnose-"));
+		const env = {
+			...process.env,
+			HOME: root,
+			XDG_DATA_HOME: join(root, "data"),
+			XDG_STATE_HOME: join(root, "state"),
+			XDG_RUNTIME_DIR: join(root, "run"),
+			XDG_CONFIG_HOME: join(root, "config"),
+			WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
+		};
+		const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 });
+
+		const first = Bun.spawn(["bun", CLI_PATH, "serve"], { env, stdout: "pipe", stderr: "pipe" });
+		try {
+			await waitFor(() => readDaemonHandle(paths) !== null);
+			const client = connectWebSpiderClient(paths);
+			const diagnosis = (await client.call("daemon.diagnose", {})) as {
+				instanceId: string;
+				pid: number;
+				provenance: string;
+				history: Array<{ instanceId: string; type: string }>;
+			};
+			expect(diagnosis.instanceId).toEqual(expect.any(String));
+			expect(diagnosis.pid).toBe(first.pid);
+			expect(diagnosis.provenance).toBe("unknown");
+			// First ever instance under this isolated root -- no prior history to report yet.
+			expect(diagnosis.history.map((event) => event.type)).toEqual(["started"]);
+			const firstInstanceId = diagnosis.instanceId;
+
+			first.kill("SIGTERM");
+			await first.exited;
+			await waitFor(() => readDaemonHandle(paths) === null);
+
+			const second = Bun.spawn(["bun", CLI_PATH, "serve"], { env, stdout: "pipe", stderr: "pipe" });
+			try {
+				await waitFor(() => readDaemonHandle(paths) !== null);
+				const secondClient = connectWebSpiderClient(paths);
+				const secondDiagnosis = (await secondClient.call("daemon.diagnose", {})) as {
+					instanceId: string;
+					history: Array<{ instanceId: string; type: string; reason?: string }>;
+				};
+				expect(secondDiagnosis.instanceId).not.toBe(firstInstanceId);
+				// Real restart history survived the restart -- the whole point of a *persistent* lifecycle log.
+				expect(secondDiagnosis.history).toEqual([
+					expect.objectContaining({ instanceId: firstInstanceId, type: "started" }),
+					expect.objectContaining({ instanceId: firstInstanceId, type: "stopped", reason: "SIGTERM" }),
+					expect.objectContaining({ instanceId: secondDiagnosis.instanceId, type: "started" }),
+				]);
+			} finally {
+				second.kill("SIGTERM");
+				await second.exited;
+				await waitFor(() => readDaemonHandle(paths) === null);
+			}
+		} finally {
+			if (!first.killed) first.kill("SIGTERM");
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 30_000);
 
 	test("connectWebSpiderClient fails closed with an actionable message when no daemon is running", () => {
 		const root = mkdtempSync(join(tmpdir(), "web-spider-no-daemon-"));

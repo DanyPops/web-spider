@@ -8,9 +8,11 @@
  * the exact bug this file's own checkpoint/optimize timers were fixed for
  * earlier this session.
  */
-import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
+import { readLaunchProvenance, runDaemonProcess } from "@danypops/vehicle-server/daemon";
+import type { DaemonIdentity } from "@danypops/vehicle-server/daemon-lifecycle";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
+import { createWebSpiderLifecycleLog, resolveDaemonLifecycleLogPath } from "./daemon-lifecycle.ts";
 import { resolveAdditionalSearchKeys, resolveSearchEnv } from "./search/search-env.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search/search-secrets.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
@@ -30,7 +32,19 @@ export async function serveMain(): Promise<void> {
 	const searchKeysDir = resolveSearchKeysDir(paths);
 	const additionalSearchKeys = resolveAdditionalSearchKeys(searchKeysDir);
 	const loadSearchKeys = (engine: string) => createSearchKeyStore(searchKeysDir, engine).loadAll();
-	const service = createWebSpiderService(paths.database, { env, additionalSearchKeys, loadSearchKeys });
+
+	// Persistent (XDG_STATE_HOME, survives a restart) -- the whole point of a lifecycle log is
+	// seeing what a *previous* process instance did, not just this one.
+	const lifecycleLog = createWebSpiderLifecycleLog(resolveDaemonLifecycleLogPath(paths));
+	// Real identity is only known once runDaemonProcess's own startDaemon() mints it -- which
+	// happens *inside* startDaemon(), after buildApp() (where daemon.diagnose gets registered)
+	// already ran. This mutable ref is how the handler (reading it lazily, at call time, well after
+	// the daemon has finished starting) learns the real value onListen captures below -- see
+	// vehicle-server daemon.ts's own onListen doc comment for why there's no earlier hook.
+	let currentIdentity: DaemonIdentity | undefined;
+	const getCurrentIdentity = () => currentIdentity;
+
+	const service = createWebSpiderService(paths.database, { env, additionalSearchKeys, loadSearchKeys, lifecycleLog, getCurrentIdentity });
 	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
 
 	runDaemonProcess({
@@ -42,7 +56,16 @@ export async function serveMain(): Promise<void> {
 			{ name: "checkpoint", intervalMs: WAL_CHECKPOINT_INTERVAL_MS, run: () => service.checkpoint() },
 			{ name: "optimize", intervalMs: DB_OPTIMIZE_INTERVAL_MS, run: () => service.optimize() },
 		],
+		lifecycleLog,
 		onShutdown: () => service.close(),
-		onListen: ({ host, port }) => logger.info("listening", { host, port }),
+		onListen: ({ host, port, instanceId }) => {
+			currentIdentity = {
+				instanceId,
+				pid: process.pid,
+				startedAt: new Date().toISOString(),
+				provenance: readLaunchProvenance(process.env),
+			};
+			logger.info("listening", { host, port });
+		},
 	});
 }

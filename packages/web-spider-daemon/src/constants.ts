@@ -11,6 +11,8 @@ export const WEB_SPIDER_STATE_DIRECTORY = "web-spider";
 export const DATABASE_FILENAME = "web-spider.db";
 export const TOKEN_FILENAME = "auth-token";
 export const HANDLE_FILENAME = "daemon.json";
+/** Sibling of TOKEN_FILENAME (persistent state, not the ephemeral runtime-dir handle) so restart history survives across restarts -- the whole point of a lifecycle log. */
+export const LIFECYCLE_LOG_FILENAME = "lifecycle.json";
 /** Legacy descriptor retained only so migration tooling can locate and remove it after Armada is healthy. */
 export const LEGACY_SYSTEMD_UNIT_NAME = "web-spider.service";
 

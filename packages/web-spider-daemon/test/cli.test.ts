@@ -319,6 +319,41 @@ describe("runCli usage", () => {
 	});
 });
 
+describe("runCli daemon diagnose", () => {
+	test("forwards historyLimit to the daemon.diagnose operation", async () => {
+		const { deps, operations } = fakeDeps({
+			call: () => ({ instanceId: "i1", pid: 1, startedAt: "2026-01-01T00:00:00.000Z", provenance: "unknown", history: [] }),
+		});
+		await runCli(["daemon", "diagnose", "--history-limit", "5"], deps);
+		expect(operations).toEqual([{ op: "daemon.diagnose", input: { historyLimit: 5 } }]);
+	});
+
+	test("human output reports identity and no recorded restart history yet when empty", async () => {
+		const { deps, calls } = fakeDeps({
+			call: () => ({ instanceId: "i1", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z", provenance: "service", history: [] }),
+		});
+		await runCli(["daemon", "diagnose"], deps);
+		expect(calls[0]).toContain("i1");
+		expect(calls[0]).toContain("4242");
+		expect(calls[0]).toContain("No recorded restart history");
+	});
+
+	test("human output lists each history event", async () => {
+		const { deps, calls } = fakeDeps({
+			call: () => ({
+				instanceId: "i2",
+				pid: 1,
+				startedAt: "2026-01-01T00:00:00.000Z",
+				provenance: "unknown",
+				history: [{ instanceId: "i1", pid: 1, type: "stopped", at: "2026-01-01T00:01:00.000Z", provenance: "unknown", reason: "SIGTERM" }],
+			}),
+		});
+		await runCli(["daemon", "diagnose"], deps);
+		expect(calls[0]).toContain("stopped");
+		expect(calls[0]).toContain("SIGTERM");
+	});
+});
+
 describe("runCli search-key test", () => {
 	test("forwards the engine to the search.testKeys operation", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ engine: "brave", results: [] }) });
