@@ -12,6 +12,7 @@ Web fetch, web search, and real browser sessions for [Pi](https://github.com/ear
 - **Real structured extraction, not scraping** — GitHub (REST/GraphQL), MediaWiki (Wikipedia and any MediaWiki wiki), `llms.txt`, and `.md`-suffix docs (AWS-docs-style) are queried through their actual APIs.
 - **A disk-backed page cache that survives restarts** — every fetch is cached to SQLite (WAL) and searchable by full text, domain, tag, curated category, or date range, at zero network cost on a hit.
 - **Real interactive browser sessions** — `web_session` for pages a single fetch can't handle: type, click, select, wait on async results, read tables, screenshot, handle native dialogs, capture downloads.
+- **A standalone resource finder, not just a summarizer** — `web_quotes` returns ranked, verbatim quotes per URL with a copy-pasteable citation link, never an LLM-digested answer.
 
 ```
 pi install npm:@danypops/pi-web-spider
@@ -34,6 +35,10 @@ web_fetch({ query: "readability extraction", domain: "github.com" })
 
 // Open an interactive browser session for a page that needs real input
 web_session({ operation: "create", name: "research" })
+
+// Deep research: find sources, then pull exact quotes from them
+web_fetch({ searchQuery: "precision time protocol clock synchronization" })
+web_quotes({ query: "clock synchronization accuracy", urls: ["https://example.com/ptp-overview"] })
 ```
 
 See [`docs/web-fetch-api.md`](https://github.com/DanyPops/web-spider/blob/main/docs/web-fetch-api.md) for the full parameter/output reference behind these examples.
@@ -56,6 +61,9 @@ Persistent, named browser sessions for pages that need real interaction, not a s
 ### `web_category`
 Your own curated relevance categories over cached pages (e.g. "Code", "PTP Protocol") — distinct from a page's domain or its publisher's own tags. A page can belong to more than one category; assign, remove, rename, or list.
 
+### `web_quotes`
+A standalone resource finder: given a query and an explicit list of URLs (typically a prior `web_fetch(searchQuery=...)` call's own results), fetches each one and returns ranked, verbatim BM25F quotes per URL as resource cards — never an LLM-digested summary. Every quote carries a `citationUrl`, a real URL Text Fragment (`#:~:text=...`) that scrolls to and highlights the exact quoted passage in any modern browser. `maxQuotesPerUrl`/`maxQuotesTotal` bound the per-source and combined result; a URL that fails to fetch becomes its own `{ url, error }` card instead of failing the whole batch.
+
 ## Architecture
 
 ![Web Spider architecture: Pi → pi-web-spider thin client → authenticated loopback daemon → operation registry → web-spider core library (SQLite cache, HTTP client, PDF+OCR, search providers)](./assets/architecture.png)
@@ -63,7 +71,7 @@ Your own curated relevance categories over cached pages (e.g. "Code", "PTP Proto
 A supervised daemon (`@danypops/web-spider-daemon`) owns the SQLite page cache and every network fetch, crawl, throttle, and robots.txt check. This extension is a thin authenticated client — it never touches the network or a cache file directly, and auto-starts the daemon transparently on first use.
 
 ```
-pi web_fetch / web_session / web_category
+pi web_fetch / web_session / web_category / web_quotes
       ↓
 this extension (thin client)
       ↓

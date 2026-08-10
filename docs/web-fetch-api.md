@@ -357,9 +357,9 @@ Some domains block most search engines' crawlers outright -- Reddit updated its 
 
 ---
 
-## Resource finder (`quotes`)
+## Resource finder (`web_quotes` / `quotes`)
 
-Not yet a `web_fetch` parameter — currently a daemon operation and CLI command only (`web-spider quotes <query> --urls URL,URL,...`; see `packages/web-spider-daemon/README.md`'s Operations table for the full reference). Documented here because it completes the same "deep research" recipe `format: "highlights"` starts: rather than fetching each search result one at a time, `quotes` takes a `query` plus an explicit `urls` list (typically a prior `searchQuery` call's results) and returns ranked, verbatim BM25F quotes **per url** in one call — a list of resource cards, never an LLM-digested summary:
+A standalone Pi tool (`web_quotes`), not a `web_fetch` parameter — also available as a daemon operation and CLI command (`web-spider quotes <query> --urls URL,URL,...`; see `packages/web-spider-daemon/README.md`'s Operations table for the full reference). It completes the same "deep research" recipe `format: "highlights"` starts: rather than fetching each search result one at a time, `web_quotes(query, urls)` takes a `query` plus an explicit `urls` list (typically a prior `web_fetch(searchQuery=...)` call's results) and returns ranked, verbatim BM25F quotes **per url** in one call — a list of resource cards, never an LLM-digested summary:
 
 ```json
 {

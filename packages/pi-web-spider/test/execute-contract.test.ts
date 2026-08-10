@@ -298,3 +298,79 @@ describe("web_category: curated relevance categories, end to end", () => {
 		}
 	});
 });
+
+describe("web_quotes: standalone resource-finder, end to end", () => {
+	it("returns ranked, verbatim quotes with a working citationUrl per quote", async () => {
+		server.set(
+			"/quotes-a",
+			"<html><body><article><h1>Clock sync</h1><p>The Precision Time Protocol synchronizes clocks across a network to sub-microsecond accuracy.</p></article></body></html>",
+		);
+		server.set(
+			"/quotes-b",
+			"<html><body><article><h1>Unrelated</h1><p>This page is about gardening tomatoes in containers.</p></article></body></html>",
+		);
+
+		const result = (await h.invokeTool("web_quotes", {
+			query: "Precision Time Protocol clock synchronization",
+			urls: [`${server.baseUrl}/quotes-a`, `${server.baseUrl}/quotes-b`],
+		})) as ToolResult;
+
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload.query).toBe("Precision Time Protocol clock synchronization");
+		expect(payload.resources).toHaveLength(2);
+
+		const hit = payload.resources.find((r: { url: string }) => r.url === `${server.baseUrl}/quotes-a`);
+		expect(hit.quotes.length).toBeGreaterThan(0);
+		expect(hit.quotes[0].text).toContain("Precision Time Protocol");
+		expect(hit.quotes[0].citationUrl).toContain(`${server.baseUrl}/quotes-a#:~:text=`);
+
+		expect(result.details).toMatchObject({ kind: "web-quotes", query: "Precision Time Protocol clock synchronization" });
+	});
+
+	it("isolates a per-url fetch failure without failing the whole batch", async () => {
+		server.set(
+			"/quotes-good",
+			"<html><body><article><h1>Good page</h1><p>This one fetches fine and matches the query text.</p></article></body></html>",
+		);
+
+		const result = (await h.invokeTool("web_quotes", {
+			query: "fetches fine",
+			urls: [`${server.baseUrl}/quotes-good`, `${server.baseUrl}/quotes-missing`],
+		})) as ToolResult;
+
+		const payload = JSON.parse(result.content[0].text);
+		const good = payload.resources.find((r: { url: string }) => r.url === `${server.baseUrl}/quotes-good`);
+		const bad = payload.resources.find((r: { url: string }) => r.url === `${server.baseUrl}/quotes-missing`);
+		expect(good.quotes.length).toBeGreaterThan(0);
+		expect(bad.error).toBeDefined();
+		expect(result.details).toMatchObject({ errors: 1 });
+	});
+
+	it("throws a clear error for an empty query", async () => {
+		server.set("/quotes-empty-query", "<html><body><article><h1>x</h1><p>y</p></article></body></html>");
+		await expect(h.invokeTool("web_quotes", { query: "", urls: [`${server.baseUrl}/quotes-empty-query`] })).rejects.toThrow(
+			/web_quotes failed/,
+		);
+	});
+
+	it("throws a clear error for an empty urls list", async () => {
+		await expect(h.invokeTool("web_quotes", { query: "anything", urls: [] })).rejects.toThrow(/web_quotes failed/);
+	});
+
+	it("real Vehicle cross-cutting policy (Activity Broker) fires for a real call", async () => {
+		const events: Array<{ type: string; refs: Record<string, unknown> }> = [];
+		registerActivityBroker({ publish: (event) => events.push(event) });
+		try {
+			server.set(
+				"/quotes-activity-check",
+				"<html><body><article><h1>Activity check</h1><p>Proving the decorator fires for quotes too.</p></article></body></html>",
+			);
+			await h.invokeTool("web_quotes", { query: "decorator fires", urls: [`${server.baseUrl}/quotes-activity-check`] });
+
+			const quotesEvents = events.filter((e) => e.refs.operation === "quotes");
+			expect(quotesEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
+		} finally {
+			unregisterActivityBroker();
+		}
+	});
+});
