@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/pi-web-spider",
-	"version": "0.21.3",
+	"version": "0.21.4",
 	"license": "MIT",
 	"author": "Daniel Popsuevich",
 	"homepage": "https://pi.dev/packages/@danypops/pi-web-spider",
@@ -31,7 +31,7 @@
 	},
 	"dependencies": {
 		"@danypops/vehicle-client": "^0.7.1",
-		"@danypops/vehicle-client-pi": "^0.25.1",
+		"@danypops/vehicle-client-pi": "^0.30.0",
 		"@danypops/vehicle-core": "^0.14.0",
 		"@danypops/web-spider": "^0.16.0",
 		"@danypops/web-spider-daemon": "^0.20.0",

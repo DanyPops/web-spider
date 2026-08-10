@@ -1,3 +1,4 @@
+import { expandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
@@ -9,7 +10,6 @@ import {
 	DETAILS_VERSION,
 	EXPANDED_PRIMARY_MAX_LINES,
 } from "./constants.js";
-import { expandHint } from "./expand-hint.js";
 
 /**
  * web_session's own dual-channel presentation — mirrors presentation.ts's

@@ -10,6 +10,8 @@
  * urls' full quote text is included) was dumped verbatim into the
  * terminal collapsed view, the same channel meant for a one-line summary.
  */
+
+import { expandHint, shouldShowExpandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import { type AgentToolResult, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Markdown, type MarkdownTheme, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
@@ -20,7 +22,6 @@ import {
 	EXPANDED_PRIMARY_MAX_LINES,
 	MODEL_CONTENT_MAX_CHARACTERS,
 } from "./constants.js";
-import { expandHint, shouldShowExpandHint } from "./expand-hint.js";
 
 export interface QuotesPresentationDetails {
 	version: typeof DETAILS_VERSION;
