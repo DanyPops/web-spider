@@ -40,6 +40,11 @@ describe("execute() result and failure channels", () => {
 		expect(definition).toBeDefined();
 		expect(typeof definition?.renderCall).toBe("function");
 		expect(typeof definition?.renderResult).toBe("function");
+
+		const quotesDefinition = h.tools.get("web_quotes")?.definition;
+		expect(quotesDefinition).toBeDefined();
+		expect(typeof quotesDefinition?.renderCall).toBe("function");
+		expect(typeof quotesDefinition?.renderResult).toBe("function");
 	});
 
 	it("throws invalid URL failures through Pi's native error channel", async () => {
@@ -372,5 +377,38 @@ describe("web_quotes: standalone resource-finder, end to end", () => {
 		} finally {
 			unregisterActivityBroker();
 		}
+	});
+
+	it("renders a bounded summary card end to end instead of dumping raw JSON into the collapsed view", async () => {
+		server.set(
+			"/quotes-render-check",
+			"<html><body><article><h1>Render check</h1><p>This exact sentence about clock synchronization must never appear collapsed.</p></article></body></html>",
+		);
+		const result = (await h.invokeTool("web_quotes", {
+			query: "clock synchronization",
+			urls: [`${server.baseUrl}/quotes-render-check`],
+		})) as ToolResult;
+
+		const definition = h.tools.get("web_quotes")?.definition;
+		const theme = {
+			fg: (_c: string, t: string) => t,
+			bg: (_c: string, t: string) => t,
+			bold: (t: string) => t,
+			italic: (t: string) => t,
+			strikethrough: (t: string) => t,
+			underline: (t: string) => t,
+		} as unknown as Parameters<NonNullable<typeof definition.renderResult>>[2];
+		const collapsed = definition
+			?.renderResult?.(result, { expanded: false, isPartial: false }, theme, { cwd: "/tmp", isError: false } as never)
+			?.render(80)
+			.join("\n");
+		expect(collapsed).not.toContain("This exact sentence about clock synchronization");
+		expect(collapsed).toContain("quote");
+
+		const expanded = definition
+			?.renderResult?.(result, { expanded: true, isPartial: false }, theme, { cwd: "/tmp", isError: false } as never)
+			?.render(80)
+			.join("\n");
+		expect(expanded).toContain("This exact sentence about clock synchronization");
 	});
 });

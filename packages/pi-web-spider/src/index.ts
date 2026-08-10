@@ -29,6 +29,7 @@ import {
 	renderWebFetchResult,
 	type WebPresentationDetails,
 } from "./presentation.js";
+import { createQuotesDetails, createQuotesResult, renderWebQuotesCall, renderWebQuotesResult } from "./quotes-presentation.js";
 import { invokeWebSpiderVehicleOperation } from "./retrying-client.js";
 import {
 	createSessionActDetails,
@@ -1060,44 +1061,6 @@ export default async function (pi: ExtensionAPI) {
 
 	type QuotesParams = Static<typeof quotesParamsSchema>;
 
-	interface QuotesPresentationDetails {
-		version: typeof DETAILS_VERSION;
-		kind: "web-quotes";
-		query: string;
-		urlsRequested: number;
-		quotesReturned: number;
-		errors: number;
-		items: string[];
-		total: number;
-		truncated: boolean;
-	}
-
-	function createQuotesDetails(query: string, resources: Array<Record<string, unknown>>): QuotesPresentationDetails {
-		let quotesReturned = 0;
-		let errorCount = 0;
-		const rows = resources.map((resource) => {
-			if (typeof resource.error === "string") {
-				errorCount += 1;
-				return `${String(resource.url ?? "")}  ERROR: ${resource.error}`;
-			}
-			const quotes = Array.isArray(resource.quotes) ? resource.quotes : [];
-			quotesReturned += quotes.length;
-			return `${String(resource.title ?? resource.url ?? "")}  (${quotes.length} quote(s))`;
-		});
-		const items = rows.slice(0, DETAILS_MAX_ITEMS);
-		return {
-			version: DETAILS_VERSION,
-			kind: "web-quotes",
-			query,
-			urlsRequested: resources.length,
-			quotesReturned,
-			errors: errorCount,
-			items,
-			total: rows.length,
-			truncated: rows.length > items.length,
-		};
-	}
-
 	pi.registerTool({
 		name: "web_quotes",
 		label: "Web Quotes",
@@ -1110,6 +1073,12 @@ export default async function (pi: ExtensionAPI) {
 		].join("\n"),
 		promptSnippet: "Resource finder: ranked, verbatim BM25F quotes per url, each with a citationUrl -- never an LLM-digested answer",
 		parameters: quotesParamsSchema,
+		renderCall(args, theme, context) {
+			return renderWebQuotesCall(args, theme, context);
+		},
+		renderResult(result, options, theme, context) {
+			return renderWebQuotesResult(result, options, theme, context);
+		},
 		async execute(toolCallId, params: QuotesParams, signal, _onUpdate, context) {
 			try {
 				if (!params.query?.trim()) throw new Error("query is required and must be non-empty");
@@ -1134,10 +1103,7 @@ export default async function (pi: ExtensionAPI) {
 					},
 					callMeta,
 				);
-				return {
-					content: [{ type: "text" as const, text: JSON.stringify(result) }],
-					details: createQuotesDetails(result.query, result.resources),
-				};
+				return createQuotesResult(result, createQuotesDetails(result.query, result.resources));
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				throw new Error(`web_quotes failed: ${message}`);
