@@ -10,7 +10,7 @@
  * urls' full quote text is included) was dumped verbatim into the
  * terminal collapsed view, the same channel meant for a one-line summary.
  */
-import { type AgentToolResult, getMarkdownTheme, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Markdown, type MarkdownTheme, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	COLLAPSED_ITEM_PREVIEW,
@@ -20,6 +20,7 @@ import {
 	EXPANDED_PRIMARY_MAX_LINES,
 	MODEL_CONTENT_MAX_CHARACTERS,
 } from "./constants.js";
+import { expandHint, shouldShowExpandHint } from "./expand-hint.js";
 
 export interface QuotesPresentationDetails {
 	version: typeof DETAILS_VERSION;
@@ -281,20 +282,18 @@ export class QuotesResultCard implements Component {
 		const theme = this.theme;
 		const expanded = this.expanded;
 		const color = details.errors > 0 && details.quotesReturned === 0 ? "warning" : "success";
-		// Quote text/citationUrl are never shown collapsed -- there is always more to see on
-		// expand, so the hint always applies here (unlike WebResultCard/session-presentation's
-		// own conditional placements, which only show it when something was actually omitted).
-		const headerText = expanded ? summary(details) : `${summary(details)} · ${keyHint("app.tools.expand", "expand for details")}`;
-		const lines = [truncateToWidth(theme.fg(color, headerText), safeWidth)];
+		const text = fallbackText(this.result);
 		const shown = expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW);
+		// Quote text/citationUrl are never shown collapsed -- expanding is effectively always
+		// revealing, since `text` is only empty for a request with zero resources at all.
+		const hasHiddenContent = text.length > 0;
+		const headerText = shouldShowExpandHint(expanded, hasHiddenContent) ? `${summary(details)} · ${expandHint()}` : summary(details);
+		const lines = [truncateToWidth(theme.fg(color, headerText), safeWidth)];
 		for (const item of shown) lines.push(truncateToWidth(theme.fg("accent", `  ${item}`), safeWidth));
 		if (!expanded && details.items.length > shown.length) lines.push(theme.fg("muted", `  … ${details.items.length - shown.length} more`));
 
 		let finalLines = lines;
-		if (expanded) {
-			const text = fallbackText(this.result);
-			if (text) finalLines = [...lines, "", ...primaryLines(text, safeWidth, theme)];
-		}
+		if (expanded && text) finalLines = [...lines, "", ...primaryLines(text, safeWidth, theme)];
 
 		this.cachedWidth = safeWidth;
 		this.cachedLines = finalLines;

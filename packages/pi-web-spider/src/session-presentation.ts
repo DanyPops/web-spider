@@ -1,4 +1,4 @@
-import { type AgentToolResult, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	COLLAPSED_ITEM_PREVIEW,
@@ -9,6 +9,7 @@ import {
 	DETAILS_VERSION,
 	EXPANDED_PRIMARY_MAX_LINES,
 } from "./constants.js";
+import { expandHint } from "./expand-hint.js";
 
 /**
  * web_session's own dual-channel presentation — mirrors presentation.ts's
@@ -355,7 +356,7 @@ export class SessionResultCard implements Component {
 		for (const item of shown) lines.push(truncateToWidth(theme.fg("text", `  ${item}`), safeWidth));
 		const omitted = details.total - shown.length;
 		if (omitted > 0) {
-			const suffix = expanded ? "" : ` · ${keyHint("app.tools.expand", "expand for details")}`;
+			const suffix = expanded ? "" : ` · ${expandHint()}`;
 			lines.push(truncateToWidth(theme.fg("muted", `  … ${omitted} more`) + suffix, safeWidth));
 		}
 
@@ -371,7 +372,7 @@ export class SessionResultCard implements Component {
 					: bodyLines;
 			lines.push(...capped);
 		} else if (!expanded && details.body) {
-			lines.push(truncateToWidth(`  ${keyHint("app.tools.expand", "expand for details")}`, safeWidth));
+			lines.push(truncateToWidth(`  ${expandHint()}`, safeWidth));
 		}
 
 		this.cachedWidth = safeWidth;

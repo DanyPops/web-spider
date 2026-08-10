@@ -68,6 +68,8 @@ describe("web_fetch dual-channel presentation", () => {
 		);
 		expect(render(result)).toContain("Fetched markdown · Example · 2 words · cache hit");
 		expect(render(result)).not.toContain("Primary body");
+		expect(render(result)).toContain("expand for details");
+		expect(render(result, true)).not.toContain("expand for details");
 		expect(render(result, true)).toContain("Primary body");
 		expect(JSON.stringify(result.details)).not.toContain("Primary body");
 		for (const width of [40, 80, 120]) {

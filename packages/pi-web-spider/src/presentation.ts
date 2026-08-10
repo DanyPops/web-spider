@@ -9,6 +9,7 @@ import {
 	EXPANDED_PRIMARY_MAX_LINES,
 	MODEL_CONTENT_MAX_CHARACTERS,
 } from "./constants.js";
+import { expandHint, shouldShowExpandHint } from "./expand-hint.js";
 
 export type WebOperation = "search" | "fetch" | "crawl" | "cache-list" | "cache-search" | "tree-full" | "tree-query" | "tree-path";
 export type WebFormat = "search" | "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
@@ -467,8 +468,11 @@ export class WebResultCard implements Component {
 		const theme = this.theme;
 		const expanded = this.expanded;
 		const color = details.status === "blocked" ? "warning" : details.status === "empty" ? "muted" : "success";
-		const lines = [truncateToWidth(theme.fg(color, summary(details)), safeWidth)];
+		const text = fallbackText(this.result);
 		const shown = expanded ? details.items : details.items.slice(0, COLLAPSED_ITEM_PREVIEW);
+		const hasHiddenContent = text.length > 0 || details.items.length > shown.length;
+		const headerText = shouldShowExpandHint(expanded, hasHiddenContent) ? `${summary(details)} · ${expandHint()}` : summary(details);
+		const lines = [truncateToWidth(theme.fg(color, headerText), safeWidth)];
 		for (const item of shown) {
 			lines.push(truncateToWidth(theme.fg("accent", `  ${item.title}`), safeWidth));
 			if (expanded) lines.push(truncateToWidth(theme.fg("dim", `    ${item.url}`), safeWidth));
@@ -476,10 +480,7 @@ export class WebResultCard implements Component {
 		if (!expanded && details.items.length > shown.length) lines.push(theme.fg("muted", `  … ${details.items.length - shown.length} more`));
 
 		let finalLines = lines;
-		if (expanded) {
-			const text = fallbackText(this.result);
-			if (text) finalLines = [...lines, "", ...primaryLines(text, details, safeWidth, theme)];
-		}
+		if (expanded && text) finalLines = [...lines, "", ...primaryLines(text, details, safeWidth, theme)];
 
 		this.cachedWidth = safeWidth;
 		this.cachedLines = finalLines;
