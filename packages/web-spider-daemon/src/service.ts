@@ -43,10 +43,12 @@ import { resolveCurrentIdentityOrWait } from "./daemon-lifecycle.ts";
 import { openWebSpiderDb, schemaVersion } from "./db.ts";
 import { type CrawlOperationInput, type CrawlOperationOutput, CrawlService } from "./fetch/crawl-service.ts";
 import { type FetchOperationInput, type FetchOperationOutput, FetchService } from "./fetch/fetch-service.ts";
+import { type QuotesOperationInput, type QuotesOperationOutput, QuotesService } from "./fetch/quotes-service.ts";
 import { registerCacheVehicleOperations } from "./handlers/cache.ts";
 import { registerCategoryVehicleOperations } from "./handlers/category.ts";
 import { registerDaemonVehicleOperations } from "./handlers/daemon.ts";
 import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
+import { registerQuotesVehicleOperations } from "./handlers/quotes.ts";
 import { registerSearchVehicleOperations } from "./handlers/search.ts";
 import { registerSessionVehicleOperations } from "./handlers/session.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
@@ -84,6 +86,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"search.testKeys",
 	"fetch",
 	"crawl",
+	"quotes",
 	"session.create",
 	"session.list",
 	"session.close",
@@ -104,6 +107,7 @@ export interface OperationInputs {
 	"search.testKeys": { engine: string };
 	fetch: FetchOperationInput;
 	crawl: CrawlOperationInput;
+	quotes: QuotesOperationInput;
 	"session.create": { name: string; forceChromeChannel?: boolean };
 	"session.list": Record<string, never>;
 	"session.close": SessionCloseInput;
@@ -122,6 +126,7 @@ export interface OperationOutputs {
 	"search.testKeys": { engine: string; results: KeyTestResult[] };
 	fetch: FetchOperationOutput;
 	crawl: CrawlOperationOutput;
+	quotes: QuotesOperationOutput;
 	"session.create": SessionInfo;
 	"session.list": { sessions: SessionInfo[] };
 	"session.close": { name: string; closed: true };
@@ -189,6 +194,18 @@ export function searchInput(input: OperationInput): WebSearchInput {
 		searchEngine: optionalString(input, "searchEngine") as WebSearchInput["searchEngine"],
 		siteFilter: optionalString(input, "siteFilter"),
 		wantFullContent: optionalBoolean(input, "wantFullContent"),
+	};
+}
+
+export function quotesInput(input: OperationInput): QuotesOperationInput {
+	return {
+		query: requireString(input, "query"),
+		urls: optionalStringArray(input, "urls") ?? [],
+		maxQuotesPerUrl: optionalNumber(input, "maxQuotesPerUrl"),
+		maxQuotesTotal: optionalNumber(input, "maxQuotesTotal"),
+		timeoutMs: optionalNumber(input, "timeoutMs"),
+		enhanced: optionalBoolean(input, "enhanced"),
+		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
 	};
 }
 
@@ -279,6 +296,7 @@ function handlers(
 	webSearch: WebSearchService,
 	fetchService: FetchService,
 	crawlService: CrawlService,
+	quotesService: QuotesService,
 	sessionService: SessionService,
 	searchUsage: SearchUsageJournal,
 	loadSearchKeys: (engine: string) => string[],
@@ -336,6 +354,7 @@ function handlers(
 				maxTotalChars: optionalNumber(input, "maxTotalChars"),
 				deadlineMs: optionalNumber(input, "deadlineMs"),
 			}),
+		quotes: (input) => quotesService.quotes(quotesInput(input)),
 		"session.create": (input) =>
 			sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
 		"session.list": () => ({ sessions: sessionService.list() }),
@@ -464,6 +483,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	};
 	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
+	const quotesService = new QuotesService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
 
 	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, logger });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
@@ -482,6 +502,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 		webSearch,
 		fetchService,
 		crawlService,
+		quotesService,
 		sessionService,
 		searchUsage,
 		deps.loadSearchKeys ?? (() => []),
@@ -501,6 +522,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	registerCacheVehicleOperations(vehicleRegistry, store);
 	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage, deps.loadSearchKeys ?? (() => []));
 	registerFetchVehicleOperations(vehicleRegistry, fetchService, crawlService);
+	registerQuotesVehicleOperations(vehicleRegistry, quotesService);
 	registerSessionVehicleOperations(vehicleRegistry, sessionService);
 
 	let closePromise: Promise<void> | undefined;

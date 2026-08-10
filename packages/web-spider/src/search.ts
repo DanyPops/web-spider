@@ -1,4 +1,5 @@
 import MiniSearch from "minisearch";
+import { buildTextFragmentUrl } from "./citation.js";
 import type { SpideredPage } from "./types.js";
 
 /** A single ranked match from fuzzySearch. */
@@ -19,6 +20,14 @@ export interface SearchHit {
 	/** Short context window around the best match, ≤ 2×snippetRadius chars.
 	 *  Prefixed/suffixed with "…" when truncated. */
 	snippet: string;
+	/**
+	 * A standards-based URL Text Fragment deep link (see citation.ts) that a
+	 * real browser navigates to and highlights this exact snippet on --
+	 * unlike chunkId, which only means something inside web-spider's own
+	 * cache. Absent when the snippet is too short/empty to encode a safe,
+	 * word-bounded match (never a broken or misleading link).
+	 */
+	citationUrl?: string;
 }
 
 export interface FuzzySearchOptions {
@@ -158,13 +167,19 @@ export function searchPages(pages: SpideredPage[], query: string, opts: FuzzySea
 	const fullQuery = query.trim().toLowerCase();
 	const queryTokens = tokenise(query);
 
-	return results.slice(0, topN).map((r) => ({
-		url: String(r.url),
-		chunkId: String(r.chunkId),
-		heading: String(r.heading),
-		score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
-		snippet: buildSnippet(String(r.text), fullQuery, queryTokens, snippetRadius),
-	}));
+	return results.slice(0, topN).map((r) => {
+		const url = String(r.url);
+		const snippet = buildSnippet(String(r.text), fullQuery, queryTokens, snippetRadius);
+		const citationUrl = buildTextFragmentUrl(url, snippet);
+		return {
+			url,
+			chunkId: String(r.chunkId),
+			heading: String(r.heading),
+			score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
+			snippet,
+			...(citationUrl !== undefined ? { citationUrl } : {}),
+		};
+	});
 }
 
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */

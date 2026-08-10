@@ -197,6 +197,8 @@ BM25F search — returns matching chunks with scores. Requires `query`. Use when
 
 When `depth > 0`, `highlights` searches across **all cached pages** from that crawl — pass `query` to search the whole corpus in one call.
 
+Each hit also carries a `citationUrl` when the matched text is long/specific enough to encode a safe match: a standards-based [URL Text Fragment](https://wicg.github.io/scroll-to-text-fragment/) deep link (`https://…#:~:text=…`) that a real browser (Chrome/Edge/Safari/Firefox) navigates to and automatically scrolls to + highlights — unlike `chunkId`, which only means something inside Web Spider's own cache, `citationUrl` is copy-pasteable and works standalone in any browser tab. Never fabricated: extracted mechanically from the same verbatim text as `text`, omitted (not emitted as null) when there isn't enough of it to encode a safe, word-bounded match.
+
 ---
 
 ### `source`
@@ -354,6 +356,29 @@ Some domains block most search engines' crawlers outright -- Reddit updated its 
 `siteFilter` and `wantFullContent` are both intent flags, not provider selectors: you declare *what* you want, never *which engine* produces it. The underlying `@danypops/web-spider` package routes each to whichever configured provider can actually satisfy it (falling through gracefully, not erroring, when none can) -- the same principle covers a not-yet-daemon-exposed `wantAnswer` flag at the package level for a synthesized, cited answer instead of a results list, resolved by capability rather than by naming Tavily specifically. `searchEngine` remains available as an explicit escape hatch (forcing one named provider) for debugging or cost control, but it's the exception, not the primary way to ask for something.
 
 ---
+
+## Resource finder (`quotes`)
+
+Not yet a `web_fetch` parameter — currently a daemon operation and CLI command only (`web-spider quotes <query> --urls URL,URL,...`; see `packages/web-spider-daemon/README.md`'s Operations table for the full reference). Documented here because it completes the same "deep research" recipe `format: "highlights"` starts: rather than fetching each search result one at a time, `quotes` takes a `query` plus an explicit `urls` list (typically a prior `searchQuery` call's results) and returns ranked, verbatim BM25F quotes **per url** in one call — a list of resource cards, never an LLM-digested summary:
+
+```json
+{
+  "query": "rate limiting strategies",
+  "urlsRequested": 2,
+  "resources": [
+    {
+      "url": "https://example.com/a",
+      "title": "Page A",
+      "quotes": [
+        { "heading": "Section One", "score": 0.91, "text": "A token bucket is one common rate limiting algorithm…", "citationUrl": "https://example.com/a#:~:text=…" }
+      ]
+    },
+    { "url": "https://example.com/b", "error": "HTTP 404 Not Found" }
+  ]
+}
+```
+
+`maxQuotesPerUrl` (default 3) caps each resource's own quote count so one page can't dominate the combined ranking and starve the others; `maxQuotesTotal` (default 15) caps the combined count across every resource. A url that fails to fetch becomes `{ url, error }` — it never fails the whole batch (per-url error isolation, the same principle `crawl`'s `errors`/`errorUrls` already follows).
 
 ## Context mesh (Papyrus ingestion)
 

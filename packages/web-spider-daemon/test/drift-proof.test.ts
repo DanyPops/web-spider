@@ -28,6 +28,7 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"search.testKeys": ["search-key", "test", "drift-proof-engine"],
 	fetch: ["fetch", "https://drift-proof.test/article"],
 	crawl: ["fetch", "https://drift-proof.test/article", "--depth", "1"],
+	quotes: ["quotes", "drift-proof-query", "--urls", "https://drift-proof.test/article"],
 	"session.create": ["session", "create", "drift-proof-session"],
 	"session.list": ["session", "list"],
 	"session.close": ["session", "close", "drift-proof-session"],
@@ -150,6 +151,9 @@ const DOCUMENTED_TOOL_PARAMETERS = new Set([
 	"offset",
 	"limit",
 	"ignoreRobots",
+	"urls",
+	"maxQuotesPerUrl",
+	"maxQuotesTotal",
 ]);
 
 /** Field names the daemon's fetch/crawl/search operations actually accept (service.ts's fetchInput()/handlers()). */
@@ -177,6 +181,9 @@ const DAEMON_OPERATION_FIELDS = [
 	"offset",
 	"limit",
 	"ignoreRobots",
+	"urls",
+	"maxQuotesPerUrl",
+	"maxQuotesTotal",
 ];
 
 describe("daemon operation fields → documented tool parameter surface", () => {

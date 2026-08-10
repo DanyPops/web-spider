@@ -1,4 +1,5 @@
 import MiniSearch from "minisearch";
+import { buildTextFragmentUrl } from "./citation.js";
 // ---------------------------------------------------------------------------
 // Snippet builder — kept from v1, MiniSearch doesn't generate snippets.
 // ---------------------------------------------------------------------------
@@ -97,13 +98,19 @@ export function searchPages(pages, query, opts = {}) {
     const maxRaw = results[0].score;
     const fullQuery = query.trim().toLowerCase();
     const queryTokens = tokenise(query);
-    return results.slice(0, topN).map((r) => ({
-        url: String(r.url),
-        chunkId: String(r.chunkId),
-        heading: String(r.heading),
-        score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
-        snippet: buildSnippet(String(r.text), fullQuery, queryTokens, snippetRadius),
-    }));
+    return results.slice(0, topN).map((r) => {
+        const url = String(r.url);
+        const snippet = buildSnippet(String(r.text), fullQuery, queryTokens, snippetRadius);
+        const citationUrl = buildTextFragmentUrl(url, snippet);
+        return {
+            url,
+            chunkId: String(r.chunkId),
+            heading: String(r.heading),
+            score: Math.round(Math.min(r.score / maxRaw, 1) * 100) / 100,
+            snippet,
+            ...(citationUrl !== undefined ? { citationUrl } : {}),
+        };
+    });
 }
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking. */
 export const fuzzySearch = searchPages;

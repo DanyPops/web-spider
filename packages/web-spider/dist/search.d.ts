@@ -17,6 +17,14 @@ export interface SearchHit {
     /** Short context window around the best match, ≤ 2×snippetRadius chars.
      *  Prefixed/suffixed with "…" when truncated. */
     snippet: string;
+    /**
+     * A standards-based URL Text Fragment deep link (see citation.ts) that a
+     * real browser navigates to and highlights this exact snippet on --
+     * unlike chunkId, which only means something inside web-spider's own
+     * cache. Absent when the snippet is too short/empty to encode a safe,
+     * word-bounded match (never a broken or misleading link).
+     */
+    citationUrl?: string;
 }
 export interface FuzzySearchOptions {
     /** Maximum hits to return (default 10). */

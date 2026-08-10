@@ -262,7 +262,13 @@ describe("linksOutput", () => {
 });
 
 describe("highlightHit", () => {
-	const hit = { heading: "Memory and State", score: 0.87, snippet: "Memory allows agents to retain", chunkId: "c1" };
+	const hit = {
+		url: NOISY_PAGE.url,
+		heading: "Memory and State",
+		score: 0.87,
+		snippet: "Memory allows agents to retain",
+		chunkId: "c1",
+	};
 
 	test("returns the full chunk text, not the snippet", () => {
 		const result = highlightHit(hit, NOISY_PAGE.chunks);
@@ -283,5 +289,16 @@ describe("highlightHit", () => {
 	});
 	test("includes heading when present", () => {
 		expect(highlightHit(hit, NOISY_PAGE.chunks).heading).toBe("Memory and State");
+	});
+
+	test("includes a Text Fragment citationUrl built from the hit's url and resolved text", () => {
+		const result = highlightHit(hit, NOISY_PAGE.chunks);
+		expect(typeof result.citationUrl).toBe("string");
+		expect(result.citationUrl as string).toContain("#:~:text=");
+		expect((result.citationUrl as string).startsWith(NOISY_PAGE.url)).toBe(true);
+	});
+	test("omits citationUrl when the resolved text is empty", () => {
+		const result = highlightHit({ ...hit, snippet: "", chunkId: "missing" }, NOISY_PAGE.chunks);
+		expect(result).not.toHaveProperty("citationUrl");
 	});
 });

@@ -60,6 +60,16 @@ export const FETCH_HIGHLIGHTS_DEFAULT_TOP_N = 5;
 export const FETCH_HIGHLIGHTS_SNIPPET_RADIUS = 150;
 export const CRAWL_HIGHLIGHTS_DEFAULT_TOP_N = 8;
 export const TREE_QUERY_DEFAULT_TOP_N = 5;
+// quotes: search + selective-fetch resource-finder op -- surfaces ranked,
+// verbatim BM25F quotes per requested url (a "resource card" list), never an
+// LLM-digested answer. See docs/web-fetch-api.md.
+/** Server-side cap on how many URLs a single quotes request may name -- same bound as CRAWL_URLS_MAX_COUNT's selective crawl. */
+export const QUOTES_MAX_URLS = 50;
+export const QUOTES_DEFAULT_PER_URL = 3;
+/** Per-url quote cap ceiling -- mirrors Perplexity's `content snippets --max-tokens-per-page`: no single url may starve the others' share of maxQuotesTotal. */
+export const QUOTES_PER_URL_CEILING = 20;
+export const QUOTES_DEFAULT_TOTAL = 15;
+export const QUOTES_TOTAL_CEILING = 100;
 /** Session-scoped tree cache — matches the pi-extension's existing bound (constants.ts TREE_CACHE_MAX_ENTRIES). */
 export const TREE_CACHE_MAX_ENTRIES = 20;
 

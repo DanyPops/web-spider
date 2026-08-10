@@ -9,7 +9,9 @@
  * operation outputs directly and remove its own copy, leaving this module
  * as the single source of truth.
  */
+
 import type { SpideredPage } from "@danypops/web-spider";
+import { buildTextFragmentUrl } from "@danypops/web-spider";
 
 /** Remove keys whose value is an empty string, empty array, false, or undefined. Keeps 0 and null. */
 export function omitEmpty(obj: Record<string, unknown>): Record<string, unknown> {
@@ -125,9 +127,17 @@ export function sourceOutput(page: SpideredPage, tokenBudget?: number): SourceOu
 	};
 }
 
-/** A single highlights hit — full chunk text only (never both text and a redundant snippet). */
+/**
+ * A single highlights hit — full chunk text only (never both text and a
+ * redundant snippet), plus a standards-based Text Fragment `citationUrl`
+ * (see @danypops/web-spider's citation.ts) built from the hit's own url and
+ * resolved text — a real, copy-pasteable browser deep link, distinct from
+ * `chunkId` which only means something inside web-spider's own cache.
+ * Omitted (never emitted as null/empty) when the resolved text is too
+ * short/empty to encode a safe, word-bounded match.
+ */
 export function highlightHit(
-	h: { heading: string; score: number; snippet: string; chunkId?: string },
+	h: { url: string; heading: string; score: number; snippet: string; chunkId?: string },
 	chunks: SpideredPage["chunks"],
 ): Record<string, unknown> {
 	const text = h.chunkId ? (chunks.find((c) => c.id === h.chunkId)?.text ?? h.snippet) : h.snippet;
@@ -135,5 +145,6 @@ export function highlightHit(
 		heading: h.heading,
 		score: h.score,
 		text,
+		citationUrl: buildTextFragmentUrl(h.url, text),
 	});
 }

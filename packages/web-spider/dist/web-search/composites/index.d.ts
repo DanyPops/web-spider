@@ -2,6 +2,7 @@
 export { CapabilityRoutedSearchEngine } from "./capability-routed.js";
 export { type EngineFailureReason, isLikelyQuotaExceededError, isLikelyRateLimitError, type RateLimitPredicate } from "./errors.js";
 export { FallbackSearchEngine, type FallbackSearchEngineOptions } from "./fallback.js";
+export { createDefaultKeyCooldownPolicy, isLikelyInvalidKeyError, type KeyCooldownPolicy, type KeyFailureKind, RotatingKeySearchEngine, type RotatingKeySearchEngineOptions, } from "./key-rotation.js";
 export { RoundRobinSearchEngine, type RoundRobinSearchEngineOptions } from "./round-robin.js";
 export { extractSiteFromQuery, hostMatchesSite, InMemorySiteAvailabilityTracker, type InMemorySiteAvailabilityTrackerOptions, type NamedSearchEngine, SiteRoutedSearchEngine, type SiteRoutedSearchEngineOptions, } from "./site-routed.js";
 //# sourceMappingURL=index.d.ts.map

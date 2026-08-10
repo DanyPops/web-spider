@@ -197,6 +197,16 @@ describe("fuzzySearch — multi-page corpus", () => {
 // Snippet shape
 // ---------------------------------------------------------------------------
 
+describe("fuzzySearch — citationUrl", () => {
+	it("includes a Text Fragment citationUrl derived from the snippet text", () => {
+		const hits = fuzzySearch([guide], "OpenAI API", { topN: 3 });
+		const withCitation = hits.find((h) => h.citationUrl !== undefined);
+		expect(withCitation).toBeDefined();
+		expect(withCitation!.citationUrl).toContain("#:~:text=");
+		expect(withCitation!.citationUrl!.startsWith(withCitation!.url)).toBe(true);
+	});
+});
+
 describe("fuzzySearch — snippet", () => {
 	it("snippet is bounded by snippetRadius", () => {
 		const radius = 30;

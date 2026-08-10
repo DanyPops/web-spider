@@ -119,6 +119,29 @@ export function formatFetchResult(result: unknown): string {
 	return JSON.stringify(result);
 }
 
+/** Formats the result of `quotes` -- resource cards, each either `{ url, error }` or `{ url, title?, quotes }`. */
+export function formatQuotesResult(result: unknown): string {
+	if (!isRecord(result)) return String(result);
+	if (!Array.isArray(result.resources)) return JSON.stringify(result);
+	const resources = result.resources as Array<Record<string, unknown>>;
+	const query = String(result.query ?? "");
+	if (resources.length === 0) return `No resources for "${query}".`;
+	const lines = [`${resources.length} resource(s) for "${query}"`];
+	for (const resource of resources) {
+		if (typeof resource.error === "string") {
+			lines.push(`  ${String(resource.url ?? "")}  ERROR: ${resource.error}`);
+			continue;
+		}
+		lines.push(`  ${String(resource.title ?? resource.url ?? "")}  ${String(resource.url ?? "")}`);
+		const quotes = Array.isArray(resource.quotes) ? (resource.quotes as Array<Record<string, unknown>>) : [];
+		if (quotes.length === 0) lines.push("    (no matching quotes)");
+		for (const quote of quotes) {
+			lines.push(`    [${Number(quote.score ?? 0).toFixed(2)}] ${String(quote.heading ?? "")}\n      ${String(quote.text ?? "")}`);
+		}
+	}
+	return lines.join("\n");
+}
+
 export function formatSearchResult(result: WebSearchOutput): string {
 	if (result.results.length === 0) return `No results for "${result.query}".`;
 	return [

@@ -5,6 +5,7 @@
 export type { SpiderCacheOptions } from "./cache/cache.js";
 export { SpiderCache } from "./cache/cache.js";
 export { canonicalizeUrl } from "./cache/cache-key.js";
+export { buildTextFragmentUrl } from "./citation.js";
 export type { CrawlBudget, CrawlBudgetState, CrawlStopReason, DefaultCrawlBudgetOptions } from "./crawl/budget.js";
 export { DefaultCrawlBudget, MaxPagesBudget } from "./crawl/budget.js";
 export type { PageClassification, PageClassifier, PageType } from "./crawl/classifier.js";

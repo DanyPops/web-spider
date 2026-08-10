@@ -1,5 +1,5 @@
 import type { EngineUsage, IAnswerSearchEngine, ISearchEngine, SiteAvailabilityTracker } from "../ports.js";
-import { type EngineFailureReason } from "./composites/index.js";
+import { type EngineFailureReason, type KeyCooldownPolicy } from "./composites/index.js";
 export interface DefaultSearchEngineOptions {
     /** Reads provider API keys from here. Defaults to process.env. */
     env?: Record<string, string | undefined>;
@@ -15,6 +15,20 @@ export interface DefaultSearchEngineOptions {
     siteAvailabilityTracker?: SiteAvailabilityTracker;
     /** Last-resort keyless Strategy. Defaults to Firecrawl; injectable for deterministic tests. */
     keylessEngine?: ISearchEngine;
+    /**
+     * BYOK key stacking: extra API keys per provider, beyond the single one (if
+     * any) already present in `env`. When a provider has one or more of these,
+     * its engine becomes a {@link RotatingKeySearchEngine} cycling through
+     * `env`'s key (if present) followed by these, instead of a single-key
+     * engine -- a rate-limited or invalid key only cools that one key down, not
+     * the whole provider; falling back to a *different* provider only happens
+     * once every key for this one is exhausted. Keyed by the same provider
+     * names as {@link SearchEngine} ("brave", "tavily", ...). Absent or empty
+     * for a provider preserves the exact single-key behavior unchanged.
+     */
+    additionalKeys?: Partial<Record<string, string[]>>;
+    /** Cooldown durations for a rotated key's own rate-limited/invalid failures. Defaults to createDefaultKeyCooldownPolicy() (60s / 300s). Only consulted for a provider that actually has additionalKeys configured. */
+    keyCooldownPolicy?: KeyCooldownPolicy;
 }
 /**
  * Build a search chain from environment variables: every keyed engine

@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider-daemon",
-	"version": "0.19.0",
+	"version": "0.20.0",
 	"license": "MIT",
 	"author": "Daniel Popsuevich",
 	"homepage": "https://github.com/DanyPops/web-spider/tree/main/packages/web-spider-daemon#readme",
@@ -50,7 +50,7 @@
 		"@danypops/vehicle-server": "^0.20.1",
 		"@danypops/vehicle-client": "^0.7.1",
 		"@danypops/enigma-client": "^0.6.1",
-		"@danypops/web-spider": "^0.15.0"
+		"@danypops/web-spider": "^0.16.0"
 	},
 	"optionalDependencies": {
 		"playwright-core": "^1.60.0"

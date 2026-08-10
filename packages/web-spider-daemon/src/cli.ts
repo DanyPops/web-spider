@@ -27,6 +27,7 @@ import {
 	formatCategoryRenameResult,
 	formatDaemonDiagnoseResult,
 	formatFetchResult,
+	formatQuotesResult,
 	formatSearchResult,
 	formatSearchTestKeysResult,
 	formatSearchUsageResult,
@@ -204,6 +205,9 @@ function usage(stderr: (line: string) => void): number {
 			"                          [--top-n N] [--ignore-robots] [--json]",
 			"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
+			"       web-spider quotes <query> --urls URL,URL,... [--max-quotes-per-url N] [--max-quotes-total N]",
+			"                          [--timeout-ms N] [--enhanced] [--ignore-robots] [--json]",
+			"                          (search + selective-fetch resource finder -- ranked, verbatim quotes per url, never a digested answer)",
 			"       web-spider usage [--engine NAME] [--limit N] [--json]",
 			"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
 			"       web-spider search-key set <engine>    store a search-provider API key locally, replacing any previously stored key(s) (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
@@ -389,6 +393,45 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 			wantFullContent: parsed.flags.has("full-content") ? true : undefined,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSearchResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
+}
+
+async function runQuotes(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(
+		rest,
+		["--urls", "--max-quotes-per-url", "--max-quotes-total", "--timeout-ms"],
+		["--enhanced", "--ignore-robots"],
+	);
+	const query = parsed?.positional[0];
+	if (!parsed || !query) return usage(deps.stderr);
+	const urls =
+		parsed.values.urls
+			?.split(",")
+			.map((u) => u.trim())
+			.filter(Boolean) ?? [];
+	if (urls.length === 0) return usage(deps.stderr);
+	const maxQuotesPerUrl = parseIntFlag(parsed.values, "max-quotes-per-url");
+	if (Number.isNaN(maxQuotesPerUrl)) return usage(deps.stderr);
+	const maxQuotesTotal = parseIntFlag(parsed.values, "max-quotes-total");
+	if (Number.isNaN(maxQuotesTotal)) return usage(deps.stderr);
+	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");
+	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
+
+	try {
+		const result = await deps.client.call("quotes", {
+			query,
+			urls,
+			maxQuotesPerUrl,
+			maxQuotesTotal,
+			timeoutMs,
+			enhanced: parsed.flags.has("enhanced") || undefined,
+			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
+		});
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatQuotesResult(result));
 		return 0;
 	} catch (error) {
 		deps.stderr(error instanceof Error ? error.message : String(error));
@@ -797,75 +840,139 @@ async function runSessionAct(rest: string[], deps: CliDependencies): Promise<num
 	}
 }
 
+async function runSearchKeyCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const [subcommand, ...searchKeyRest] = rest;
+	switch (subcommand) {
+		case "set":
+			return runSearchKeySet(searchKeyRest, deps);
+		case "add":
+			return runSearchKeyAdd(searchKeyRest, deps);
+		case "list":
+			return runSearchKeyList(searchKeyRest, deps);
+		case "remove":
+			return runSearchKeyRemove(searchKeyRest, deps);
+		case "test":
+			return runSearchKeyTest(searchKeyRest, deps);
+		default:
+			return usage(deps.stderr);
+	}
+}
+
+async function runCacheCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const [subcommand, ...cacheRest] = rest;
+	switch (subcommand) {
+		case "list":
+			return runCacheList(cacheRest, deps);
+		case "search":
+			return runCacheSearch(cacheRest, deps);
+		default:
+			return usage(deps.stderr);
+	}
+}
+
+async function runCategoryCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const [subcommand, ...categoryRest] = rest;
+	switch (subcommand) {
+		case "assign":
+			return runCategoryAssign(categoryRest, deps);
+		case "remove":
+			return runCategoryRemove(categoryRest, deps);
+		case "rename":
+			return runCategoryRename(categoryRest, deps);
+		case "list":
+			return runCategoryList(categoryRest, deps);
+		default:
+			return usage(deps.stderr);
+	}
+}
+
+async function runDaemonCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const [subcommand, ...daemonRest] = rest;
+	switch (subcommand) {
+		case "diagnose":
+			return runDaemonDiagnose(daemonRest, deps);
+		default:
+			return usage(deps.stderr);
+	}
+}
+
+async function runSessionCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const [subcommand, ...sessionRest] = rest;
+	switch (subcommand) {
+		case "create":
+			return runSessionCreate(sessionRest, deps);
+		case "list":
+			return runSessionList(sessionRest, deps);
+		case "close":
+			return runSessionClose(sessionRest, deps);
+		case "act":
+			return runSessionAct(sessionRest, deps);
+		default:
+			return usage(deps.stderr);
+	}
+}
+
+async function runServiceCommand(rest: string[], deps: CliDependencies): Promise<number> {
+	const action = rest[0];
+	switch (action) {
+		case "install": {
+			const restoreLegacy = deps.legacyService.stopForCutover();
+			let armadaHealthy = false;
+			try {
+				const result = deps.service.install();
+				if (!result.installed) throw new Error(`failed to install the Web Spider service: ${result.reason}`);
+				// Armada reconcile returns only after bounded handle readiness succeeds. The old
+				// descriptor is removed strictly after that point; a failed cutover restores it.
+				armadaHealthy = true;
+				deps.legacyService.remove();
+				return 0;
+			} catch (error) {
+				if (!armadaHealthy && restoreLegacy) deps.legacyService.restore();
+				throw error;
+			}
+		}
+		case "start":
+		case "stop":
+		case "restart":
+		case "status":
+			deps.service.action(action satisfies ServiceAction);
+			return 0;
+		default:
+			return usage(deps.stderr);
+	}
+}
+
 export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEPENDENCIES): Promise<number> {
 	const [command, ...rest] = args;
-	if (command === "serve") {
-		await deps.serve();
-		return 0;
-	}
-	if (command === "fetch") return runFetch(rest, deps);
-	if (command === "search") return runSearch(rest, deps);
-	if (command === "usage") return runUsage(rest, deps);
-	if (command === "enigma") return runEnigma(rest, deps);
-	if (command === "search-key") {
-		const [subcommand, ...searchKeyRest] = rest;
-		if (subcommand === "set") return runSearchKeySet(searchKeyRest, deps);
-		if (subcommand === "add") return runSearchKeyAdd(searchKeyRest, deps);
-		if (subcommand === "list") return runSearchKeyList(searchKeyRest, deps);
-		if (subcommand === "remove") return runSearchKeyRemove(searchKeyRest, deps);
-		if (subcommand === "test") return runSearchKeyTest(searchKeyRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command === "cache") {
-		const [subcommand, ...cacheRest] = rest;
-		if (subcommand === "list") return runCacheList(cacheRest, deps);
-		if (subcommand === "search") return runCacheSearch(cacheRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command === "category") {
-		const [subcommand, ...categoryRest] = rest;
-		if (subcommand === "assign") return runCategoryAssign(categoryRest, deps);
-		if (subcommand === "remove") return runCategoryRemove(categoryRest, deps);
-		if (subcommand === "rename") return runCategoryRename(categoryRest, deps);
-		if (subcommand === "list") return runCategoryList(categoryRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command === "daemon") {
-		const [subcommand, ...daemonRest] = rest;
-		if (subcommand === "diagnose") return runDaemonDiagnose(daemonRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command === "session") {
-		const [subcommand, ...sessionRest] = rest;
-		if (subcommand === "create") return runSessionCreate(sessionRest, deps);
-		if (subcommand === "list") return runSessionList(sessionRest, deps);
-		if (subcommand === "close") return runSessionClose(sessionRest, deps);
-		if (subcommand === "act") return runSessionAct(sessionRest, deps);
-		return usage(deps.stderr);
-	}
-	if (command !== "service") return usage(deps.stderr);
-	const action = rest[0];
-	if (action === "install") {
-		const restoreLegacy = deps.legacyService.stopForCutover();
-		let armadaHealthy = false;
-		try {
-			const result = deps.service.install();
-			if (!result.installed) throw new Error(`failed to install the Web Spider service: ${result.reason}`);
-			// Armada reconcile returns only after bounded handle readiness succeeds. The old
-			// descriptor is removed strictly after that point; a failed cutover restores it.
-			armadaHealthy = true;
-			deps.legacyService.remove();
+	switch (command) {
+		case "serve":
+			await deps.serve();
 			return 0;
-		} catch (error) {
-			if (!armadaHealthy && restoreLegacy) deps.legacyService.restore();
-			throw error;
-		}
+		case "fetch":
+			return runFetch(rest, deps);
+		case "quotes":
+			return runQuotes(rest, deps);
+		case "search":
+			return runSearch(rest, deps);
+		case "usage":
+			return runUsage(rest, deps);
+		case "enigma":
+			return runEnigma(rest, deps);
+		case "search-key":
+			return runSearchKeyCommand(rest, deps);
+		case "cache":
+			return runCacheCommand(rest, deps);
+		case "category":
+			return runCategoryCommand(rest, deps);
+		case "daemon":
+			return runDaemonCommand(rest, deps);
+		case "session":
+			return runSessionCommand(rest, deps);
+		case "service":
+			return runServiceCommand(rest, deps);
+		default:
+			return usage(deps.stderr);
 	}
-	if (["start", "stop", "restart", "status"].includes(action ?? "")) {
-		deps.service.action(action as ServiceAction);
-		return 0;
-	}
-	return usage(deps.stderr);
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
