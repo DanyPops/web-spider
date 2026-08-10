@@ -103,6 +103,19 @@ web-spider search-key remove tavily
 
 This exists because a systemd `--user` service's env is not actually scoped to what it needs — it inherits the whole desktop session's environment, secrets included. A locally stored key sidesteps that: it lives in a file only this daemon's own state directory holds, and it overrides a same-named env var rather than being overridden by it. Takes effect on the daemon's next restart (`resolveSearchEnv()` resolves once at startup, not per search call).
 
+### Optional: BYOK key stacking (several keys per provider)
+
+`search-key set` replaces the whole stored list with exactly one key. `search-key add` stacks an additional key alongside whatever is already stored for that engine instead:
+
+```bash
+web-spider search-key set tavily     # first key
+web-spider search-key add tavily     # a second key, stacked (not a replacement)
+web-spider search-key list           # still just engine names, never key values or counts
+web-spider search-key test tavily    # live-tests every stored key, reporting valid/rate-limited/invalid by position
+```
+
+With more than one key stored for a provider, that provider's engine is wrapped in a `RotatingKeySearchEngine` (`@danypops/web-spider`): a 429 rotates to the next key for the *same* provider within the same call (60s cooldown for the rate-limited key before it's tried again); a 401/403 marks that key invalid for 300s. Falling back to a *different* provider only happens once every key for this one is exhausted -- rotation state is in-memory only and resets on the daemon's next restart, same as the env/Enigma tiers' own lifecycle. `search-key test` makes one real, minimal call per stored key through the daemon (network egress is daemon-owned) and never returns or logs a raw key -- only its position and classified status.
+
 ### Optional: credentials via Enigma, instead of a static key per provider
 
 Enigma involvement is opt-in. Run `web-spider enigma enable` to persist the non-secret choice in `$XDG_STATE_HOME/web-spider/enigma.json`; `web-spider enigma disable` and `web-spider enigma status` manage it. Without the opt-in, the daemon never probes for Enigma merely because one is reachable. The legacy `WEB_SPIDER_USE_ENIGMA` flag remains available for foreground launches and explicit overrides.

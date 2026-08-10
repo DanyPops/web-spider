@@ -1275,6 +1275,111 @@ describe("defaultSearchEngine — round-robin wiring", () => {
 });
 
 // ---------------------------------------------------------------------------
+// defaultSearchEngine — BYOK key stacking (additionalKeys)
+// ---------------------------------------------------------------------------
+
+describe("defaultSearchEngine — additionalKeys (BYOK key stacking)", () => {
+	const originalEnv = { ...process.env };
+	afterEach(() => {
+		process.env = { ...originalEnv };
+	});
+
+	function clearAllProviderKeys(): void {
+		for (const key of ["BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY", "YOU_API_KEY"]) {
+			delete process.env[key];
+		}
+	}
+
+	it("rotates to an additional key for the same provider on a 401, before ever touching a different provider", async () => {
+		clearAllProviderKeys();
+		process.env.TAVILY_API_KEY = "primary-key";
+		process.env.SERPER_API_KEY = "serper-key"; // a second, entirely different provider -- must never be called
+
+		const originalFetch = globalThis.fetch;
+		const calledHosts: string[] = [];
+		globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+			calledHosts.push(new URL(url).host);
+			const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+			if (auth === "Bearer primary-key") return { ok: false, status: 401, statusText: "Unauthorized" };
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				headers: { get: () => "application/json" },
+				json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }),
+			};
+		}) as typeof fetch;
+
+		try {
+			const engine = defaultSearchEngine({ additionalKeys: { tavily: ["backup-key"] } });
+			const results = await engine.search(REQ);
+			expect(results.length).toBeGreaterThan(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		// Only Tavily's host was ever reached -- Serper (a different provider) was
+		// never touched, since the same-provider backup key already recovered.
+		expect(new Set(calledHosts).size).toBe(1);
+	});
+
+	it("falls back to the keyless Strategy only once every key for the sole configured provider is exhausted", async () => {
+		// A single keyed provider configured (Tavily) -- exercises
+		// defaultSearchEngine's single-provider FallbackSearchEngine branch,
+		// which (unlike RoundRobinSearchEngine's deliberate no-same-call-fallback
+		// design for equal-tier peers) does fall back within one call. This is
+		// the real "falls back further" path once a provider's own keys are
+		// exhausted -- RotatingKeySearchEngine itself never talks to another
+		// provider; it only ever throws once its own keys are exhausted, and an
+		// *outer* composite decides what happens next.
+		clearAllProviderKeys();
+		process.env.TAVILY_API_KEY = "primary-key";
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" }) as typeof fetch;
+
+		try {
+			// Both of Tavily's keys are bad -- only the keyless Strategy can succeed.
+			const engine = defaultSearchEngine({
+				additionalKeys: { tavily: ["also-bad-key"] },
+				keylessEngine: okEngine([RESULT_B]),
+			});
+			const results = await engine.search(REQ);
+			expect(results).toEqual([RESULT_B]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("with no additionalKeys configured, behaves exactly as the single-key path (no behavior change)", async () => {
+		clearAllProviderKeys();
+		process.env.TAVILY_API_KEY = "only-key";
+
+		const originalFetch = globalThis.fetch;
+		let callCount = 0;
+		globalThis.fetch = vi.fn().mockImplementation(async () => {
+			callCount++;
+			return {
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				headers: { get: () => "application/json" },
+				json: async () => ({ results: [{ url: "https://a.example", title: "A" }] }),
+			};
+		}) as typeof fetch;
+
+		try {
+			const engine = defaultSearchEngine();
+			await engine.search(REQ);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(callCount).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // youComSearch / YouComSearchEngine
 // ---------------------------------------------------------------------------
 

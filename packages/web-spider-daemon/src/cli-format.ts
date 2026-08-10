@@ -140,6 +140,14 @@ export function formatSearchUsageResult(result: { entries: SearchEngineUsageEntr
 	return [`${result.entries.length} usage entry(ies), newest first`, ...result.entries.map(formatUsageEntryLine)].join("\n");
 }
 
+export function formatSearchTestKeysResult(result: { engine: string; results: Array<{ index: number; status: string }> }): string {
+	if (result.results.length === 0) return `${result.engine}: no search keys stored -- nothing to test.`;
+	return [
+		`${result.engine}: ${result.results.length} key(s) tested`,
+		...result.results.map((entry) => `  #${entry.index}  ${entry.status}`),
+	].join("\n");
+}
+
 export function formatCacheListResult(result: CachedPageListResult): string {
 	if (result.pages.length === 0) return "No cached pages.";
 	const suffix =

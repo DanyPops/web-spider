@@ -11,7 +11,8 @@
 import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
 import { createLogger } from "@danypops/vehicle-server/logging";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
-import { resolveSearchEnv } from "./search/search-env.ts";
+import { resolveAdditionalSearchKeys, resolveSearchEnv } from "./search/search-env.ts";
+import { createSearchKeyStore, resolveSearchKeysDir } from "./search/search-secrets.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
 import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
 
@@ -23,7 +24,13 @@ export async function serveMain(): Promise<void> {
 	// Resolved once at startup, not per search call -- see search-env.ts. Enigma
 	// unreachable/unconfigured falls straight through to process.env unchanged.
 	const env = await resolveSearchEnv();
-	const service = createWebSpiderService(paths.database, { env });
+	// BYOK key stacking: also resolved once at startup, same lifecycle as env
+	// above -- a key added/removed via `web-spider search-key add/remove` takes
+	// effect on the daemon's next restart, matching env's own tier.
+	const searchKeysDir = resolveSearchKeysDir(paths);
+	const additionalSearchKeys = resolveAdditionalSearchKeys(searchKeysDir);
+	const loadSearchKeys = (engine: string) => createSearchKeyStore(searchKeysDir, engine).loadAll();
+	const service = createWebSpiderService(paths.database, { env, additionalSearchKeys, loadSearchKeys });
 	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
 
 	runDaemonProcess({

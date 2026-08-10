@@ -104,3 +104,25 @@ export async function resolveSearchEnv(
 	);
 	return env;
 }
+
+/**
+ * BYOK key stacking: every stored key *beyond* the primary one already
+ * merged into resolveSearchEnv()'s env, per provider -- for
+ * createEngineResolver's additionalKeys, which wraps a provider with more
+ * than one key in a RotatingKeySearchEngine instead of a single-key
+ * adapter. Only the local file-store tier (`web-spider search-key add`)
+ * supports multiple keys; raw process env and Enigma remain single-value
+ * tiers, unchanged by this -- a provider with zero or one stored key is
+ * simply absent from the returned object, preserving the exact single-key
+ * behavior for everyone not using BYOK stacking.
+ */
+export function resolveAdditionalSearchKeys(
+	searchKeysDir: string = resolveSearchKeysDir(resolveWebSpiderPaths()),
+): Partial<Record<string, string[]>> {
+	const additional: Partial<Record<string, string[]>> = {};
+	for (const backend of listRegisteredSearchEngines()) {
+		const keys = createSearchKeyStore(searchKeysDir, backend).loadAll();
+		if (keys.length > 1) additional[backend] = keys.slice(1);
+	}
+	return additional;
+}

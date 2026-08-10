@@ -319,6 +319,44 @@ describe("runCli usage", () => {
 	});
 });
 
+describe("runCli search-key test", () => {
+	test("forwards the engine to the search.testKeys operation", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ engine: "brave", results: [] }) });
+		await runCli(["search-key", "test", "brave"], deps);
+		expect(operations).toEqual([{ op: "search.testKeys", input: expect.objectContaining({ engine: "brave" }) }]);
+	});
+
+	test("missing engine prints a one-line usage message and returns exit code 1", async () => {
+		const { deps, calls } = fakeDeps();
+		expect(await runCli(["search-key", "test"], deps)).toBe(1);
+		expect(calls.some((c) => c.startsWith("stderr:usage: web-spider search-key test"))).toBe(true);
+	});
+
+	test("human output reports each key's index and status, never a raw key", async () => {
+		const { deps, calls } = fakeDeps({
+			call: () => ({
+				engine: "tavily",
+				results: [
+					{ index: 0, status: "valid" },
+					{ index: 1, status: "invalid" },
+				],
+			}),
+		});
+		await runCli(["search-key", "test", "tavily"], deps);
+		expect(calls[0]).toContain("tavily");
+		expect(calls[0]).toContain("#0");
+		expect(calls[0]).toContain("valid");
+		expect(calls[0]).toContain("#1");
+		expect(calls[0]).toContain("invalid");
+	});
+
+	test("human output reports nothing stored when the results array is empty", async () => {
+		const { deps, calls } = fakeDeps({ call: () => ({ engine: "brave", results: [] }) });
+		await runCli(["search-key", "test", "brave"], deps);
+		expect(calls[0]).toContain("no search keys stored");
+	});
+});
+
 describe("runCli cache list/search", () => {
 	test("cache list forwards grep/offset/limit", async () => {
 		const { deps, operations } = fakeDeps({ call: () => ({ total: 0, filtered: 0, offset: 0, limit: 20, pages: [] }) });

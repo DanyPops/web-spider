@@ -24,6 +24,7 @@ const OPERATION_CLI_INVOCATIONS: Record<OperationName, string[]> = {
 	"cache.search": ["cache", "search", "drift-proof-query"],
 	search: ["search", "drift-proof-query"],
 	"search.usage": ["usage"],
+	"search.testKeys": ["search-key", "test", "drift-proof-engine"],
 	fetch: ["fetch", "https://drift-proof.test/article"],
 	crawl: ["fetch", "https://drift-proof.test/article", "--depth", "1"],
 	"session.create": ["session", "create", "drift-proof-session"],

@@ -10,6 +10,10 @@ import {
 	type EngineFailureReason,
 	type EngineUsage,
 	type ISearchEngine,
+	isLikelyInvalidKeyError,
+	isLikelyRateLimitError,
+	type KeyCooldownPolicy,
+	RotatingKeySearchEngine,
 	resolveSearchEngine,
 	type SearchEngine,
 	type WebSearchResult,
@@ -67,21 +71,61 @@ export function createEngineResolver(
 	onEngineFailure?: EngineFailureHandler,
 	onUsage?: EngineUsageHandler,
 	keylessEngine?: ISearchEngine,
+	/** BYOK key stacking: extra API keys per provider beyond the single one (if any) in `env` -- see {@link RotatingKeySearchEngine}. Forwarded to both the named-engine path (below) and the auto-detect chain (defaultSearchEngine's own additionalKeys option). */
+	additionalKeys?: Partial<Record<string, string[]>>,
+	keyCooldownPolicy?: KeyCooldownPolicy,
 ): EngineResolver {
 	let cachedDefault: ISearchEngine | undefined;
 	return (name) => {
 		if (!name) {
-			if (!cachedDefault) cachedDefault = defaultSearchEngine({ env, onEngineFailure, onUsage, keylessEngine });
+			if (!cachedDefault)
+				cachedDefault = defaultSearchEngine({ env, onEngineFailure, onUsage, keylessEngine, additionalKeys, keyCooldownPolicy });
 			return cachedDefault;
 		}
 		const envVar = ENGINE_ENV_VARS[name];
-		return resolveSearchEngine(name, envVar ? env[envVar] : undefined);
+		const primary = envVar ? env[envVar] : undefined;
+		const keys = [primary, ...(additionalKeys?.[name] ?? [])].filter((key): key is string => Boolean(key));
+		if (keys.length > 1) {
+			return new RotatingKeySearchEngine(keys, (key) => resolveSearchEngine(name, key), { cooldownPolicy: keyCooldownPolicy });
+		}
+		return resolveSearchEngine(name, primary);
 	};
 }
 
 function clampNumResults(requested: number | undefined): number {
 	const value = Number.isFinite(requested) ? Math.floor(requested as number) : SEARCH_DEFAULT_NUM_RESULTS;
 	return Math.max(1, Math.min(SEARCH_MAX_NUM_RESULTS_CEILING, value));
+}
+
+export type KeyTestStatus = "valid" | "rate-limited" | "invalid" | "error";
+
+export interface KeyTestResult {
+	/** Position in the given keys array -- never the raw key itself, which must never cross this boundary (a log line, a CLI stdout print, a Vehicle response). */
+	index: number;
+	status: KeyTestStatus;
+}
+
+/**
+ * Live-tests each given key for one provider with a single, minimal query
+ * (`{ query: "test", numResults: 1 }`), bypassing rotation/cooldown state
+ * entirely -- every key is tried regardless of another key's own outcome,
+ * since the whole point is reporting each one's real status. Backs
+ * `web-spider search-key test <engine>`. Never returns or logs a raw key --
+ * only its position in the input array and a classified outcome.
+ */
+export async function testProviderKeys(engine: SearchEngine, keys: string[]): Promise<KeyTestResult[]> {
+	const results: KeyTestResult[] = [];
+	for (let index = 0; index < keys.length; index++) {
+		try {
+			await resolveSearchEngine(engine, keys[index] as string).search({ query: "test", numResults: 1 });
+			results.push({ index, status: "valid" });
+		} catch (err) {
+			if (isLikelyInvalidKeyError(err)) results.push({ index, status: "invalid" });
+			else if (isLikelyRateLimitError(err)) results.push({ index, status: "rate-limited" });
+			else results.push({ index, status: "error" });
+		}
+	}
+	return results;
 }
 
 export class WebSearchService {

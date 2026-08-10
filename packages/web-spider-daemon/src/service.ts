@@ -15,7 +15,7 @@ import { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache } from "@danypops/web-spider";
+import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type SearchEngine } from "@danypops/web-spider";
 import type { CacheStore } from "./cache/cache-store.ts";
 import type {
 	CachedPageListFilter,
@@ -41,7 +41,14 @@ import { registerFetchVehicleOperations } from "./handlers/fetch.ts";
 import { registerSearchVehicleOperations } from "./handlers/search.ts";
 import { registerSessionVehicleOperations } from "./handlers/session.ts";
 import { importLegacyJsonCache, type LegacyImportResult } from "./migrate-legacy-cache.ts";
-import { createEngineResolver, type WebSearchInput, type WebSearchOutput, WebSearchService } from "./search/search-service.ts";
+import {
+	createEngineResolver,
+	type KeyTestResult,
+	testProviderKeys,
+	type WebSearchInput,
+	type WebSearchOutput,
+	WebSearchService,
+} from "./search/search-service.ts";
 import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
 import type { SearchUsageJournal } from "./search/search-usage-journal.ts";
 import { SQLiteSearchUsageJournal } from "./search/sqlite-search-usage-journal.ts";
@@ -64,6 +71,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"cache.search",
 	"search",
 	"search.usage",
+	"search.testKeys",
 	"fetch",
 	"crawl",
 	"session.create",
@@ -82,6 +90,7 @@ export interface OperationInputs {
 	"cache.search": { query: string; limit?: number };
 	search: WebSearchInput;
 	"search.usage": { engine?: string; limit?: number };
+	"search.testKeys": { engine: string };
 	fetch: FetchOperationInput;
 	crawl: CrawlOperationInput;
 	"session.create": { name: string; forceChromeChannel?: boolean };
@@ -98,6 +107,7 @@ export interface OperationOutputs {
 	"cache.search": CachedPageSearchResult;
 	search: WebSearchOutput;
 	"search.usage": { entries: SearchEngineUsageEntry[] };
+	"search.testKeys": { engine: string; results: KeyTestResult[] };
 	fetch: FetchOperationOutput;
 	crawl: CrawlOperationOutput;
 	"session.create": SessionInfo;
@@ -259,6 +269,7 @@ function handlers(
 	crawlService: CrawlService,
 	sessionService: SessionService,
 	searchUsage: SearchUsageJournal,
+	loadSearchKeys: (engine: string) => string[],
 ): Record<OperationName, OperationHandler> {
 	return {
 		"cache.list": (input) =>
@@ -287,6 +298,10 @@ function handlers(
 				limit: optionalNumber(input, "limit") ?? SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 			}),
 		}),
+		"search.testKeys": async (input) => {
+			const engine = requireString(input, "engine");
+			return { engine, results: await testProviderKeys(engine as SearchEngine, loadSearchKeys(engine)) };
+		},
 		fetch: (input) => fetchService.fetch(fetchInput(input)),
 		crawl: (input) =>
 			crawlService.crawl({
@@ -329,6 +344,10 @@ export interface AsyncDisposableHttpClient extends IHttpClient {
 export interface WebSpiderServiceDependencies {
 	logger?: Logger;
 	env?: Record<string, string | undefined>;
+	/** BYOK key stacking: extra API keys per search provider beyond the single one (if any) already merged into `env` -- see resolveAdditionalSearchKeys() (search-env.ts) and RotatingKeySearchEngine (@danypops/web-spider). Absent/empty preserves exact single-key behavior. */
+	additionalSearchKeys?: Partial<Record<string, string[]>>;
+	/** Every locally stored key for one provider (regardless of count), for search.testKeys -- see search-secrets.ts's SearchKeyStore.loadAll(). Defaults to reporting nothing stored, for callers (most tests) that don't care about this feature. */
+	loadSearchKeys?: (engine: string) => string[];
 	/** Lazy factory for the daemon-owned enhanced fetch client. Tests inject a fake; production constructs Playwright. */
 	enhancedClientFactory?: () => AsyncDisposableHttpClient;
 }
@@ -380,6 +399,8 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 				searchUsage.record({ engine: engineName, observedAt: Date.now(), ...usage });
 				logger.debug("web_search_engine_usage", { engine: engineName, ...usage });
 			},
+			undefined,
+			deps.additionalSearchKeys,
 		),
 	);
 
@@ -408,7 +429,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
-	const registry = handlers(store, webSearch, fetchService, crawlService, sessionService, searchUsage);
+	const registry = handlers(store, webSearch, fetchService, crawlService, sessionService, searchUsage, deps.loadSearchKeys ?? (() => []));
 	const vehicleRegistry = new VehicleRegistry({
 		name: "web-spider",
 		packageJsonUrl: new URL("../package.json", import.meta.url),
@@ -419,7 +440,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	vehicleRegistry.setExposeHandlerFailureDetails(true);
 	registerCategoryVehicleOperations(vehicleRegistry, store);
 	registerCacheVehicleOperations(vehicleRegistry, store);
-	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage);
+	registerSearchVehicleOperations(vehicleRegistry, webSearch, searchUsage, deps.loadSearchKeys ?? (() => []));
 	registerFetchVehicleOperations(vehicleRegistry, fetchService, crawlService);
 	registerSessionVehicleOperations(vehicleRegistry, sessionService);
 

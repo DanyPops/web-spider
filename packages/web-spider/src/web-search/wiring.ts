@@ -2,8 +2,11 @@ import type { AnswerResult, EngineUsage, IAnswerSearchEngine, ISearchEngine, Sea
 import { FallbackSearchEngine } from "./composites/fallback.js";
 import {
 	CapabilityRoutedSearchEngine,
+	createDefaultKeyCooldownPolicy,
 	type EngineFailureReason,
+	type KeyCooldownPolicy,
 	type NamedSearchEngine,
+	RotatingKeySearchEngine,
 	SiteRoutedSearchEngine,
 } from "./composites/index.js";
 import { RoundRobinSearchEngine } from "./composites/round-robin.js";
@@ -37,6 +40,20 @@ export interface DefaultSearchEngineOptions {
 	siteAvailabilityTracker?: SiteAvailabilityTracker;
 	/** Last-resort keyless Strategy. Defaults to Firecrawl; injectable for deterministic tests. */
 	keylessEngine?: ISearchEngine;
+	/**
+	 * BYOK key stacking: extra API keys per provider, beyond the single one (if
+	 * any) already present in `env`. When a provider has one or more of these,
+	 * its engine becomes a {@link RotatingKeySearchEngine} cycling through
+	 * `env`'s key (if present) followed by these, instead of a single-key
+	 * engine -- a rate-limited or invalid key only cools that one key down, not
+	 * the whole provider; falling back to a *different* provider only happens
+	 * once every key for this one is exhausted. Keyed by the same provider
+	 * names as {@link SearchEngine} ("brave", "tavily", ...). Absent or empty
+	 * for a provider preserves the exact single-key behavior unchanged.
+	 */
+	additionalKeys?: Partial<Record<string, string[]>>;
+	/** Cooldown durations for a rotated key's own rate-limited/invalid failures. Defaults to createDefaultKeyCooldownPolicy() (60s / 300s). Only consulted for a provider that actually has additionalKeys configured. */
+	keyCooldownPolicy?: KeyCooldownPolicy;
 }
 
 /** Engines whose adapter maps {@link SearchQuery.wantFullContent} to a real vendor param (Tavily's include_raw_content, Exa's contents.text). Declared once here, not learned -- content support is a fixed vendor capability. */
@@ -47,49 +64,52 @@ const NO_ENGINE_CONFIGURED_ERROR =
 	"No search engine API key configured. Set one of BRAVE_SEARCH_API_KEY, " +
 	"TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY, SERPAPI_API_KEY, or YOU_API_KEY.";
 
-/** Every engine configured from environment keys, by real name, in a fixed declaration order (brave/tavily/exa/serper/serpapi/you) -- the single source of which adapters exist, shared by every capability resolver ({@link defaultSearchEngine}, {@link defaultAnswerEngine}) so they never drift out of sync with each other. */
+/**
+ * Every engine configured from environment keys, by real name, in a fixed
+ * declaration order (brave/tavily/exa/serper/serpapi/you) -- the single
+ * source of which adapters exist, shared by every capability resolver
+ * ({@link defaultSearchEngine}, {@link defaultAnswerEngine}) so they never
+ * drift out of sync with each other.
+ *
+ * A provider with one or more `additionalKeys` entries gets wrapped in
+ * {@link RotatingKeySearchEngine} instead of a single-key adapter instance --
+ * everything else (declaration order, auto-skip when no key at all is
+ * configured) is unchanged. A provider with zero or one total key behaves
+ * exactly as before this option existed (single instance, built once, reused
+ * across every search() call on the returned engine).
+ */
 function buildConfiguredEngines(
 	env: Record<string, string | undefined>,
 	onUsage?: (engineName: string, usage: EngineUsage) => void,
+	additionalKeys?: Partial<Record<string, string[]>>,
+	keyCooldownPolicy?: KeyCooldownPolicy,
 ): { engines: ISearchEngine[]; names: string[] } {
 	const engines: ISearchEngine[] = [];
 	const names: string[] = [];
 
-	const brave = env.BRAVE_SEARCH_API_KEY;
-	if (brave) {
-		engines.push(new BraveSearchEngine(brave, undefined, onUsage ? (usage) => onUsage("brave", usage) : undefined));
-		names.push("brave");
+	function pushProvider(name: string, primaryKey: string | undefined, build: (key: string) => ISearchEngine): void {
+		const keys = [primaryKey, ...(additionalKeys?.[name] ?? [])].filter((key): key is string => Boolean(key));
+		if (keys.length === 0) return;
+		engines.push(
+			keys.length > 1 ? new RotatingKeySearchEngine(keys, build, { cooldownPolicy: keyCooldownPolicy }) : build(keys[0] as string),
+		);
+		names.push(name);
 	}
 
-	const tavily = env.TAVILY_API_KEY;
-	if (tavily) {
-		engines.push(new TavilySearchEngine(tavily, onUsage ? (usage) => onUsage("tavily", usage) : undefined));
-		names.push("tavily");
-	}
-
-	const exa = env.EXA_API_KEY;
-	if (exa) {
-		engines.push(new ExaSearchEngine(exa, onUsage ? (usage) => onUsage("exa", usage) : undefined));
-		names.push("exa");
-	}
-
-	const serper = env.SERPER_API_KEY;
-	if (serper) {
-		engines.push(new SerperSearchEngine(serper));
-		names.push("serper");
-	}
-
-	const serpapi = env.SERPAPI_API_KEY;
-	if (serpapi) {
-		engines.push(new SerpApiSearchEngine(serpapi));
-		names.push("serpapi");
-	}
-
-	const you = env.YOU_API_KEY;
-	if (you) {
-		engines.push(new YouComSearchEngine(you));
-		names.push("you");
-	}
+	pushProvider(
+		"brave",
+		env.BRAVE_SEARCH_API_KEY,
+		(key) => new BraveSearchEngine(key, undefined, onUsage ? (usage) => onUsage("brave", usage) : undefined),
+	);
+	pushProvider(
+		"tavily",
+		env.TAVILY_API_KEY,
+		(key) => new TavilySearchEngine(key, onUsage ? (usage) => onUsage("tavily", usage) : undefined),
+	);
+	pushProvider("exa", env.EXA_API_KEY, (key) => new ExaSearchEngine(key, onUsage ? (usage) => onUsage("exa", usage) : undefined));
+	pushProvider("serper", env.SERPER_API_KEY, (key) => new SerperSearchEngine(key));
+	pushProvider("serpapi", env.SERPAPI_API_KEY, (key) => new SerpApiSearchEngine(key));
+	pushProvider("you", env.YOU_API_KEY, (key) => new YouComSearchEngine(key));
 
 	return { engines, names };
 }
@@ -129,7 +149,12 @@ function isAnswerCapable(engine: ISearchEngine): engine is ISearchEngine & IAnsw
  */
 export function defaultSearchEngine(opts: DefaultSearchEngineOptions = {}): ISearchEngine {
 	const env = opts.env ?? process.env;
-	const { engines: rotationEngines, names: rotationNames } = buildConfiguredEngines(env, opts.onUsage);
+	const { engines: rotationEngines, names: rotationNames } = buildConfiguredEngines(
+		env,
+		opts.onUsage,
+		opts.additionalKeys,
+		opts.keyCooldownPolicy ?? createDefaultKeyCooldownPolicy(),
+	);
 	const keyless = new FallbackSearchEngine([opts.keylessEngine ?? new FirecrawlKeylessSearchEngine()], {
 		cooldownMs: opts.cooldownMs,
 		quotaCooldownMs: opts.quotaCooldownMs,

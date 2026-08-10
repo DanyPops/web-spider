@@ -27,6 +27,7 @@ import {
 	formatCategoryRenameResult,
 	formatFetchResult,
 	formatSearchResult,
+	formatSearchTestKeysResult,
 	formatSearchUsageResult,
 	formatSessionActResult,
 	formatSessionCloseResult,
@@ -204,9 +205,11 @@ function usage(stderr: (line: string) => void): number {
 			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
 			"       web-spider usage [--engine NAME] [--limit N] [--json]",
 			"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
-			"       web-spider search-key set <engine>    store a search-provider API key locally (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
+			"       web-spider search-key set <engine>    store a search-provider API key locally, replacing any previously stored key(s) (hidden prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE)",
+			"       web-spider search-key add <engine>     stack an additional key alongside any already stored (BYOK key stacking, per-key rotation/cooldown)",
 			"       web-spider search-key list             list engines with a locally stored key, never the key itself",
-			"       web-spider search-key remove <engine>  delete a locally stored key",
+			"       web-spider search-key remove <engine>  delete every locally stored key for this engine",
+			"       web-spider search-key test <engine>    live-test every locally stored key for this engine [--json]",
 			"                          (local, unconditional fallback beneath Enigma; takes effect on the daemon's next restart)",
 			"       web-spider enigma <enable|disable|status>  persist the non-secret Enigma opt-in outside service environment data",
 			"       web-spider cache list [--grep TEXT] [--domain TEXT] [--tag TEXT] [--category TEXT] [--fetched-after MS] [--fetched-before MS]",
@@ -435,6 +438,60 @@ async function runSearchKeySet(rest: string[], deps: CliDependencies): Promise<n
 	createSearchKeyStore(dir, engine).save(value);
 	deps.stdout(`Search key saved for "${engine}". Takes effect on the daemon's next restart.`);
 	return 0;
+}
+
+/**
+ * Stacks one more key alongside whatever is already stored for this engine
+ * (BYOK key stacking) -- distinct from `set`, which replaces the whole
+ * stored list with exactly this one key. Same local-filesystem-only scope
+ * as `set`/`list`/`remove`: takes effect on the daemon's next restart.
+ */
+async function runSearchKeyAdd(rest: string[], deps: CliDependencies): Promise<number> {
+	const [engine] = rest;
+	const known = listRegisteredSearchEngines();
+	if (!engine) {
+		deps.stderr(`usage: web-spider search-key add <engine> (known: ${known.sort().join(", ")})`);
+		return 1;
+	}
+	if (!known.includes(engine)) {
+		deps.stderr(`unknown search engine: "${engine}" (known: ${known.sort().join(", ")})`);
+		return 1;
+	}
+	const value =
+		process.env.WEB_SPIDER_SEARCH_KEY_VALUE ?? (await promptMaskedSecret(`Paste an additional "${engine}" API key (input hidden): `));
+	if (!value) {
+		deps.stderr("no API key value provided — paste one at the prompt, or set WEB_SPIDER_SEARCH_KEY_VALUE for non-interactive use");
+		return 1;
+	}
+	const dir = resolveSearchKeysDir(resolveWebSpiderPaths());
+	const store = createSearchKeyStore(dir, engine);
+	store.add(value);
+	deps.stdout(`Search key added for "${engine}" (${store.loadAll().length} key(s) now stored). Takes effect on the daemon's next restart.`);
+	return 0;
+}
+
+/**
+ * Live-tests every locally stored key for one provider through the daemon
+ * (network egress belongs to the daemon, never the CLI process itself) --
+ * see search.testKeys. Reports each key's status by its stored position,
+ * never the raw key.
+ */
+async function runSearchKeyTest(rest: string[], deps: CliDependencies): Promise<number> {
+	const parsed = parseArgs(rest, [], []);
+	if (!parsed) return usage(deps.stderr);
+	const [engine] = parsed.positional;
+	if (!engine) {
+		deps.stderr("usage: web-spider search-key test <engine>");
+		return 1;
+	}
+	try {
+		const result = await deps.client.call("search.testKeys", { engine });
+		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSearchTestKeysResult(result));
+		return 0;
+	} catch (error) {
+		deps.stderr(error instanceof Error ? error.message : String(error));
+		return 1;
+	}
 }
 
 async function runSearchKeyList(_rest: string[], deps: CliDependencies): Promise<number> {
@@ -736,8 +793,10 @@ export async function runCli(args: string[], deps: CliDependencies = DEFAULT_DEP
 	if (command === "search-key") {
 		const [subcommand, ...searchKeyRest] = rest;
 		if (subcommand === "set") return runSearchKeySet(searchKeyRest, deps);
+		if (subcommand === "add") return runSearchKeyAdd(searchKeyRest, deps);
 		if (subcommand === "list") return runSearchKeyList(searchKeyRest, deps);
 		if (subcommand === "remove") return runSearchKeyRemove(searchKeyRest, deps);
+		if (subcommand === "test") return runSearchKeyTest(searchKeyRest, deps);
 		return usage(deps.stderr);
 	}
 	if (command === "cache") {

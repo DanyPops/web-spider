@@ -91,6 +91,55 @@ describe("web-spider search-key set (real subprocess)", () => {
 	});
 });
 
+describe("web-spider search-key add (real subprocess, BYOK key stacking)", () => {
+	it("exits non-zero with usage when no engine is given", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
+		try {
+			const { code, stderr } = await runCliProcess(["search-key", "add"], tempXdgEnv(dir));
+			expect(code).not.toBe(0);
+			expect(stderr).toContain("usage: web-spider search-key add");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("stacks a second key alongside one already set, without discarding it", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
+		try {
+			await runCliProcess(["search-key", "set", "tavily"], { ...tempXdgEnv(dir), WEB_SPIDER_SEARCH_KEY_VALUE: "key-one" });
+			const { code, stdout } = await runCliProcess(["search-key", "add", "tavily"], {
+				...tempXdgEnv(dir),
+				WEB_SPIDER_SEARCH_KEY_VALUE: "key-two",
+			});
+			expect(code).toBe(0);
+			expect(stdout).toContain('Search key added for "tavily"');
+			expect(stdout).toContain("2 key(s)");
+
+			const stateFile = join(dir, "web-spider", "search-keys", "tavily.json");
+			const saved = JSON.parse(readFileSync(stateFile, "utf8"));
+			expect(saved.accessToken).toBe("key-one"); // primary key unchanged
+			expect(saved.keys).toEqual(["key-one", "key-two"]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("never prints either key value to stdout", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));
+		try {
+			await runCliProcess(["search-key", "set", "brave"], { ...tempXdgEnv(dir), WEB_SPIDER_SEARCH_KEY_VALUE: "first-secret" });
+			const { stdout } = await runCliProcess(["search-key", "add", "brave"], {
+				...tempXdgEnv(dir),
+				WEB_SPIDER_SEARCH_KEY_VALUE: "second-secret",
+			});
+			expect(stdout).not.toContain("first-secret");
+			expect(stdout).not.toContain("second-secret");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("web-spider search-key list (real subprocess)", () => {
 	it("prints an empty array when nothing is stored yet", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "web-spider-search-key-"));

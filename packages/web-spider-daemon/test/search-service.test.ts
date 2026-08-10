@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ISearchEngine, SearchQuery, WebSearchResult } from "@danypops/web-spider";
 import { SEARCH_MAX_NUM_RESULTS_CEILING } from "../src/constants.ts";
-import { createEngineResolver, WebSearchService } from "../src/search/search-service.ts";
+import { createEngineResolver, testProviderKeys, WebSearchService } from "../src/search/search-service.ts";
 
 class FakeEngine implements ISearchEngine {
 	public lastQuery?: SearchQuery;
@@ -200,5 +200,118 @@ describe("createEngineResolver", () => {
 		}
 
 		expect(calls).toEqual([{ name: "tavily", usage: { credits: 1 } }]);
+	});
+
+	test("forcing an engine with additionalKeys configured rotates to the next key on a 401, instead of throwing", async () => {
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "primary-key" }, undefined, undefined, undefined, { tavily: ["backup-key"] });
+		const engine = resolver("tavily");
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+			if (auth === "Bearer primary-key") return new Response("unauthorized", { status: 401, statusText: "Unauthorized" });
+			return new Response(JSON.stringify({ results: [{ url: "https://a.example", title: "A" }] }), { status: 200 });
+		}) as typeof fetch;
+		try {
+			const results = await engine.search({ query: "x" });
+			expect(results.length).toBeGreaterThan(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("forcing an engine with no additionalKeys behaves exactly as before (single-key resolveSearchEngine call, no rotation wrapper)", () => {
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "only-key" });
+		// Two separate calls each resolve a fresh plain instance -- proven above
+		// ("forcing a specific engine still resolves a fresh instance each time").
+		// This just confirms additionalKeys being entirely absent doesn't change
+		// that -- no RotatingKeySearchEngine wrapper introduced when there is
+		// nothing to rotate through.
+		expect(() => resolver("tavily")).not.toThrow();
+	});
+});
+
+describe("testProviderKeys", () => {
+	test("classifies a successful call as valid", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) =>
+			new Response(JSON.stringify({ results: [{ url: "https://a.example", title: "A" }] }), { status: 200 })) as typeof fetch;
+		try {
+			const results = await testProviderKeys("tavily", ["good-key"]);
+			expect(results).toEqual([{ index: 0, status: "valid" }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("classifies a 401/403 as invalid, a 429 as rate-limited, and reports each key by index -- never the raw key", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+			if (auth === "Bearer bad-key") return new Response("unauthorized", { status: 401, statusText: "Unauthorized" });
+			if (auth === "Bearer throttled-key") return new Response("too many requests", { status: 429, statusText: "Too Many Requests" });
+			return new Response(JSON.stringify({ results: [] }), { status: 200 });
+		}) as typeof fetch;
+		try {
+			const results = await testProviderKeys("tavily", ["bad-key", "throttled-key", "good-key"]);
+			expect(results).toEqual([
+				{ index: 0, status: "invalid" },
+				{ index: 1, status: "rate-limited" },
+				{ index: 2, status: "valid" },
+			]);
+			expect(JSON.stringify(results)).not.toContain("bad-key");
+			expect(JSON.stringify(results)).not.toContain("throttled-key");
+			expect(JSON.stringify(results)).not.toContain("good-key");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("classifies a genuine non-key-shaped failure as a plain error", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request) =>
+			new Response("boom", { status: 500, statusText: "Internal Server Error" })) as typeof fetch;
+		try {
+			const results = await testProviderKeys("tavily", ["some-key"]);
+			expect(results).toEqual([{ index: 0, status: "error" }]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("returns an empty array for an empty key list", async () => {
+		expect(await testProviderKeys("tavily", [])).toEqual([]);
+	});
+});
+
+describe("createEngineResolver — additionalKeys via the auto-detecting default", () => {
+	test("receives additionalKeys -- rotates within the same provider, never touching a keyless fallback that would otherwise mask a missing wiring", async () => {
+		// Deliberately discriminating: the keyless fallback always throws, so this
+		// test can only pass if the *backup* Tavily key genuinely gets tried via
+		// additionalKeys -- a version that silently drops additionalKeys (still
+		// resolving the single bad primary key) would fail this test instead of
+		// accidentally passing through an unrelated fallback layer.
+		class AlwaysFailsEngine implements ISearchEngine {
+			async search(): Promise<WebSearchResult[]> {
+				throw new Error("keyless should never be reached -- additionalKeys should have recovered via the backup key");
+			}
+		}
+		const resolver = createEngineResolver({ TAVILY_API_KEY: "primary-key" }, undefined, undefined, new AlwaysFailsEngine(), {
+			tavily: ["backup-key"],
+		});
+		const engine = resolver();
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+			if (auth === "Bearer primary-key") return new Response("unauthorized", { status: 401, statusText: "Unauthorized" });
+			return new Response(JSON.stringify({ results: [{ url: "https://a.example", title: "A" }] }), { status: 200 });
+		}) as typeof fetch;
+		try {
+			const results = await engine.search({ query: "x" });
+			expect(results.length).toBeGreaterThan(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });

@@ -9,8 +9,9 @@
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { SearchEngine } from "@danypops/web-spider";
 import { SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT } from "../constants.ts";
-import type { WebSearchService } from "../search/search-service.ts";
+import { testProviderKeys, type WebSearchService } from "../search/search-service.ts";
 import type { SearchUsageJournal } from "../search/search-usage-journal.ts";
 import { optionalNumber, optionalString, searchInput } from "../service.ts";
 import { withVehicleErrorParity } from "./error-parity.ts";
@@ -22,6 +23,7 @@ export function registerSearchVehicleOperations(
 	registry: VehicleRegistry,
 	webSearch: WebSearchService,
 	searchUsage: SearchUsageJournal,
+	loadSearchKeys: (engine: string) => string[],
 ): void {
 	const searchOperation = defineVehicleOperation({
 		name: "search",
@@ -75,6 +77,28 @@ export function registerSearchVehicleOperations(
 					limit: optionalNumber(input, "limit") ?? SEARCH_ENGINE_USAGE_LIST_DEFAULT_LIMIT,
 				}),
 			};
+		}),
+	);
+
+	const testKeysOperation = defineVehicleOperation({
+		name: "search.testKeys",
+		version: 1,
+		description:
+			"Live-tests every locally stored BYOK key for one search provider with a minimal query, reporting each key's status (valid/rate-limited/invalid/error) by its stored position -- never the raw key itself.",
+		input: defineLooseObjectSchema({ engine: { type: "string" } }, ["engine"]),
+		output: passthroughVehicleSchema,
+		permissions: ["web-spider:read"],
+		effect: "open-world",
+		idempotency: { mode: "safe" },
+		limits: { ...LIMITS, defaultTimeoutMs: 30_000, maxTimeoutMs: 60_000 },
+	});
+	registry.register(
+		OWNER,
+		bindVehicleOperation(testKeysOperation, () => async (context) => {
+			const input = context.input as Record<string, unknown>;
+			const engine = input.engine as string;
+			const keys = loadSearchKeys(engine);
+			return withVehicleErrorParity(async () => ({ engine, results: await testProviderKeys(engine as SearchEngine, keys) }));
 		}),
 	);
 }
