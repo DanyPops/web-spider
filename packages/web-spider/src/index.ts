@@ -47,24 +47,46 @@ export { spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
-export type { ContentSourceRequest, ContentSourceResult, ContentSourceStrategy } from "./sources/content-source.js";
-export type { GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions } from "./sources/github.js";
-export { githubContentSource, parseGitHubUrl, queryGitHub } from "./sources/github.js";
-export type { LlmsTxtProbeResult, LlmsTxtVariant, ProbeLlmsTxtOptions } from "./sources/llms-txt.js";
-export { llmsTxtContentSource, probeLlmsTxt } from "./sources/llms-txt.js";
-export type { MarkdownVariantProbeResult, ProbeMarkdownVariantOptions } from "./sources/markdown-suffix.js";
-export { deriveMarkdownVariantUrl, markdownSuffixContentSource, probeMarkdownVariant } from "./sources/markdown-suffix.js";
-export type { MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo } from "./sources/mediawiki.js";
-export { detectMediaWiki, extractWikiPageTitle, mediaWikiContentSource, queryMediaWikiPage } from "./sources/mediawiki.js";
-export type { ContentSourceFactory } from "./sources/registry.js";
+export type {
+	ContentSourceFactory,
+	ContentSourceRequest,
+	ContentSourceResult,
+	ContentSourceStrategy,
+	GitHubQueryResult,
+	GitHubResourceKind,
+	GitHubStrategyOptions,
+	LlmsTxtProbeResult,
+	LlmsTxtVariant,
+	MarkdownVariantProbeResult,
+	MediaWikiPageResult,
+	MediaWikiProbeOptions,
+	MediaWikiSiteInfo,
+	ProbeLlmsTxtOptions,
+	ProbeMarkdownVariantOptions,
+	YouTubeOembedResult,
+	YouTubeProbeOptions,
+} from "./sources/index.js";
 export {
 	buildRegisteredContentSources,
+	deriveMarkdownVariantUrl,
+	detectMediaWiki,
+	extractWikiPageTitle,
+	githubContentSource,
 	listRegisteredContentSources,
+	llmsTxtContentSource,
+	markdownSuffixContentSource,
+	mediaWikiContentSource,
+	parseGitHubUrl,
+	parseYouTubeVideoId,
+	probeLlmsTxt,
+	probeMarkdownVariant,
+	queryGitHub,
+	queryMediaWikiPage,
+	queryYouTubeOembed,
 	registerContentSource,
 	resolveContentSources,
-} from "./sources/registry.js";
-export type { YouTubeOembedResult, YouTubeProbeOptions } from "./sources/youtube.js";
-export { parseYouTubeVideoId, queryYouTubeOembed, youtubeContentSource } from "./sources/youtube.js";
+	youtubeContentSource,
+} from "./sources/index.js";
 export type {
 	Chunk,
 	ChunkType,

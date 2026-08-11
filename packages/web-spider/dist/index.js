@@ -18,12 +18,7 @@ export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from
 export { spider } from "./fetch/spider.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
-export { githubContentSource, parseGitHubUrl, queryGitHub } from "./sources/github.js";
-export { llmsTxtContentSource, probeLlmsTxt } from "./sources/llms-txt.js";
-export { deriveMarkdownVariantUrl, markdownSuffixContentSource, probeMarkdownVariant } from "./sources/markdown-suffix.js";
-export { detectMediaWiki, extractWikiPageTitle, mediaWikiContentSource, queryMediaWikiPage } from "./sources/mediawiki.js";
-export { buildRegisteredContentSources, listRegisteredContentSources, registerContentSource, resolveContentSources, } from "./sources/registry.js";
-export { parseYouTubeVideoId, queryYouTubeOembed, youtubeContentSource } from "./sources/youtube.js";
+export { buildRegisteredContentSources, detectMediaWiki, deriveMarkdownVariantUrl, extractWikiPageTitle, githubContentSource, listRegisteredContentSources, llmsTxtContentSource, markdownSuffixContentSource, mediaWikiContentSource, parseGitHubUrl, parseYouTubeVideoId, probeLlmsTxt, probeMarkdownVariant, queryGitHub, queryMediaWikiPage, queryYouTubeOembed, registerContentSource, resolveContentSources, youtubeContentSource, } from "./sources/index.js";
 export { braveLlmContextSearch, braveSearch, createDefaultKeyCooldownPolicy, envKeyForEngine, exaSearch, firecrawlKeylessSearch, isLikelyInvalidKeyError, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.

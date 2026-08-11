@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider",
-	"version": "0.18.1",
+	"version": "0.19.0",
 	"license": "MIT",
 	"author": "Daniel Popsuevich",
 	"homepage": "https://github.com/DanyPops/web-spider/tree/main/packages/web-spider#readme",
@@ -31,16 +31,42 @@
 			"default": "./dist/index.js"
 		},
 		"./throttle": {
-			"types": "./dist/throttle.d.ts",
-			"import": "./dist/throttle.js",
-			"default": "./dist/throttle.js"
+			"types": "./dist/fetch/throttle.d.ts",
+			"import": "./dist/fetch/throttle.js",
+			"default": "./dist/fetch/throttle.js"
 		},
 		"./robots": {
-			"types": "./dist/robots.d.ts",
-			"import": "./dist/robots.js",
-			"default": "./dist/robots.js"
+			"types": "./dist/fetch/robots.d.ts",
+			"import": "./dist/fetch/robots.js",
+			"default": "./dist/fetch/robots.js"
+		},
+		"./web-search": {
+			"types": "./dist/web-search/index.d.ts",
+			"import": "./dist/web-search/index.js",
+			"default": "./dist/web-search/index.js"
+		},
+		"./sources": {
+			"types": "./dist/sources/index.d.ts",
+			"import": "./dist/sources/index.js",
+			"default": "./dist/sources/index.js"
+		},
+		"./pdf": {
+			"types": "./dist/fetch/pdf-extractor.d.ts",
+			"import": "./dist/fetch/pdf-extractor.js",
+			"default": "./dist/fetch/pdf-extractor.js"
+		},
+		"./ocr": {
+			"types": "./dist/fetch/pdf-ocr.d.ts",
+			"import": "./dist/fetch/pdf-ocr.js",
+			"default": "./dist/fetch/pdf-ocr.js"
+		},
+		"./scribe": {
+			"types": "./dist/scribe-bridge.d.ts",
+			"import": "./dist/scribe-bridge.js",
+			"default": "./dist/scribe-bridge.js"
 		}
 	},
+	"sideEffects": ["./dist/web-search/registry.js", "./dist/sources/registry.js"],
 	"scripts": {
 		"build": "tsc",
 		"test": "vitest --run",
@@ -48,11 +74,8 @@
 	},
 	"dependencies": {
 		"@mozilla/readability": "^0.6.0",
-		"@napi-rs/canvas": "^1.0.5",
-		"@tesseract.js-data/eng": "^1.0.0",
 		"linkedom": "^0.18.12",
 		"minisearch": "^7.2.0",
-		"tesseract.js": "^7.0.0",
 		"turndown": "^7.2.4",
 		"unpdf": "^1.8.0"
 	},
@@ -63,9 +86,12 @@
 		"vitest": "^4.1.10"
 	},
 	"optionalDependencies": {
+		"@napi-rs/canvas": "^1.0.5",
+		"@tesseract.js-data/eng": "^1.0.0",
 		"playwright-core": "^1.60.0",
 		"playwright-extra": "^4.3.6",
-		"puppeteer-extra-plugin-stealth": "^2.11.2"
+		"puppeteer-extra-plugin-stealth": "^2.11.2",
+		"tesseract.js": "^7.0.0"
 	},
 	"repository": {
 		"type": "git",
