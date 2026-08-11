@@ -139,6 +139,19 @@ ALTER TABLE pages ADD COLUMN content_warning TEXT;
 ALTER TABLE pages ADD COLUMN pdf_info TEXT CHECK(pdf_info IS NULL OR json_valid(pdf_info));
 `;
 
+// Preserve structured metadata (format:"meta") and the originating
+// ContentSourceStrategy name on cache hits -- both were being silently
+// dropped by set()/hydratePage() round-tripping through only the columns
+// that existed before this migration, even though SpideredPage itself
+// already carried them. NULL means the historical/no-strategy/no-metadata
+// shape for rows written before this migration.
+const MIGRATION_7_STRUCTURED_METADATA_AND_STRATEGY = `
+ALTER TABLE pages ADD COLUMN open_graph TEXT CHECK(open_graph IS NULL OR json_valid(open_graph));
+ALTER TABLE pages ADD COLUMN twitter_card TEXT CHECK(twitter_card IS NULL OR json_valid(twitter_card));
+ALTER TABLE pages ADD COLUMN json_ld TEXT CHECK(json_ld IS NULL OR json_valid(json_ld));
+ALTER TABLE pages ADD COLUMN via_strategy TEXT;
+`;
+
 export function openWebSpiderDb(path: string): Database {
 	return openSqliteWithPragmas(path, {
 		busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS,
@@ -150,6 +163,7 @@ export function openWebSpiderDb(path: string): Database {
 			{ version: 4, up: (db) => db.exec(MIGRATION_4_SEARCH_ENGINE_USAGE) },
 			{ version: 5, up: (db) => db.exec(MIGRATION_5_RESPONSE_CONTENT_TYPE) },
 			{ version: 6, up: (db) => db.exec(MIGRATION_6_PDF_EXTRACTION_METADATA) },
+			{ version: 7, up: (db) => db.exec(MIGRATION_7_STRUCTURED_METADATA_AND_STRATEGY) },
 		],
 	});
 }

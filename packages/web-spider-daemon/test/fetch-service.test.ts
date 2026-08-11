@@ -306,12 +306,21 @@ describe("FetchService — meta format", () => {
 		expect(result).toMatchObject({ url: URL, title: "Fixture Article" });
 	});
 
-	test("is a normal cache-eligible format -- miss then hit", async () => {
+	test("is a normal cache-eligible format -- miss then hit, with the same metadata surviving the SQLite round-trip", async () => {
 		const { service } = makeService(fakeHttpClient({ [URL]: { body: RICH_META_HTML } }));
 		const first = await service.fetch({ url: URL, format: "meta" });
 		expect(first.cache).toBe("miss");
 		const second = await service.fetch({ url: URL, format: "meta" });
 		expect(second.cache).toBe("hit");
+		// Regression guard: openGraph/twitterCard/jsonLd must survive a real cache
+		// hit, not just a fresh extraction -- the SQLite cache store persists
+		// SpideredPage via named columns, not a blob, so a new field silently
+		// vanishes on hit unless the store is explicitly taught about it too.
+		expect(second).toMatchObject({
+			openGraph: { "og:title": "Rich Meta OG Title", "og:description": "An OG description" },
+			twitterCard: { "twitter:card": "summary" },
+			jsonLd: [{ "@type": "Article", headline: "Rich Meta Fixture" }],
+		});
 	});
 });
 

@@ -127,6 +127,37 @@ describe("SQLiteCacheStore — ICache<string, SpideredPage> port", () => {
 		});
 	});
 
+	test("preserves openGraph/twitterCard/jsonLd and viaStrategy on cache hits", () => {
+		const { store } = storeWithTmpDir();
+		const url = "https://a.example/rich-meta";
+		store.set(
+			url,
+			page({
+				url,
+				openGraph: { "og:title": "Rich Meta", "og:image": "https://a.example/cover.jpg" },
+				twitterCard: { "twitter:card": "summary" },
+				jsonLd: [{ "@type": "Article", headline: "Rich Meta" }],
+				viaStrategy: "mediawiki",
+			}),
+		);
+		expect(store.get(url)).toMatchObject({
+			openGraph: { "og:title": "Rich Meta", "og:image": "https://a.example/cover.jpg" },
+			twitterCard: { "twitter:card": "summary" },
+			jsonLd: [{ "@type": "Article", headline: "Rich Meta" }],
+			viaStrategy: "mediawiki",
+		});
+	});
+
+	test("a page with none of openGraph/twitterCard/jsonLd/viaStrategy omits all four on a cache hit, not empty objects", () => {
+		const { store } = storeWithTmpDir();
+		store.set("https://a.example/plain", page({ url: "https://a.example/plain" }));
+		const hydrated = store.get("https://a.example/plain");
+		expect(hydrated).not.toHaveProperty("openGraph");
+		expect(hydrated).not.toHaveProperty("twitterCard");
+		expect(hydrated).not.toHaveProperty("jsonLd");
+		expect(hydrated).not.toHaveProperty("viaStrategy");
+	});
+
 	test("set() with one query-param order then get() with a different order hits the same cache entry, not a miss", () => {
 		const { store } = storeWithTmpDir();
 		store.set("https://a.example/search?b=2&a=1", page({ url: "https://a.example/search?b=2&a=1" }));
