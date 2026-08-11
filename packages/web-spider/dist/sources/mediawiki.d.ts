@@ -25,6 +25,7 @@
  * following through.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceStrategy } from "./content-source.js";
 export interface MediaWikiProbeOptions {
     /** ms before aborting each probe/query request (default 10 000). */
     timeoutMs?: number;
@@ -66,4 +67,13 @@ export declare function detectMediaWiki(url: string, httpClient: IHttpClient, op
  * than throwing -- callers fall through to the normal fetch path on a miss.
  */
 export declare function queryMediaWikiPage(apiUrl: string, pageTitle: string, httpClient: IHttpClient, options?: MediaWikiProbeOptions): Promise<MediaWikiPageResult | null>;
+/**
+ * ContentSourceStrategy adapter around {@link detectMediaWiki} +
+ * {@link queryMediaWikiPage} — the extension-point-shaped form of the same
+ * logic `spider()`'s legacy `preferMediaWiki` flag uses internally. Wraps
+ * the API's article HTML in a minimal synthetic document so it runs through
+ * the normal HTML extractor (Readability + metadata) exactly like a real
+ * fetch would.
+ */
+export declare function mediaWikiContentSource(options?: MediaWikiProbeOptions): ContentSourceStrategy;
 //# sourceMappingURL=mediawiki.d.ts.map

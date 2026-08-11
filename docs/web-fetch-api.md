@@ -107,6 +107,14 @@ A crawl best-first orders discovered URLs (content-likely paths like `/docs/`, `
 
 ---
 
+### Content source strategies (per-site adapters)
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `sources` | `string[]` | -- | Named per-site strategies to try, in order, before the normal fetch+Readability path -- e.g. `["github"]`, `["mediawiki", "youtube"]`. Built-in names: `"llms-txt"`, `"markdown-suffix"`, `"github"`, `"mediawiki"`, `"youtube"`. A matching strategy queries the site's real API/data endpoint instead of scraping its rendered page -- often solving what `enhanced` (a full headless browser) would otherwise be needed for, at a fraction of the cost. An unknown name errors listing every real one. See [docs/content-source-strategies.md](content-source-strategies.md) for the extension mechanism behind this -- adding a new site is a library-level change, not a daemon or tool one. |
+
+---
+
 ### Network
 
 | Parameter | Type | Default | Description |

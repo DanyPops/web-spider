@@ -31,6 +31,7 @@ import {
 	TREE_QUERY_DEFAULT_TOP_N,
 } from "../constants.ts";
 import { contentDiagnostics, highlightHit, leanOutput, linksOutput, markdownOutput, sourceOutput } from "../format.ts";
+import { resolveSourcesOption } from "./content-sources.ts";
 
 export type FetchFormat = "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
 
@@ -49,6 +50,16 @@ export interface FetchOperationInput {
 	query?: string;
 	path?: string;
 	topN?: number;
+	/**
+	 * Named ContentSourceStrategy(s) to try, in order, before the normal
+	 * fetch+Readability path -- e.g. `["github"]`, `["mediawiki", "youtube"]`.
+	 * See @danypops/web-spider's src/sources/registry.ts and
+	 * docs/content-source-strategies.md. Server-clamped to SOURCES_MAX_COUNT
+	 * names; an unknown name throws listing every real one. Bypasses the
+	 * shared cache -- the same content-varying-by-option rule rootSelector/
+	 * excludeSelectors/tokenBudget/enhanced already follow.
+	 */
+	sources?: string[];
 	/**
 	 * Explicit, opt-in bypass of the robots.txt check for this one request.
 	 * Never a default -- every use is logged (structured, not silent) since
@@ -109,6 +120,7 @@ export class FetchService {
 			throttle: this.deps.throttle,
 			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
 			httpClient: httpClient ?? (input.enhanced ? this.deps.getPlaywrightClient() : this.deps.defaultHttpClient),
+			contentSources: resolveSourcesOption(input.sources),
 		};
 	}
 
@@ -120,7 +132,8 @@ export class FetchService {
 			input.tokenBudget === undefined &&
 			input.pdfPageStart === undefined &&
 			input.pdfPageEnd === undefined &&
-			!input.enhanced;
+			!input.enhanced &&
+			!input.sources?.length;
 		if (cacheEligible) {
 			const hit = this.deps.cache.get(input.url);
 			if (hit) return { page: hit, cache: "hit" };
@@ -143,6 +156,7 @@ export class FetchService {
 			input.pdfPageStart ?? "",
 			input.pdfPageEnd ?? "",
 			input.enhanced ?? false,
+			input.sources ?? [],
 		]);
 		const hit = this.treeCache.get(key);
 		if (hit) return hit;

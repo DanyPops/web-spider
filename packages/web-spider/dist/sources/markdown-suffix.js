@@ -62,4 +62,23 @@ export async function probeMarkdownVariant(url, httpClient, options = {}) {
         clearTimeout(timer);
     }
 }
+/**
+ * ContentSourceStrategy adapter around {@link probeMarkdownVariant} — the
+ * extension-point-shaped form of the same logic `spider()`'s legacy
+ * `preferMarkdownVariant` flag uses internally.
+ */
+export function markdownSuffixContentSource(options = {}) {
+    return {
+        name: "markdown-suffix",
+        matches(url) {
+            return deriveMarkdownVariantUrl(url) !== null;
+        },
+        async fetch(req) {
+            const probe = await probeMarkdownVariant(req.url, req.httpClient, { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent });
+            if (!probe)
+                return null;
+            return { url: probe.url, contentType: probe.contentType ?? "text/markdown", text: probe.content };
+        },
+    };
+}
 //# sourceMappingURL=markdown-suffix.js.map

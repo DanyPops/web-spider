@@ -34,6 +34,7 @@ const FETCH_PROPERTIES = {
 	path: { type: "string" },
 	topN: { type: "number" },
 	ignoreRobots: { type: "boolean" },
+	sources: { type: "array" },
 } as const;
 
 export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchService: FetchService, crawlService: CrawlService): void {

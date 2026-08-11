@@ -99,7 +99,7 @@ function escapeHtmlText(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 export async function spider(url, opts) {
-    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, pdfPageStart, pdfPageEnd, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, contentExtractors = [], } = opts ?? {};
+    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, pdfPageStart, pdfPageEnd, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, contentExtractors = [], contentSources = [], } = opts ?? {};
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {
@@ -130,6 +130,26 @@ export async function spider(url, opts) {
         if (crawlDelayMs && throttle) {
             throttle.setDomainDelay(parsedUrl.hostname, crawlDelayMs);
         }
+    }
+    // Caller-supplied ContentSourceStrategies: tried first, in order, ahead of
+    // the legacy preferX flags below — the general extension point new site
+    // adapters plug into without editing spider() itself. Only attempted after
+    // the robots.txt check above already passed for this host.
+    for (const source of contentSources) {
+        if (!source.matches(url))
+            continue;
+        const result = await source.fetch({ url, httpClient, timeoutMs, userAgent });
+        if (!result)
+            continue;
+        const resultDomain = new URL(result.url).hostname.replace(/^www\./, "");
+        const { page } = await extract({
+            url: result.url,
+            domain: resultDomain,
+            fetchedAt: new Date().toISOString(),
+            contentType: result.contentType,
+            text: result.text,
+        });
+        return { ...page, ...(result.title ? { title: result.title } : {}), viaStrategy: source.name };
     }
     // llms.txt strategy: cheap probe before the normal fetch+Readability path.
     // Only attempted after the robots.txt check above already passed for this

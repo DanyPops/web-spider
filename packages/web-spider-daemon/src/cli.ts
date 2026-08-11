@@ -202,11 +202,11 @@ function usage(stderr: (line: string) => void): number {
 			"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
 			"                          [--token-budget N] [--pdf-page-start N] [--pdf-page-end N] [--enhanced]",
 			"                          [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
-			"                          [--top-n N] [--ignore-robots] [--json]",
+			"                          [--top-n N] [--ignore-robots] [--sources NAME,NAME,...] [--json]",
 			"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
 			"       web-spider quotes <query> --urls URL,URL,... [--max-quotes-per-url N] [--max-quotes-total N]",
-			"                          [--timeout-ms N] [--enhanced] [--ignore-robots] [--json]",
+			"                          [--timeout-ms N] [--enhanced] [--ignore-robots] [--sources NAME,NAME,...] [--json]",
 			"                          (search + selective-fetch resource finder -- ranked, verbatim quotes per url, never a digested answer)",
 			"       web-spider usage [--engine NAME] [--limit N] [--json]",
 			"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
@@ -311,6 +311,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			"--crawl-urls",
 			"--max-total-chars",
 			"--deadline-ms",
+			"--sources",
 		],
 		["--enhanced", "--no-same-domain", "--ignore-robots", "--discover-only"],
 	);
@@ -339,6 +340,10 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 		?.split(",")
 		.map((u) => u.trim())
 		.filter(Boolean);
+	const sources = parsed.values.sources
+		?.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
 
 	try {
 		const shared = {
@@ -353,6 +358,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			timeoutMs,
 			query: parsed.values.query,
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
+			sources: sources && sources.length > 0 ? sources : undefined,
 		};
 		const result =
 			(depth ?? 0) > 0 || (crawlUrls && crawlUrls.length > 0)
@@ -403,7 +409,7 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 async function runQuotes(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(
 		rest,
-		["--urls", "--max-quotes-per-url", "--max-quotes-total", "--timeout-ms"],
+		["--urls", "--max-quotes-per-url", "--max-quotes-total", "--timeout-ms", "--sources"],
 		["--enhanced", "--ignore-robots"],
 	);
 	const query = parsed?.positional[0];
@@ -420,6 +426,10 @@ async function runQuotes(rest: string[], deps: CliDependencies): Promise<number>
 	if (Number.isNaN(maxQuotesTotal)) return usage(deps.stderr);
 	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");
 	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
+	const quotesSources = parsed.values.sources
+		?.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
 
 	try {
 		const result = await deps.client.call("quotes", {
@@ -430,6 +440,7 @@ async function runQuotes(rest: string[], deps: CliDependencies): Promise<number>
 			timeoutMs,
 			enhanced: parsed.flags.has("enhanced") || undefined,
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
+			sources: quotesSources && quotesSources.length > 0 ? quotesSources : undefined,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatQuotesResult(result));
 		return 0;

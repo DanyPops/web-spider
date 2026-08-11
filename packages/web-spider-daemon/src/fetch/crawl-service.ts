@@ -23,6 +23,7 @@ import {
 	FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
 } from "../constants.ts";
 import { highlightHit, leanOutput, omitEmpty } from "../format.ts";
+import { resolveSourcesOption } from "./content-sources.ts";
 
 export type CrawlFormat = "markdown" | "lean" | "highlights";
 
@@ -57,6 +58,8 @@ export interface CrawlOperationInput {
 	maxTotalChars?: number;
 	/** Wall-clock cap for the whole crawl, in milliseconds. Clamped server-side. */
 	deadlineMs?: number;
+	/** Named ContentSourceStrategy(s) applied to every page this crawl fetches -- see FetchOperationInput.sources. */
+	sources?: string[];
 }
 
 export type CrawlOperationOutput = Record<string, unknown>;
@@ -120,6 +123,7 @@ export class CrawlService {
 			crawlUrls,
 			maxTotalChars,
 			deadlineMs,
+			contentSources: resolveSourcesOption(input.sources),
 		});
 
 		const pages = [...result.pages.values()];

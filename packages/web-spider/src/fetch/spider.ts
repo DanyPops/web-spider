@@ -1,5 +1,6 @@
 import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
 import type { IHttpClient, IRobotsChecker, IThrottle } from "../ports.js";
+import type { ContentSourceStrategy } from "../sources/content-source.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";
 import { probeMarkdownVariant } from "../sources/markdown-suffix.js";
@@ -155,6 +156,21 @@ export interface SpiderOptions {
 	 * and textual extractors. First supporting extractor wins.
 	 */
 	contentExtractors?: readonly ContentExtractor[];
+	/**
+	 * Per-site/per-convention ContentSourceStrategies (see
+	 * ../sources/content-source.ts, docs/content-source-strategies.md), tried
+	 * in order before the legacy preferLlmsTxt/preferMarkdownVariant/
+	 * preferGitHub/preferMediaWiki flags below. The first strategy whose
+	 * `matches(url)` returns true AND whose `fetch()` returns a non-null
+	 * result wins; a miss falls through to the next strategy, then to the
+	 * legacy flags, then to a plain fetch — exactly like `contentExtractors`.
+	 * This is the extension point for adding a new site (Wikipedia, GitHub,
+	 * YouTube, or your own) without editing spider() itself: implement
+	 * ContentSourceStrategy and pass an instance here, or register it by name
+	 * via ../sources/registry.ts and resolve it with resolveContentSources().
+	 * Default: [] — preserves the existing fetch contract exactly.
+	 */
+	contentSources?: readonly ContentSourceStrategy[];
 }
 
 /**
@@ -265,6 +281,7 @@ export async function spider(
 		preferGitHub = false,
 		githubToken,
 		contentExtractors = [],
+		contentSources = [],
 	} = opts ?? {};
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
@@ -297,6 +314,25 @@ export async function spider(
 		if (crawlDelayMs && throttle) {
 			throttle.setDomainDelay(parsedUrl.hostname, crawlDelayMs);
 		}
+	}
+
+	// Caller-supplied ContentSourceStrategies: tried first, in order, ahead of
+	// the legacy preferX flags below — the general extension point new site
+	// adapters plug into without editing spider() itself. Only attempted after
+	// the robots.txt check above already passed for this host.
+	for (const source of contentSources) {
+		if (!source.matches(url)) continue;
+		const result = await source.fetch({ url, httpClient, timeoutMs, userAgent });
+		if (!result) continue;
+		const resultDomain = new URL(result.url).hostname.replace(/^www\./, "");
+		const { page } = await extract({
+			url: result.url,
+			domain: resultDomain,
+			fetchedAt: new Date().toISOString(),
+			contentType: result.contentType,
+			text: result.text,
+		});
+		return { ...page, ...(result.title ? { title: result.title } : {}), viaStrategy: source.name };
 	}
 
 	// llms.txt strategy: cheap probe before the normal fetch+Readability path.

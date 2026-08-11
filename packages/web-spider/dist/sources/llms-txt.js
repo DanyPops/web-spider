@@ -50,4 +50,31 @@ export async function probeLlmsTxt(targetUrl, httpClient, options = {}) {
     }
     return null;
 }
+/**
+ * ContentSourceStrategy adapter around {@link probeLlmsTxt} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferLlmsTxt`
+ * flag uses internally. Unlike a platform-specific strategy (GitHub,
+ * MediaWiki), `matches()` accepts any http(s) URL — llms.txt is a site-wide
+ * convention, not a URL-shape signal — so every real cost lives in `fetch()`,
+ * which still fails closed (returns null) on a genuine miss.
+ */
+export function llmsTxtContentSource(options = {}) {
+    return {
+        name: "llms.txt",
+        matches(url) {
+            try {
+                return ["http:", "https:"].includes(new URL(url).protocol);
+            }
+            catch {
+                return false;
+            }
+        },
+        async fetch(req) {
+            const probe = await probeLlmsTxt(req.url, req.httpClient, { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent });
+            if (!probe)
+                return null;
+            return { url: probe.url, contentType: probe.contentType ?? "text/plain", text: probe.content };
+        },
+    };
+}
 //# sourceMappingURL=llms-txt.js.map

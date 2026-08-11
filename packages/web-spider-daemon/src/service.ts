@@ -206,6 +206,7 @@ export function quotesInput(input: OperationInput): QuotesOperationInput {
 		timeoutMs: optionalNumber(input, "timeoutMs"),
 		enhanced: optionalBoolean(input, "enhanced"),
 		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
+		sources: optionalStringArray(input, "sources"),
 	};
 }
 
@@ -224,6 +225,7 @@ export function fetchInput(input: OperationInput): FetchOperationInput {
 		path: optionalString(input, "path"),
 		topN: optionalNumber(input, "topN"),
 		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
+		sources: optionalStringArray(input, "sources"),
 	};
 }
 

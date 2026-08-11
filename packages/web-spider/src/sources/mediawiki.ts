@@ -25,6 +25,7 @@
  * following through.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceRequest, ContentSourceResult, ContentSourceStrategy } from "./content-source.js";
 
 export interface MediaWikiProbeOptions {
 	/** ms before aborting each probe/query request (default 10 000). */
@@ -160,4 +161,40 @@ export async function queryMediaWikiPage(
 	const html = body.parse?.text?.["*"];
 	if (!html?.trim()) return null;
 	return { title: body.parse?.title ?? pageTitle, html };
+}
+
+/** Minimal HTML-text escape for wrapping a MediaWiki API title in a synthetic <title> tag. */
+function escapeHtmlText(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * ContentSourceStrategy adapter around {@link detectMediaWiki} +
+ * {@link queryMediaWikiPage} — the extension-point-shaped form of the same
+ * logic `spider()`'s legacy `preferMediaWiki` flag uses internally. Wraps
+ * the API's article HTML in a minimal synthetic document so it runs through
+ * the normal HTML extractor (Readability + metadata) exactly like a real
+ * fetch would.
+ */
+export function mediaWikiContentSource(options: MediaWikiProbeOptions = {}): ContentSourceStrategy {
+	return {
+		name: "mediawiki",
+		matches(url) {
+			return extractWikiPageTitle(url) !== null;
+		},
+		async fetch(req: ContentSourceRequest): Promise<ContentSourceResult | null> {
+			const pageTitle = extractWikiPageTitle(req.url);
+			if (!pageTitle) return null;
+			const probeOptions = { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent };
+			const siteInfo = await detectMediaWiki(req.url, req.httpClient, probeOptions);
+			if (!siteInfo) return null;
+			const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, req.httpClient, probeOptions);
+			if (!page) return null;
+			return {
+				url: req.url,
+				contentType: "text/html; charset=utf-8",
+				text: `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`,
+			};
+		},
+	};
 }

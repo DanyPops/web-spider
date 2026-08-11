@@ -16,6 +16,7 @@
  * default fetch path.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceStrategy } from "./content-source.js";
 export interface ProbeLlmsTxtOptions {
     /** ms before aborting each probe request (default 10 000). */
     timeoutMs?: number;
@@ -47,4 +48,13 @@ export interface LlmsTxtProbeResult {
  * as "not found," not a hit.
  */
 export declare function probeLlmsTxt(targetUrl: string, httpClient: IHttpClient, options?: ProbeLlmsTxtOptions): Promise<LlmsTxtProbeResult | null>;
+/**
+ * ContentSourceStrategy adapter around {@link probeLlmsTxt} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferLlmsTxt`
+ * flag uses internally. Unlike a platform-specific strategy (GitHub,
+ * MediaWiki), `matches()` accepts any http(s) URL — llms.txt is a site-wide
+ * convention, not a URL-shape signal — so every real cost lives in `fetch()`,
+ * which still fails closed (returns null) on a genuine miss.
+ */
+export declare function llmsTxtContentSource(options?: ProbeLlmsTxtOptions): ContentSourceStrategy;
 //# sourceMappingURL=llms-txt.d.ts.map

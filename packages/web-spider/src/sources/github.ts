@@ -21,6 +21,7 @@
  * - The README endpoint returns base64-encoded content, decoded here.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceRequest, ContentSourceResult, ContentSourceStrategy } from "./content-source.js";
 
 export interface GitHubStrategyOptions {
 	/** Explicit token, takes precedence over GITHUB_TOKEN/GH_TOKEN env vars. Never logged. */
@@ -213,4 +214,24 @@ export async function queryGitHub(
 	if (!info) return null;
 	if (info.kind === "repo") return queryRepo(info.owner, info.repo, httpClient, options);
 	return queryIssue(info.owner, info.repo, info.number, httpClient, options);
+}
+
+/**
+ * ContentSourceStrategy adapter around {@link queryGitHub} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferGitHub`
+ * flag uses internally. Pass an instance via `SpiderOptions.contentSources`,
+ * or register it under a name via ./registry.ts.
+ */
+export function githubContentSource(options: GitHubStrategyOptions = {}): ContentSourceStrategy {
+	return {
+		name: "github",
+		matches(url) {
+			return parseGitHubUrl(url) !== null;
+		},
+		async fetch(req: ContentSourceRequest): Promise<ContentSourceResult | null> {
+			const result = await queryGitHub(req.url, req.httpClient, { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent });
+			if (!result) return null;
+			return { url: req.url, contentType: "text/markdown; charset=utf-8", text: result.markdown, title: result.title };
+		},
+	};
 }

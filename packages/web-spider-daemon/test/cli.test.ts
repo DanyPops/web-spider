@@ -187,6 +187,23 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect(operations[0]?.op).toBe("crawl");
 	});
 
+	test("--sources forwards a parsed name list to fetch, and to crawl", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test", "--sources", "github,mediawiki"], deps);
+		expect(operations[0]?.input).toMatchObject({ sources: ["github", "mediawiki"] });
+
+		const { deps: crawlDeps, operations: crawlOps } = fakeDeps({ call: () => ({ pagesFound: 1, pages: [] }) });
+		await runCli(["fetch", "https://x.test", "--depth", "1", "--sources", "youtube"], crawlDeps);
+		expect(crawlOps[0]?.op).toBe("crawl");
+		expect(crawlOps[0]?.input).toMatchObject({ sources: ["youtube"] });
+	});
+
+	test("--sources is omitted entirely when not given", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test"], deps);
+		expect((operations[0]!.input as { sources?: string[] }).sources).toBeUndefined();
+	});
+
 	test("--ignore-robots is forwarded as true; omitted entirely by default", async () => {
 		const { deps: withFlag, operations: withFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--ignore-robots"], withFlag);

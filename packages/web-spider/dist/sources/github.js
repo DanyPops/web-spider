@@ -123,4 +123,24 @@ export async function queryGitHub(url, httpClient, options = {}) {
         return queryRepo(info.owner, info.repo, httpClient, options);
     return queryIssue(info.owner, info.repo, info.number, httpClient, options);
 }
+/**
+ * ContentSourceStrategy adapter around {@link queryGitHub} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferGitHub`
+ * flag uses internally. Pass an instance via `SpiderOptions.contentSources`,
+ * or register it under a name via ./registry.ts.
+ */
+export function githubContentSource(options = {}) {
+    return {
+        name: "github",
+        matches(url) {
+            return parseGitHubUrl(url) !== null;
+        },
+        async fetch(req) {
+            const result = await queryGitHub(req.url, req.httpClient, { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent });
+            if (!result)
+                return null;
+            return { url: req.url, contentType: "text/markdown; charset=utf-8", text: result.markdown, title: result.title };
+        },
+    };
+}
 //# sourceMappingURL=github.js.map

@@ -1,4 +1,5 @@
 import type { IHttpClient, IRobotsChecker, IThrottle } from "../ports.js";
+import type { ContentSourceStrategy } from "../sources/content-source.js";
 import type { LeanPage, SpideredPage } from "../types.js";
 import { type ContentExtractor, type TreePage } from "./content-extractor.js";
 export type { TreePage } from "./content-extractor.js";
@@ -116,6 +117,21 @@ export interface SpiderOptions {
      * and textual extractors. First supporting extractor wins.
      */
     contentExtractors?: readonly ContentExtractor[];
+    /**
+     * Per-site/per-convention ContentSourceStrategies (see
+     * ../sources/content-source.ts, docs/content-source-strategies.md), tried
+     * in order before the legacy preferLlmsTxt/preferMarkdownVariant/
+     * preferGitHub/preferMediaWiki flags below. The first strategy whose
+     * `matches(url)` returns true AND whose `fetch()` returns a non-null
+     * result wins; a miss falls through to the next strategy, then to the
+     * legacy flags, then to a plain fetch — exactly like `contentExtractors`.
+     * This is the extension point for adding a new site (Wikipedia, GitHub,
+     * YouTube, or your own) without editing spider() itself: implement
+     * ContentSourceStrategy and pass an instance here, or register it by name
+     * via ../sources/registry.ts and resolve it with resolveContentSources().
+     * Default: [] — preserves the existing fetch contract exactly.
+     */
+    contentSources?: readonly ContentSourceStrategy[];
 }
 export declare function spider(url: string, opts: SpiderOptions & {
     view: "lean";

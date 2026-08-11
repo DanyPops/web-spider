@@ -21,6 +21,7 @@
  * - The README endpoint returns base64-encoded content, decoded here.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceStrategy } from "./content-source.js";
 export interface GitHubStrategyOptions {
     /** Explicit token, takes precedence over GITHUB_TOKEN/GH_TOKEN env vars. Never logged. */
     token?: string;
@@ -59,5 +60,12 @@ export declare function parseGitHubUrl(url: string): GitHubUrlInfo | null;
  * network error) -- callers fall through to the normal fetch path on a miss.
  */
 export declare function queryGitHub(url: string, httpClient: IHttpClient, options?: GitHubStrategyOptions): Promise<GitHubQueryResult | null>;
+/**
+ * ContentSourceStrategy adapter around {@link queryGitHub} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferGitHub`
+ * flag uses internally. Pass an instance via `SpiderOptions.contentSources`,
+ * or register it under a name via ./registry.ts.
+ */
+export declare function githubContentSource(options?: GitHubStrategyOptions): ContentSourceStrategy;
 export {};
 //# sourceMappingURL=github.d.ts.map

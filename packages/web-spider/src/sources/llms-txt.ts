@@ -16,6 +16,7 @@
  * default fetch path.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceRequest, ContentSourceResult, ContentSourceStrategy } from "./content-source.js";
 
 export interface ProbeLlmsTxtOptions {
 	/** ms before aborting each probe request (default 10 000). */
@@ -92,4 +93,30 @@ export async function probeLlmsTxt(
 		}
 	}
 	return null;
+}
+
+/**
+ * ContentSourceStrategy adapter around {@link probeLlmsTxt} — the extension-
+ * point-shaped form of the same logic `spider()`'s legacy `preferLlmsTxt`
+ * flag uses internally. Unlike a platform-specific strategy (GitHub,
+ * MediaWiki), `matches()` accepts any http(s) URL — llms.txt is a site-wide
+ * convention, not a URL-shape signal — so every real cost lives in `fetch()`,
+ * which still fails closed (returns null) on a genuine miss.
+ */
+export function llmsTxtContentSource(options: ProbeLlmsTxtOptions = {}): ContentSourceStrategy {
+	return {
+		name: "llms.txt",
+		matches(url) {
+			try {
+				return ["http:", "https:"].includes(new URL(url).protocol);
+			} catch {
+				return false;
+			}
+		},
+		async fetch(req: ContentSourceRequest): Promise<ContentSourceResult | null> {
+			const probe = await probeLlmsTxt(req.url, req.httpClient, { ...options, timeoutMs: req.timeoutMs, userAgent: req.userAgent });
+			if (!probe) return null;
+			return { url: probe.url, contentType: probe.contentType ?? "text/plain", text: probe.content };
+		},
+	};
 }

@@ -267,6 +267,7 @@ export default async function (pi: ExtensionAPI) {
 				crawlUrls: params.crawlUrls,
 				maxTotalChars: params.maxTotalChars,
 				deadlineMs: params.deadlineMs,
+				sources: params.sources,
 			},
 			callMeta,
 		);
@@ -329,6 +330,7 @@ export default async function (pi: ExtensionAPI) {
 						excludeSelectors: params.excludeSelectors,
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
+						sources: params.sources,
 					},
 					callMeta,
 				);
@@ -363,6 +365,7 @@ export default async function (pi: ExtensionAPI) {
 						excludeSelectors: params.excludeSelectors,
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
+						sources: params.sources,
 					},
 					callMeta,
 				);
@@ -389,6 +392,7 @@ export default async function (pi: ExtensionAPI) {
 					excludeSelectors: params.excludeSelectors,
 					enhanced: params.enhanced,
 					ignoreRobots: params.ignoreRobots,
+					sources: params.sources,
 				},
 				callMeta,
 			);
@@ -419,6 +423,7 @@ export default async function (pi: ExtensionAPI) {
 				timeoutMs: params.timeoutMs,
 				query: params.query,
 				ignoreRobots: params.ignoreRobots,
+				sources: params.sources,
 			},
 			callMeta,
 		);
@@ -612,6 +617,12 @@ export default async function (pi: ExtensionAPI) {
 		deadlineMs: Type.Optional(
 			Type.Number({ description: "depth>0: wall-clock cap for the whole crawl, in milliseconds (default 120000)" }),
 		),
+		sources: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					'Named per-site strategies to try before generic fetch+Readability, e.g. ["github"] or ["mediawiki","youtube"]. Built-in: llms-txt, markdown-suffix, github, mediawiki, youtube -- each queries the site\'s real API/data endpoint instead of scraping its rendered page, often solving what enhanced would otherwise be needed for. Unknown names error listing the real ones.',
+			}),
+		),
 	});
 
 	pi.registerTool({
@@ -628,6 +639,8 @@ export default async function (pi: ExtensionAPI) {
 			"format trades the default full markdown for targeted views (lean/links/highlights/tree/source) -- see the format parameter. source is normalized textual content, not byte-identical wire data. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted. pdfPageStart/pdfPageEnd select a bounded 1-based PDF range.",
 			"",
 			"enhanced=true forces headless-browser rendering for SPAs/JS-heavy/bot-gated pages; default auto-falls back to it when needed.",
+			"",
+			"sources=[...] tries named per-site strategies (llms-txt, markdown-suffix, github, mediawiki, youtube) before generic fetch+Readability -- each queries a real API/data endpoint (e.g. YouTube's oEmbed, GitHub's REST API, MediaWiki's action=parse) instead of scraping the rendered page, often cheaper and more reliable than enhanced for a site one of these covers.",
 			"",
 			"A depth>0 crawl best-first orders content-likely pages first and classifies each one's pageType (article/list/js_shell) with contentOk. discoverOnly=true returns a URL map without content bodies. crawlUrls=[...] selectively (re-)crawls exactly those URLs, no re-discovery. maxTotalChars/deadlineMs bound total extracted size and wall-clock time; nextAction reports why a crawl stopped.",
 			"",
@@ -1057,6 +1070,12 @@ export default async function (pi: ExtensionAPI) {
 		ignoreRobots: Type.Optional(
 			Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
 		),
+		sources: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					"Named per-site strategies to try before generic fetch+Readability, applied to every url -- see web_fetch's own sources parameter for the full list and rationale.",
+			}),
+		),
 	});
 
 	type QuotesParams = Static<typeof quotesParamsSchema>;
@@ -1070,6 +1089,8 @@ export default async function (pi: ExtensionAPI) {
 			"Every quote carries citationUrl, a real, standards-based URL Text Fragment (#:~:text=...) that scrolls to and highlights the exact quoted passage in any modern browser. Always cite each quote's citationUrl (falling back to its resource's url) verbatim when presenting it to the user -- never state a quote's content without its source link.",
 			"",
 			"maxQuotesPerUrl (default 3, max 20) caps each url's own share so one page can't dominate the combined result; maxQuotesTotal (default 15, max 100) bounds the whole response. A url that fails to fetch becomes { url, error } in its own resource card rather than failing the whole batch.",
+			"",
+			"sources=[...] applies named per-site strategies (llms-txt, markdown-suffix, github, mediawiki, youtube) to every url before generic fetch+Readability -- see web_fetch's own sources parameter.",
 		].join("\n"),
 		promptSnippet: "Resource finder: ranked, verbatim BM25F quotes per url, each with a citationUrl -- never an LLM-digested answer",
 		parameters: quotesParamsSchema,
@@ -1100,6 +1121,7 @@ export default async function (pi: ExtensionAPI) {
 						timeoutMs: params.timeoutMs,
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
+						sources: params.sources,
 					},
 					callMeta,
 				);

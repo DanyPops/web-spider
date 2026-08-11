@@ -17,6 +17,7 @@
  * a different resource.
  */
 import type { IHttpClient } from "../ports.js";
+import type { ContentSourceStrategy } from "./content-source.js";
 export interface ProbeMarkdownVariantOptions {
     /** ms before aborting the probe request (default 10 000). */
     timeoutMs?: number;
@@ -41,4 +42,10 @@ export declare function deriveMarkdownVariantUrl(url: string): string | null;
  * deriveMarkdownVariantUrl finds no sensible variant to try at all.
  */
 export declare function probeMarkdownVariant(url: string, httpClient: IHttpClient, options?: ProbeMarkdownVariantOptions): Promise<MarkdownVariantProbeResult | null>;
+/**
+ * ContentSourceStrategy adapter around {@link probeMarkdownVariant} — the
+ * extension-point-shaped form of the same logic `spider()`'s legacy
+ * `preferMarkdownVariant` flag uses internally.
+ */
+export declare function markdownSuffixContentSource(options?: ProbeMarkdownVariantOptions): ContentSourceStrategy;
 //# sourceMappingURL=markdown-suffix.d.ts.map

@@ -32,6 +32,7 @@ import {
 	QUOTES_TOTAL_CEILING,
 } from "../constants.ts";
 import { highlightHit } from "../format.ts";
+import { resolveSourcesOption } from "./content-sources.ts";
 
 export interface QuotesOperationInput {
 	query: string;
@@ -42,6 +43,8 @@ export interface QuotesOperationInput {
 	maxQuotesTotal?: number;
 	timeoutMs?: number;
 	enhanced?: boolean;
+	/** Named ContentSourceStrategy(s) applied to every url this request fetches -- see FetchOperationInput.sources. */
+	sources?: string[];
 	/** Explicit, opt-in bypass of the robots.txt check for every url this request fetches. Never a default -- every use is logged. */
 	ignoreRobots?: boolean;
 }
@@ -94,6 +97,7 @@ export class QuotesService {
 			respectRobots: !input.ignoreRobots,
 			httpClient: input.enhanced ? this.deps.getPlaywrightClient() : this.deps.defaultHttpClient,
 			timeoutMs: input.timeoutMs ?? FETCH_DEFAULT_TIMEOUT_MS,
+			contentSources: resolveSourcesOption(input.sources),
 		});
 
 		const pages = [...result.pages.values()];

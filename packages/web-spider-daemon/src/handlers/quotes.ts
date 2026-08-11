@@ -29,6 +29,7 @@ export function registerQuotesVehicleOperations(registry: VehicleRegistry, quote
 				timeoutMs: { type: "number" },
 				enhanced: { type: "boolean" },
 				ignoreRobots: { type: "boolean" },
+				sources: { type: "array" },
 			},
 			["query", "urls"],
 		),
@@ -51,6 +52,7 @@ export function registerQuotesVehicleOperations(registry: VehicleRegistry, quote
 					timeoutMs: optionalNumber(input, "timeoutMs"),
 					enhanced: optionalBoolean(input, "enhanced"),
 					ignoreRobots: optionalBoolean(input, "ignoreRobots"),
+					sources: optionalStringArray(input, "sources"),
 				}),
 			);
 		}),

@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 export { SpiderCache } from "./cache/cache.js";
 export { canonicalizeUrl } from "./cache/cache-key.js";
+export { buildTextFragmentUrl } from "./citation.js";
 export { DefaultCrawlBudget, MaxPagesBudget } from "./crawl/budget.js";
 export { DefaultPageClassifier, HeuristicPageClassifier, renderLinkList } from "./crawl/classifier.js";
 export { crawl } from "./crawl/crawl.js";
@@ -15,13 +16,14 @@ export { extractFetchedResource } from "./fetch/content-extractor.js";
 export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fetch/pdf-extractor.js";
 export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export { spider } from "./fetch/spider.js";
-export { buildTextFragmentUrl } from "./citation.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
-export { parseGitHubUrl, queryGitHub } from "./sources/github.js";
-export { probeLlmsTxt } from "./sources/llms-txt.js";
-export { deriveMarkdownVariantUrl, probeMarkdownVariant } from "./sources/markdown-suffix.js";
-export { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "./sources/mediawiki.js";
+export { githubContentSource, parseGitHubUrl, queryGitHub } from "./sources/github.js";
+export { llmsTxtContentSource, probeLlmsTxt } from "./sources/llms-txt.js";
+export { deriveMarkdownVariantUrl, markdownSuffixContentSource, probeMarkdownVariant } from "./sources/markdown-suffix.js";
+export { detectMediaWiki, extractWikiPageTitle, mediaWikiContentSource, queryMediaWikiPage } from "./sources/mediawiki.js";
+export { buildRegisteredContentSources, listRegisteredContentSources, registerContentSource, resolveContentSources, } from "./sources/registry.js";
+export { parseYouTubeVideoId, queryYouTubeOembed, youtubeContentSource } from "./sources/youtube.js";
 export { braveLlmContextSearch, braveSearch, createDefaultKeyCooldownPolicy, envKeyForEngine, exaSearch, firecrawlKeylessSearch, isLikelyInvalidKeyError, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.

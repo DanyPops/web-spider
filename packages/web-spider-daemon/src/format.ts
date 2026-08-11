@@ -61,6 +61,7 @@ export function leanOutput(page: SpideredPage): Record<string, unknown> {
 			bodyLinks: bodyLinks(page),
 			navLinksCount: navLinksCount(page) || undefined,
 			jsRendered: page.jsRendered || undefined,
+			viaStrategy: page.viaStrategy,
 		}),
 		...contentDiagnostics(page),
 	};
@@ -77,6 +78,7 @@ export function markdownOutput(page: SpideredPage): Record<string, unknown> {
 			wordCount: page.wordCount,
 			markdown: page.markdown,
 			jsRendered: page.jsRendered || undefined,
+			viaStrategy: page.viaStrategy,
 		}),
 		...contentDiagnostics(page),
 	};

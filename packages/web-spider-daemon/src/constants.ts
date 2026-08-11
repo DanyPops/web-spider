@@ -63,6 +63,8 @@ export const TREE_QUERY_DEFAULT_TOP_N = 5;
 // quotes: search + selective-fetch resource-finder op -- surfaces ranked,
 // verbatim BM25F quotes per requested url (a "resource card" list), never an
 // LLM-digested answer. See docs/web-fetch-api.md.
+/** Server-side cap on how many ContentSourceStrategy names a single request's `sources` may list -- see src/fetch/content-sources.ts. Generously above the real built-in count (5, as of this writing) so a caller stacking several third-party strategies isn't cramped, while still bounding a pathological request. */
+export const SOURCES_MAX_COUNT = 10;
 /** Server-side cap on how many URLs a single quotes request may name -- same bound as CRAWL_URLS_MAX_COUNT's selective crawl. */
 export const QUOTES_MAX_URLS = 50;
 export const QUOTES_DEFAULT_PER_URL = 3;
