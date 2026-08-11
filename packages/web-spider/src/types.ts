@@ -281,4 +281,33 @@ export interface SpideredPage {
 	 * resource at the same origin). Omitted when no strategy applied.
 	 */
 	viaStrategy?: string;
+
+	// --- structured metadata (surfaced via format:"meta"; always extracted
+	// alongside the rest of identity when present, but never spread into the
+	// default markdown/lean/tree views -- a page with several schema.org blocks
+	// or a large product/recipe JSON-LD payload must not silently inflate every
+	// ordinary fetch's token cost) ---
+	/**
+	 * Open Graph protocol properties (https://ogp.me/) keyed by full property
+	 * name including namespace, e.g. "og:title", "og:image:width". First
+	 * occurrence wins on a repeated property, per the OGP spec's own conflict
+	 * rule. Omitted when the page has no og:* meta tags.
+	 */
+	openGraph?: Record<string, string>;
+	/**
+	 * Twitter Card properties (<meta name="twitter:...">) keyed by full
+	 * property name, e.g. "twitter:card", "twitter:title". First occurrence
+	 * wins on a repeat, same rule as openGraph. Omitted when the page has no
+	 * twitter:* meta tags.
+	 */
+	twitterCard?: Record<string, string>;
+	/**
+	 * Parsed contents of every <script type="application/ld+json"> block
+	 * (schema.org structured data), in document order. A block containing a
+	 * top-level JSON array is spread into individual entries; a malformed
+	 * block is skipped rather than failing the whole extraction (fails open,
+	 * matching every other best-effort metadata signal in this type).
+	 * Omitted when the page has no valid JSON-LD.
+	 */
+	jsonLd?: unknown[];
 }

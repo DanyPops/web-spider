@@ -1,6 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import { chunk, toMarkdown } from "../extract/convert.js";
-import { extractCanonicalUrl, extractHeadings, extractLinks, extractTags, parseDom } from "../extract/parse.js";
+import { extractCanonicalUrl, extractHeadings, extractJsonLd, extractLinks, extractOpenGraph, extractTags, extractTwitterCard, parseDom, } from "../extract/parse.js";
 import { buildTree } from "../extract/tree.js";
 import { toLean } from "../extract/views.js";
 import { classifyContentType } from "./content-type.js";
@@ -138,6 +138,13 @@ const htmlExtractor = {
         }
         const links = extractLinks(doc, resource.url);
         const canonicalUrl = extractCanonicalUrl(doc, resource.url);
+        // Extracted before Readability.parse() runs -- Readability mutates/strips
+        // the document as part of its own cleanup pass, including <script> tags,
+        // so JSON-LD (and og:/twitter: <meta> tags, for the same reason) must be
+        // read from the original <head> first, exactly like links/canonicalUrl above.
+        const openGraph = extractOpenGraph(doc);
+        const twitterCard = extractTwitterCard(doc);
+        const jsonLd = extractJsonLd(doc);
         const readabilityResult = new Readability(doc).parse();
         const jsRendered = !readabilityResult;
         const article = readabilityResult ?? {
@@ -174,6 +181,12 @@ const htmlExtractor = {
             tags,
             headings,
             links,
+            // Omitted (not even an empty object/array) when absent -- see SpideredPage's
+            // own doc comments on these three fields for why they're never spread into
+            // the default markdown/lean/tree views regardless of being present here.
+            ...(Object.keys(openGraph).length > 0 ? { openGraph } : {}),
+            ...(Object.keys(twitterCard).length > 0 ? { twitterCard } : {}),
+            ...(jsonLd.length > 0 ? { jsonLd } : {}),
         };
         if (options.view === "lean") {
             const textContent = (article.textContent ?? "").trim();

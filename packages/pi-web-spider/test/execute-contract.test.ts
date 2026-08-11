@@ -117,6 +117,40 @@ describe("execute() result and failure channels", () => {
 		expect(result.details).toMatchObject({ kind: "web", operation: "fetch", format: "source", complete: true, truncated: false });
 	});
 
+	it("returns only structured metadata for format:meta, never prose", async () => {
+		server.set(
+			"/rich-meta",
+			`<!doctype html><html><head><title>Rich Meta</title>
+				<meta property="og:title" content="Rich Meta OG Title" />
+				<meta name="twitter:card" content="summary" />
+				<script type="application/ld+json">{"@type":"Article","headline":"Rich Meta"}</script>
+			</head><body><article><h1>Rich Meta</h1><p>${"Enough article prose for Readability. ".repeat(20)}</p></article></body></html>`,
+		);
+		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/rich-meta`, format: "meta" })) as ToolResult;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload).toMatchObject({
+			openGraph: { "og:title": "Rich Meta OG Title" },
+			twitterCard: { "twitter:card": "summary" },
+			jsonLd: [{ "@type": "Article", headline: "Rich Meta" }],
+		});
+		expect(payload).not.toHaveProperty("markdown");
+		expect(result.details).toMatchObject({ kind: "web", operation: "fetch", format: "meta", status: "ok" });
+	});
+
+	it("format:meta with no structured metadata on the page returns an empty status and a hint", async () => {
+		server.set(
+			"/plain-meta",
+			`<!doctype html><html><head><title>Plain</title></head><body><article><p>${"Plain prose. ".repeat(20)}</p></article></body></html>`,
+		);
+		const result = (await h.invokeTool("web_fetch", { url: `${server.baseUrl}/plain-meta`, format: "meta" })) as ToolResult;
+		const payload = JSON.parse(result.content[0].text);
+		expect(payload).not.toHaveProperty("openGraph");
+		expect(payload).not.toHaveProperty("twitterCard");
+		expect(payload).not.toHaveProperty("jsonLd");
+		expect(payload.hint).toContain("No Open Graph");
+		expect(result.details).toMatchObject({ format: "meta", status: "empty" });
+	});
+
 	it("forwards bounded PDF pages and preserves PDF/quality metadata through the Pi surface", async () => {
 		const pdf = readFileSync(new URL("../../web-spider/test/fixtures/pdf/multi-page.pdf", import.meta.url));
 		server.set("/report.bin", pdf, "application/octet-stream");

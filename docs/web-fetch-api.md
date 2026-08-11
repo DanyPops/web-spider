@@ -42,7 +42,7 @@ Pass either `url` or `searchQuery` for network work. Omitting both queries the l
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `format` | `"markdown"` \| `"lean"` \| `"links"` \| `"highlights"` \| `"tree"` \| `"source"` | `"markdown"` | Controls the shape of the returned content (see [Formats](#formats)). |
+| `format` | `"markdown"` \| `"lean"` \| `"links"` \| `"highlights"` \| `"tree"` \| `"source"` \| `"meta"` | `"markdown"` | Controls the shape of the returned content (see [Formats](#formats)). |
 
 ---
 
@@ -227,6 +227,24 @@ Normalized textual source for structured APIs and non-HTML resources. This is de
 ```
 
 Malformed JSON and JSONL remain textual source rather than being mislabeled as parsed JSON. Unsupported binary media types are rejected; PDFs use the bounded text-layer extractor below. When `tokenBudget` or the Pi delivery limit truncates content, `complete` is `false` and `truncated` is `true`; partial JSON is never claimed to be a complete document. `source` is a single-page (`depth: 0`) format.
+
+---
+
+### `meta`
+
+Structured metadata only — [Open Graph](https://ogp.me/) properties, Twitter Card properties, and parsed JSON-LD (schema.org) blocks. Never the prose body, and never spread into `markdown`/`lean`/`tree` by default: a page with a large product/recipe JSON-LD payload must not silently inflate the token cost of an ordinary fetch. Use this when you specifically need a page's social-preview or structured-data metadata, not its content.
+
+```json
+{
+  "url": "https://example.com/article",
+  "title": "Article Title",
+  "openGraph": { "og:title": "Article Title", "og:description": "An OG description", "og:image": "https://example.com/cover.jpg" },
+  "twitterCard": { "twitter:card": "summary_large_image" },
+  "jsonLd": [{ "@type": "Article", "headline": "Article Title" }]
+}
+```
+
+`openGraph`/`twitterCard` are flat maps keyed by the property's full name including namespace (e.g. `"og:image:width"`); the first occurrence of a repeated property wins, per the Open Graph protocol's own documented conflict rule. `jsonLd` is every `<script type="application/ld+json">` block on the page parsed and listed in document order (a block containing a top-level array is spread into individual entries); a malformed block is skipped rather than failing the whole request. Any of the three keys is omitted entirely (not an empty object/array) when the page has none of that kind of metadata -- when none of the three are present, the result carries a `hint` explaining that. `meta` is a single-page (`depth: 0`), cache-eligible format like `lean`/`links`.
 
 ---
 

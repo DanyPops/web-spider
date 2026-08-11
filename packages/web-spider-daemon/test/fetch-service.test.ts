@@ -271,6 +271,50 @@ describe("FetchService — tree", () => {
 	});
 });
 
+const RICH_META_HTML = `<!DOCTYPE html>
+<html><head>
+<title>Rich Meta Fixture</title>
+<meta property="og:title" content="Rich Meta OG Title" />
+<meta property="og:description" content="An OG description" />
+<meta name="twitter:card" content="summary" />
+<script type="application/ld+json">{"@type":"Article","headline":"Rich Meta Fixture"}</script>
+</head>
+<body><article><h1>Rich Meta Fixture</h1><p>${"Enough article prose for Readability to extract this as a real article. ".repeat(20)}</p></article></body></html>`;
+
+describe("FetchService — meta format", () => {
+	test("returns only structured metadata -- openGraph/twitterCard/jsonLd, never markdown/chunks", async () => {
+		const { service } = makeService(fakeHttpClient({ [URL]: { body: RICH_META_HTML } }));
+		const result = await service.fetch({ url: URL, format: "meta" });
+		expect(result).toMatchObject({
+			url: URL,
+			// Readability prefers og:title over the <title> tag when both are present.
+			title: "Rich Meta OG Title",
+			openGraph: { "og:title": "Rich Meta OG Title", "og:description": "An OG description" },
+			twitterCard: { "twitter:card": "summary" },
+			jsonLd: [{ "@type": "Article", headline: "Rich Meta Fixture" }],
+		});
+		expect(result).not.toHaveProperty("markdown");
+		expect(result).not.toHaveProperty("chunks");
+	});
+
+	test("a page with none of these present omits all three fields entirely", async () => {
+		const { service } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));
+		const result = await service.fetch({ url: URL, format: "meta" });
+		expect(result).not.toHaveProperty("openGraph");
+		expect(result).not.toHaveProperty("twitterCard");
+		expect(result).not.toHaveProperty("jsonLd");
+		expect(result).toMatchObject({ url: URL, title: "Fixture Article" });
+	});
+
+	test("is a normal cache-eligible format -- miss then hit", async () => {
+		const { service } = makeService(fakeHttpClient({ [URL]: { body: RICH_META_HTML } }));
+		const first = await service.fetch({ url: URL, format: "meta" });
+		expect(first.cache).toBe("miss");
+		const second = await service.fetch({ url: URL, format: "meta" });
+		expect(second.cache).toBe("hit");
+	});
+});
+
 describe("FetchService — maxCacheAgeMs", () => {
 	test("a cached hit older than maxCacheAgeMs is treated as a miss, and the fresh result is still written back to the shared cache", async () => {
 		const { service, db } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));

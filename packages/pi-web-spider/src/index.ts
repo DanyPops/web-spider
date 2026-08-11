@@ -497,6 +497,23 @@ export default async function (pi: ExtensionAPI) {
 			);
 		}
 
+		if (fmt === "meta") {
+			const hasMetadata = content.openGraph !== undefined || content.twitterCard !== undefined || content.jsonLd !== undefined;
+			const withHint = hasMetadata ? content : { ...content, hint: "No Open Graph, Twitter Card, or JSON-LD metadata found on this page." };
+			return output(
+				withHint,
+				createWebDetails({
+					operation: "fetch",
+					format: "meta",
+					status: hasMetadata ? "ok" : "empty",
+					url,
+					title: String(content.title ?? ""),
+					cache,
+					enhanced: params.enhanced,
+				}),
+			);
+		}
+
 		if (fmt === "highlights") {
 			const hits = (content.hits as unknown[] | undefined) ?? [];
 			const withHint = hits.length === 0 ? { ...content, hint: "No matches. Try broader terms or use format=markdown." } : content;
@@ -568,10 +585,11 @@ export default async function (pi: ExtensionAPI) {
 					Type.Literal("highlights"),
 					Type.Literal("tree"),
 					Type.Literal("source"),
+					Type.Literal("meta"),
 				],
 				{
 					description:
-						"markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree, source=normalized textual source with contentType/completeness metadata",
+						"markdown=full body (default), lean=outline only, links=hrefs, highlights=BM25F snippets, tree=DOM tree, source=normalized textual source with contentType/completeness metadata, meta=structured metadata only (Open Graph/Twitter Card/JSON-LD, no prose)",
 				},
 			),
 		),
@@ -661,7 +679,7 @@ export default async function (pi: ExtensionAPI) {
 			"",
 			"depth=0 (default) fetches one URL, free on a cache hit. depth>0 BFS-crawls up to maxPages and caches every page.",
 			"",
-			"format trades the default full markdown for targeted views (lean/links/highlights/tree/source) -- see the format parameter. source is normalized textual content, not byte-identical wire data. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted. pdfPageStart/pdfPageEnd select a bounded 1-based PDF range.",
+			"format trades the default full markdown for targeted views (lean/links/highlights/tree/source/meta) -- see the format parameter. source is normalized textual content, not byte-identical wire data. meta returns only Open Graph/Twitter Card/JSON-LD structured metadata, never prose -- deliberately separate from markdown/lean/tree so a page's schema.org payload never inflates an ordinary fetch's token cost. rootSelector/excludeSelectors/tokenBudget scope and cap what's extracted. pdfPageStart/pdfPageEnd select a bounded 1-based PDF range.",
 			"",
 			"enhanced=true forces headless-browser rendering for SPAs/JS-heavy/bot-gated pages; default auto-falls back to it when needed.",
 			"",

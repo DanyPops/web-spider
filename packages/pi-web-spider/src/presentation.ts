@@ -12,7 +12,7 @@ import {
 } from "./constants.js";
 
 export type WebOperation = "search" | "fetch" | "crawl" | "cache-list" | "cache-search" | "tree-full" | "tree-query" | "tree-path";
-export type WebFormat = "search" | "markdown" | "lean" | "links" | "highlights" | "tree" | "source";
+export type WebFormat = "search" | "markdown" | "lean" | "links" | "highlights" | "tree" | "source" | "meta";
 export type WebStatus = "ok" | "empty" | "blocked";
 
 export interface WebItemDetails {
@@ -222,7 +222,7 @@ const OPERATIONS = new Set<WebOperation>([
 	"tree-query",
 	"tree-path",
 ]);
-const FORMATS = new Set<WebFormat>(["search", "markdown", "lean", "links", "highlights", "tree", "source"]);
+const FORMATS = new Set<WebFormat>(["search", "markdown", "lean", "links", "highlights", "tree", "source", "meta"]);
 const STATUSES = new Set<WebStatus>(["ok", "empty", "blocked"]);
 
 export function parseWebDetails(value: unknown): WebPresentationDetails | undefined {

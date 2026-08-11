@@ -22,7 +22,7 @@ const LIMITS = { defaultTimeoutMs: 30_000, maxTimeoutMs: 120_000, maxRequestByte
 
 const FETCH_PROPERTIES = {
 	url: { type: "string" },
-	format: { type: "string", enum: ["markdown", "lean", "links", "highlights", "tree", "source"] },
+	format: { type: "string", enum: ["markdown", "lean", "links", "highlights", "tree", "source", "meta"] },
 	rootSelector: { type: "string" },
 	excludeSelectors: { type: "string" },
 	tokenBudget: { type: "number" },

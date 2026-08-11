@@ -147,3 +147,68 @@ export function extractCanonicalUrl(doc: Document, fetchedUrl: string): string |
 	const norm = (u: string) => u.replace(/\/$/, "");
 	return norm(canonical) !== norm(fetchedUrl) ? canonical : undefined;
 }
+
+// ---------------------------------------------------------------------------
+// Structured metadata: Open Graph, Twitter Cards, JSON-LD
+// ---------------------------------------------------------------------------
+
+/**
+ * Collects every `<meta property="og:...">` (or `<meta name="og:...">` --
+ * some real-world pages use `name` instead of `property`, contrary to the
+ * spec, and both are read for robustness) into a flat map keyed by the
+ * property's full name including namespace (e.g. "og:image:width"). The
+ * first occurrence of a repeated property wins, per the Open Graph
+ * protocol's own documented conflict rule (https://ogp.me/#array): "The
+ * first tag (from top to bottom) is given preference during conflicts."
+ */
+export function extractOpenGraph(doc: Document): Record<string, string> {
+	const result: Record<string, string> = {};
+	for (const el of doc.querySelectorAll('meta[property^="og:"], meta[name^="og:"]')) {
+		const key = el.getAttribute("property") ?? el.getAttribute("name");
+		const value = el.getAttribute("content");
+		if (key && value !== null && !(key in result)) result[key] = value;
+	}
+	return result;
+}
+
+/**
+ * Collects every `<meta name="twitter:...">` into a flat map keyed by the
+ * property's full name (e.g. "twitter:card", "twitter:image:alt"). Twitter
+ * Cards use `name`, not `property` -- unlike Open Graph, there is no widely
+ * used `property` variant to also check. Same first-occurrence-wins rule as
+ * extractOpenGraph, for consistency.
+ */
+export function extractTwitterCard(doc: Document): Record<string, string> {
+	const result: Record<string, string> = {};
+	for (const el of doc.querySelectorAll('meta[name^="twitter:"]')) {
+		const key = el.getAttribute("name");
+		const value = el.getAttribute("content");
+		if (key && value !== null && !(key in result)) result[key] = value;
+	}
+	return result;
+}
+
+/**
+ * Parses every `<script type="application/ld+json">` block on the page, in
+ * document order. A block whose JSON top-level value is an array is spread
+ * into individual entries (a common pattern for pages describing several
+ * schema.org entities, e.g. an Article plus a BreadcrumbList); any other
+ * value is pushed as a single entry. A block that fails to parse is skipped
+ * -- one malformed script tag must never fail extraction for the rest of
+ * the page (fails open, matching every other best-effort signal here).
+ */
+export function extractJsonLd(doc: Document): unknown[] {
+	const result: unknown[] = [];
+	for (const el of doc.querySelectorAll('script[type="application/ld+json"]')) {
+		const raw = el.textContent?.trim();
+		if (!raw) continue;
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			if (Array.isArray(parsed)) result.push(...parsed);
+			else result.push(parsed);
+		} catch {
+			// Malformed JSON-LD is skipped, not thrown -- see doc comment above.
+		}
+	}
+	return result;
+}

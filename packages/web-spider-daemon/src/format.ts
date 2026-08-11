@@ -84,6 +84,23 @@ export function markdownOutput(page: SpideredPage): Record<string, unknown> {
 	};
 }
 
+/**
+ * Structured metadata only — Open Graph, Twitter Card, and JSON-LD, never
+ * the prose body. A deliberately separate format from markdown/lean/tree
+ * rather than fields bolted onto them: a page with a large product/recipe
+ * JSON-LD payload must not silently inflate every ordinary fetch's token
+ * cost (see SpideredPage.jsonLd's own doc comment in @danypops/web-spider).
+ */
+export function metaOutput(page: SpideredPage): Record<string, unknown> {
+	return omitEmpty({
+		url: page.url,
+		title: page.title,
+		openGraph: page.openGraph,
+		twitterCard: page.twitterCard,
+		jsonLd: page.jsonLd,
+	});
+}
+
 export function linksOutput(page: SpideredPage): Record<string, unknown> {
 	return {
 		...omitEmpty({
