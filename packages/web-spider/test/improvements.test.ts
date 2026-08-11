@@ -78,6 +78,24 @@ describe("JS-rendered pages degrade gracefully", () => {
 		});
 		expect((page as { jsRendered?: boolean }).jsRendered).toBe(true);
 	});
+
+	it("flags jsRendered:true for a script-hydrated shell even when Readability finds a few nav words (not literally zero)", async () => {
+		const thinShellHtml =
+			'<!DOCTYPE html><html><head><title>Quotes</title></head><body><a href="/login">Login</a><script>var data = [];</script></body></html>';
+		const page = await spider("https://example.com", {
+			httpClient: mockClient({ "*": { body: thinShellHtml } }),
+		});
+		expect((page as { jsRendered?: boolean }).jsRendered).toBe(true);
+	});
+
+	it("does not flag a genuinely short static page (no script tag) as jsRendered", async () => {
+		const shortStaticHtml =
+			"<!DOCTYPE html><html><head><title>Example</title></head><body><article><p>This domain is for use in documentation examples.</p></article></body></html>";
+		const page = await spider("https://example.com", {
+			httpClient: mockClient({ "*": { body: shortStaticHtml } }),
+		});
+		expect((page as { jsRendered?: boolean }).jsRendered).toBeUndefined();
+	});
 });
 
 // ---------------------------------------------------------------------------
