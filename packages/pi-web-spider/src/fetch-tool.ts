@@ -13,6 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import type { CallMeta, OperationGateway } from "./operation-gateway.js";
 import {
 	createWebDetails,
 	createWebResult,
@@ -20,7 +21,6 @@ import {
 	renderWebFetchResult,
 	type WebPresentationDetails,
 } from "./presentation.js";
-import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
 
 // ---------------------------------------------------------------------------
 // Parameters -- segregated by concern (ISP): each group below is a narrower
@@ -314,8 +314,8 @@ const SINGLE_FETCH_FORMAT_HANDLERS: Record<SingleFetchFormat, SingleFetchFormatH
 // Tool registration
 // ---------------------------------------------------------------------------
 
-/** Registers web_fetch. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see vehicle-gateway.ts. */
-export function registerFetchTool(pi: ExtensionAPI, gateway: VehicleGateway): void {
+/** Registers web_fetch. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see operation-gateway.ts. */
+export function registerFetchTool(pi: ExtensionAPI, gateway: OperationGateway): void {
 	// -------------------------------------------------------------------------
 	// Path handlers — each owns one execution branch. SRP: one reason to change.
 	// -------------------------------------------------------------------------

@@ -19,6 +19,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import type { CallMeta, OperationGateway } from "./operation-gateway.js";
 import {
 	createSessionActDetails,
 	createSessionLifecycleDetails,
@@ -26,7 +27,6 @@ import {
 	renderWebSessionCall,
 	renderWebSessionResult,
 } from "./session-presentation.js";
-import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
 
 const sessionParamsSchema = Type.Object({
 	operation: Type.Union([Type.Literal("create"), Type.Literal("list"), Type.Literal("close"), Type.Literal("act")], {
@@ -147,7 +147,7 @@ type SessionToolResult = {
 // operation=... dispatch (Strategy pattern, OCP): a new operation is one new
 // entry here, not a new branch in a growing if/else chain.
 // ---------------------------------------------------------------------------
-type SessionOperationHandler = (params: SessionParams, callMeta: CallMeta, gateway: VehicleGateway) => Promise<SessionToolResult>;
+type SessionOperationHandler = (params: SessionParams, callMeta: CallMeta, gateway: OperationGateway) => Promise<SessionToolResult>;
 
 const SESSION_OPERATION_HANDLERS: Record<SessionParams["operation"], SessionOperationHandler> = {
 	async create(params, callMeta, gateway) {
@@ -237,8 +237,8 @@ const SESSION_OPERATION_HANDLERS: Record<SessionParams["operation"], SessionOper
 	},
 };
 
-/** Registers web_session. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see vehicle-gateway.ts. */
-export function registerSessionTool(pi: ExtensionAPI, gateway: VehicleGateway): void {
+/** Registers web_session. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see operation-gateway.ts. */
+export function registerSessionTool(pi: ExtensionAPI, gateway: OperationGateway): void {
 	pi.registerTool({
 		name: "web_session",
 		label: "Web Session",

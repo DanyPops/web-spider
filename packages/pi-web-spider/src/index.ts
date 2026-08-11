@@ -11,21 +11,21 @@
  * Composition root only (SRP): each tool's own schema, handlers, and
  * registration live in their own file (fetch-tool.ts/session-tool.ts/
  * category-tool.ts/quotes-tool.ts), all built against one shared
- * VehicleGateway (vehicle-gateway.ts) rather than each importing a concrete
- * daemon client directly (DIP).
+ * OperationGateway (operation-gateway.ts) rather than each importing a
+ * concrete daemon client directly (DIP).
  *
  * Install: pi install git:github.com/DanyPops/web-spider
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerCategoryTool } from "./category-tool.js";
 import { registerFetchTool } from "./fetch-tool.js";
+import { createOperationGateway } from "./operation-gateway.js";
 import { registerQuotesTool } from "./quotes-tool.js";
 import { registerSessionTool } from "./session-tool.js";
 import { registerWebSpiderUsageCommand } from "./usage-command.js";
-import { createVehicleGateway } from "./vehicle-gateway.js";
 
 export default async function (pi: ExtensionAPI) {
-	const gateway = createVehicleGateway();
+	const gateway = createOperationGateway();
 
 	registerFetchTool(pi, gateway);
 	registerSessionTool(pi, gateway);

@@ -11,8 +11,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import type { CallMeta, OperationGateway } from "./operation-gateway.js";
 import { createQuotesDetails, createQuotesResult, renderWebQuotesCall, renderWebQuotesResult } from "./quotes-presentation.js";
-import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
 
 const quotesParamsSchema = Type.Object({
 	query: Type.String({ description: "Text to rank quotes against -- the same query you'd pass to web_fetch(searchQuery=...)" }),
@@ -43,8 +43,8 @@ const quotesParamsSchema = Type.Object({
 
 type QuotesParams = Static<typeof quotesParamsSchema>;
 
-/** Registers web_quotes. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see vehicle-gateway.ts. */
-export function registerQuotesTool(pi: ExtensionAPI, gateway: VehicleGateway): void {
+/** Registers web_quotes. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see operation-gateway.ts. */
+export function registerQuotesTool(pi: ExtensionAPI, gateway: OperationGateway): void {
 	pi.registerTool({
 		name: "web_quotes",
 		label: "Web Quotes",

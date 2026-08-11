@@ -1,7 +1,7 @@
 /**
- * VehicleGateway — the one seam every tool module depends on instead of
+ * OperationGateway — the one seam every tool module depends on instead of
  * importing invokeWebSpiderVehicleOperation directly (DIP): each tool file
- * takes a VehicleGateway as a parameter rather than reaching for a concrete
+ * takes an OperationGateway as a parameter rather than reaching for a concrete
  * daemon-client import itself, so a fake implementation can stand in for
  * unit tests without a real daemon, and so the "log the operation name/error
  * on failure" policy lives in exactly one place instead of being
@@ -22,16 +22,16 @@ export type CallMeta = { toolName: string; toolCallId: string; signal?: AbortSig
 
 export type DiagLevel = "info" | "warn" | "error";
 
-export interface VehicleGateway {
+export interface OperationGateway {
 	/** Routes an operation through invokeWebSpiderVehicleOperation(), giving every caller the same cross-cutting policy (activity broadcasting, the /safety gate, approval retry) uniformly, and logging (never throwing silently) on failure. */
 	invoke<T = unknown>(operation: string, input: Record<string, unknown>, callMeta: CallMeta): Promise<T>;
 	/** File-based diagnostics -- see the module doc comment. */
 	log(level: DiagLevel, msg: string, extra?: unknown): void;
 }
 
-export function createVehicleGateway(
+export function createOperationGateway(
 	diagPath: string = process.env.WEB_SPIDER_DIAG_PATH ?? join(homedir(), ".cache", "web-spider", "diag.log"),
-): VehicleGateway {
+): OperationGateway {
 	const diag = (entry: Record<string, unknown>) => {
 		const line = JSON.stringify({ ts: new Date().toISOString(), ...entry });
 		try {

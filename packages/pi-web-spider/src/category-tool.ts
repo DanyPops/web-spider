@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
 import { DETAILS_MAX_ITEMS, DETAILS_VERSION } from "./constants.js";
-import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
+import type { CallMeta, OperationGateway } from "./operation-gateway.js";
 
 const categoryParamsSchema = Type.Object({
 	operation: Type.Union([Type.Literal("assign"), Type.Literal("remove"), Type.Literal("rename"), Type.Literal("list")], {
@@ -59,7 +59,7 @@ type CategoryToolResult = { content: Array<{ type: "text"; text: string }>; deta
 // keeping this tool's own consolidated operation=assign/remove/rename/list
 // shape unchanged.
 // ---------------------------------------------------------------------------
-type CategoryOperationHandler = (params: CategoryParams, callMeta: CallMeta, gateway: VehicleGateway) => Promise<CategoryToolResult>;
+type CategoryOperationHandler = (params: CategoryParams, callMeta: CallMeta, gateway: OperationGateway) => Promise<CategoryToolResult>;
 
 const CATEGORY_OPERATION_HANDLERS: Record<CategoryParams["operation"], CategoryOperationHandler> = {
 	async list(_params, callMeta, gateway) {
@@ -118,8 +118,8 @@ const CATEGORY_OPERATION_HANDLERS: Record<CategoryParams["operation"], CategoryO
 	},
 };
 
-/** Registers web_category. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see vehicle-gateway.ts. */
-export function registerCategoryTool(pi: ExtensionAPI, gateway: VehicleGateway): void {
+/** Registers web_category. `gateway` is the one seam this module depends on instead of importing a concrete daemon client (DIP) -- see operation-gateway.ts. */
+export function registerCategoryTool(pi: ExtensionAPI, gateway: OperationGateway): void {
 	pi.registerTool({
 		name: "web_category",
 		label: "Web Category",
