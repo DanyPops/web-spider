@@ -52,7 +52,18 @@ function makeService(httpClient: IHttpClient, robotsCache: IRobotsChecker = allo
 		// Never exercised unless jsRendered/enhanced — all fixtures are real articles, not JS-rendered shells.
 		getPlaywrightClient: () => httpClient,
 	});
-	return { service, cache };
+	return { service, cache, db };
+}
+
+/**
+ * Backdates a cached row's fetched_at column directly via SQL -- SQLiteCacheStore.set()
+ * always stamps fetched_at with its own Date.now() at write time (matching
+ * sqlite-cache-store.test.ts's own established pattern), so mutating a
+ * SpideredPage's fetchedAt field and re-calling cache.set() would not actually
+ * persist an old timestamp; only a direct row UPDATE does.
+ */
+function backdateFetchedAt(db: ReturnType<typeof openWebSpiderDb>, url: string, ageMs: number): void {
+	db.query("UPDATE pages SET fetched_at = ? WHERE url = ?").run(Date.now() - ageMs, url);
 }
 
 describe("FetchService — markdown/lean/links (default cache-eligible path)", () => {
@@ -257,6 +268,58 @@ describe("FetchService — tree", () => {
 
 		const pathResult = await service.fetch({ url: URL, format: "tree", path: "does.not.exist[0]" });
 		expect(pathResult).toEqual({ found: false, path: "does.not.exist[0]" });
+	});
+});
+
+describe("FetchService — maxCacheAgeMs", () => {
+	test("a cached hit older than maxCacheAgeMs is treated as a miss, and the fresh result is still written back to the shared cache", async () => {
+		const { service, db } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));
+		await service.fetch({ url: URL });
+		backdateFetchedAt(db, URL, 60_000); // age it 60s
+
+		// A tighter bound than the entry's real age rejects the stale hit.
+		const stale = await service.fetch({ url: URL, maxCacheAgeMs: 1_000 });
+		expect(stale.cache).toBe("miss");
+
+		// Not a full bypass: the miss above re-cached with a fresh fetchedAt, so a
+		// plain call with no override now hits again.
+		const afterward = await service.fetch({ url: URL });
+		expect(afterward.cache).toBe("hit");
+	});
+
+	test("a cached hit within maxCacheAgeMs is still served normally", async () => {
+		const { service, db } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));
+		await service.fetch({ url: URL });
+		backdateFetchedAt(db, URL, 60_000);
+
+		const result = await service.fetch({ url: URL, maxCacheAgeMs: 120_000 });
+		expect(result.cache).toBe("hit");
+	});
+
+	test("maxCacheAgeMs: 0 always refetches, still caching the fresh result for later callers", async () => {
+		const { service, db } = makeService(fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }));
+		await service.fetch({ url: URL });
+		backdateFetchedAt(db, URL, 1); // even 1ms old must be rejected by maxCacheAgeMs:0
+		const forced = await service.fetch({ url: URL, maxCacheAgeMs: 0 });
+		expect(forced.cache).toBe("miss");
+		const afterward = await service.fetch({ url: URL });
+		expect(afterward.cache).toBe("hit");
+	});
+
+	test("format:tree bypasses the in-memory tree cache entirely when maxCacheAgeMs is set -- each call re-fetches", async () => {
+		let fetchCount = 0;
+		const counting: IHttpClient = {
+			async fetch(req: HttpRequest): Promise<HttpResponse> {
+				fetchCount++;
+				return fakeHttpClient({ [URL]: { body: ARTICLE_HTML } }).fetch(req);
+			},
+		};
+		const { service } = makeService(counting);
+
+		await service.fetch({ url: URL, format: "tree", maxCacheAgeMs: 60_000 });
+		const afterFirst = fetchCount;
+		await service.fetch({ url: URL, format: "tree", maxCacheAgeMs: 60_000 });
+		expect(fetchCount).toBeGreaterThan(afterFirst); // no memoized hit -- a real second fetch happened
 	});
 });
 

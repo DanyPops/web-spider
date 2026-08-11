@@ -158,3 +158,36 @@ describe("QuotesService — bounds sanity", () => {
 		expect(QUOTES_TOTAL_CEILING).toBeGreaterThan(0);
 	});
 });
+
+describe("QuotesService — maxCacheAgeMs", () => {
+	// Builds its own db/cache (rather than the shared makeService() helper, which
+	// returns a bare QuotesService) so this test can backdate a cached row's
+	// fetched_at directly, matching sqlite-cache-store.test.ts's own established
+	// pattern -- SQLiteCacheStore.set() always stamps fetched_at with its own
+	// Date.now() at write time, so only a direct row UPDATE can simulate an aged entry.
+	test("a cached page older than maxCacheAgeMs is refetched for this request, still re-cached for the next one", async () => {
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const cache = new SQLiteCacheStore(db, { imagesDir });
+		const httpClient = fakeHttpClient({ [URL_A]: { body: PAGE_A } });
+		const service = new QuotesService({
+			cache,
+			throttle: noopThrottle(),
+			robotsCache: allowRobots(),
+			defaultHttpClient: httpClient,
+			getPlaywrightClient: () => httpClient,
+		});
+
+		await service.quotes({ query: "rate limiting", urls: [URL_A] });
+		db.query("UPDATE pages SET fetched_at = ? WHERE url = ?").run(Date.now() - 60_000, URL_A);
+
+		const stale = await service.quotes({ query: "rate limiting", urls: [URL_A], maxCacheAgeMs: 1_000 });
+		expect((stale.resources as Array<{ error?: string }>)[0]?.error).toBeUndefined();
+
+		// Not a full bypass: the refetch above wrote a fresh fetched_at, so a plain
+		// (no maxCacheAgeMs) call afterward would again read a fresh row -- checked
+		// indirectly here via the row no longer being 60s old.
+		const row = db.query("SELECT fetched_at FROM pages WHERE url = ?").get(URL_A) as { fetched_at: number };
+		expect(Date.now() - row.fetched_at).toBeLessThan(5_000);
+	});
+});

@@ -102,6 +102,94 @@ describe("CrawlService — BFS crawl", () => {
 	});
 });
 
+// A cross-domain link graph -- root links to one same-domain page and one
+// page on a completely different host -- used to exercise excludeDomains/
+// includeDomains independently of sameDomain, which this fixture disables.
+const CROSS_DOMAIN_SITE: Record<string, string> = {
+	[ROOT]: articleWithLinks(["https://fixture.test/a", "https://blocked.example/x"]),
+	"https://fixture.test/a": articleWithLinks([]),
+	"https://blocked.example/x": articleWithLinks([]),
+};
+
+describe("CrawlService — excludeDomains/includeDomains", () => {
+	test("excludeDomains skips a matching host even when sameDomain:false would otherwise allow it", async () => {
+		const { service } = makeService(
+			fakeHttpClient(Object.fromEntries(Object.entries(CROSS_DOMAIN_SITE).map(([url, body]) => [url, { body }]))),
+		);
+		const result = await service.crawl({
+			url: ROOT,
+			format: "lean",
+			depth: 1,
+			maxPages: 10,
+			sameDomain: false,
+			excludeDomains: ["blocked.example"],
+		});
+		const urls = (result.pages as Array<{ url: string }>).map((p) => p.url);
+		expect(urls).toContain("https://fixture.test/a");
+		expect(urls).not.toContain("https://blocked.example/x");
+	});
+
+	test("includeDomains restricts the frontier to only a matching host, even with sameDomain:false", async () => {
+		const { service } = makeService(
+			fakeHttpClient(Object.fromEntries(Object.entries(CROSS_DOMAIN_SITE).map(([url, body]) => [url, { body }]))),
+		);
+		const result = await service.crawl({
+			url: ROOT,
+			format: "lean",
+			depth: 1,
+			maxPages: 10,
+			sameDomain: false,
+			includeDomains: ["fixture.test"],
+		});
+		const urls = (result.pages as Array<{ url: string }>).map((p) => p.url);
+		expect(urls).toContain("https://fixture.test/a");
+		expect(urls).not.toContain("https://blocked.example/x");
+	});
+
+	test("omitting both leaves the crawl's normal sameDomain behavior unchanged (no regression)", async () => {
+		const { service } = makeService(
+			fakeHttpClient(Object.fromEntries(Object.entries(CROSS_DOMAIN_SITE).map(([url, body]) => [url, { body }]))),
+		);
+		const result = await service.crawl({ url: ROOT, format: "lean", depth: 1, maxPages: 10 });
+		const urls = (result.pages as Array<{ url: string }>).map((p) => p.url);
+		expect(urls).toContain("https://fixture.test/a");
+		expect(urls).not.toContain("https://blocked.example/x"); // default sameDomain:true already excludes it
+	});
+});
+
+describe("CrawlService — maxCacheAgeMs", () => {
+	// SQLiteCacheStore.set() always stamps fetched_at with its own Date.now() at
+	// write time (see freshness-view.test.ts/fetch-service.test.ts's own comment
+	// on this), so an aged entry is simulated via a direct row UPDATE, matching
+	// sqlite-cache-store.test.ts's established pattern -- not by mutating a
+	// SpideredPage's fetchedAt field and re-calling cache.set().
+	test("a page already cached (e.g. from a prior crawl) older than maxCacheAgeMs is refetched, not served stale", async () => {
+		const db = openWebSpiderDb(":memory:");
+		const imagesDir = mkdtempSync(join(tmpdir(), "web-spider-images-"));
+		const cache = new SQLiteCacheStore(db, { imagesDir });
+		const httpClient = fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }])));
+		const service = new CrawlService({
+			cache,
+			throttle: noopThrottle(),
+			robotsCache: allowRobots(),
+			defaultHttpClient: httpClient,
+			getPlaywrightClient: () => httpClient,
+		});
+
+		await service.crawl({ url: ROOT, format: "lean", depth: 0, maxPages: 1 });
+		db.query("UPDATE pages SET fetched_at = ? WHERE url = ?").run(Date.now() - 60_000, ROOT);
+
+		// A fresh crawl of just the root, demanding content no older than 1s -- the
+		// 60s-old cached root must be treated as a miss and refetched (still
+		// succeeding, since the fake http client still serves the same content).
+		const result = await service.crawl({ url: ROOT, format: "lean", depth: 0, maxPages: 1, maxCacheAgeMs: 1_000 });
+		expect(result.pagesFound).toBe(1);
+
+		const row = db.query("SELECT fetched_at FROM pages WHERE url = ?").get(ROOT) as { fetched_at: number };
+		expect(Date.now() - row.fetched_at).toBeLessThan(5_000); // re-cached with a fresh fetchedAt -- not a full bypass
+	});
+});
+
 describe("CrawlService — highlights", () => {
 	test("throws when query is missing", async () => {
 		const { service } = makeService(fakeHttpClient(Object.fromEntries(Object.entries(SITE).map(([url, body]) => [url, { body }]))));

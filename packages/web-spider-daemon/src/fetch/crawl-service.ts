@@ -9,10 +9,12 @@
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, type PageClassification, searchPages } from "@danypops/web-spider";
 import type { CacheStore } from "../cache/cache-store.ts";
+import { withMaxAge } from "../cache/freshness-view.ts";
 import {
 	CRAWL_DEFAULT_DEADLINE_MS,
 	CRAWL_DEFAULT_MAX_DEPTH,
 	CRAWL_DEFAULT_MAX_PAGES,
+	CRAWL_DOMAIN_FILTER_MAX_COUNT,
 	CRAWL_HIGHLIGHTS_DEFAULT_TOP_N,
 	CRAWL_MAX_DEADLINE_MS_CEILING,
 	CRAWL_MAX_DEPTH_CEILING,
@@ -24,6 +26,7 @@ import {
 } from "../constants.ts";
 import { highlightHit, leanOutput, omitEmpty } from "../format.ts";
 import { resolveSourcesOption } from "./content-sources.ts";
+import { buildDomainFilter } from "./domain-filter.ts";
 
 export type CrawlFormat = "markdown" | "lean" | "highlights";
 
@@ -60,6 +63,12 @@ export interface CrawlOperationInput {
 	deadlineMs?: number;
 	/** Named ContentSourceStrategy(s) applied to every page this crawl fetches -- see FetchOperationInput.sources. */
 	sources?: string[];
+	/** Skip a discovered URL whose hostname matches (or is a subdomain of) any of these. Clamped server-side to CRAWL_DOMAIN_FILTER_MAX_COUNT entries. See src/fetch/domain-filter.ts. */
+	excludeDomains?: string[];
+	/** Only follow a discovered URL whose hostname matches (or is a subdomain of) one of these. Clamped server-side to CRAWL_DOMAIN_FILTER_MAX_COUNT entries. See src/fetch/domain-filter.ts. */
+	includeDomains?: string[];
+	/** Reject an already-cached page older than this many ms, treating it as a miss for this crawl -- see FetchOperationInput.maxCacheAgeMs and src/cache/freshness-view.ts. The re-fetched page is still written back to the shared cache normally. */
+	maxCacheAgeMs?: number;
 }
 
 export type CrawlOperationOutput = Record<string, unknown>;
@@ -105,12 +114,17 @@ export class CrawlService {
 		const deadlineMs = clamp(input.deadlineMs, CRAWL_DEFAULT_DEADLINE_MS, CRAWL_MAX_DEADLINE_MS_CEILING, 1_000);
 		const maxTotalChars = clampOptional(input.maxTotalChars, CRAWL_MAX_TOTAL_CHARS_CEILING);
 		const crawlUrls = input.crawlUrls?.slice(0, CRAWL_URLS_MAX_COUNT);
+		const urlFilter = buildDomainFilter(
+			input.excludeDomains?.slice(0, CRAWL_DOMAIN_FILTER_MAX_COUNT),
+			input.includeDomains?.slice(0, CRAWL_DOMAIN_FILTER_MAX_COUNT),
+		);
+		const cache = input.maxCacheAgeMs !== undefined ? withMaxAge(this.deps.cache, input.maxCacheAgeMs) : this.deps.cache;
 
 		const result = await crawl(input.url, {
 			maxDepth: depth,
 			maxPages,
 			sameDomainOnly: input.sameDomain ?? true,
-			cache: this.deps.cache,
+			cache,
 			rootSelector: input.rootSelector,
 			excludeSelectors: input.excludeSelectors,
 			tokenBudget: input.tokenBudget,
@@ -124,6 +138,7 @@ export class CrawlService {
 			maxTotalChars,
 			deadlineMs,
 			contentSources: resolveSourcesOption(input.sources),
+			urlFilter,
 		});
 
 		const pages = [...result.pages.values()];

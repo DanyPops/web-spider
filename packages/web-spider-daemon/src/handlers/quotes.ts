@@ -30,6 +30,7 @@ export function registerQuotesVehicleOperations(registry: VehicleRegistry, quote
 				enhanced: { type: "boolean" },
 				ignoreRobots: { type: "boolean" },
 				sources: { type: "array" },
+				maxCacheAgeMs: { type: "number" },
 			},
 			["query", "urls"],
 		),
@@ -53,6 +54,7 @@ export function registerQuotesVehicleOperations(registry: VehicleRegistry, quote
 					enhanced: optionalBoolean(input, "enhanced"),
 					ignoreRobots: optionalBoolean(input, "ignoreRobots"),
 					sources: optionalStringArray(input, "sources"),
+					maxCacheAgeMs: optionalNumber(input, "maxCacheAgeMs"),
 				}),
 			);
 		}),

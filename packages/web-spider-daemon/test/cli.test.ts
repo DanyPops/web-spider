@@ -204,6 +204,48 @@ describe("runCli fetch — CLI parity for the fetch/crawl operations", () => {
 		expect((operations[0]!.input as { sources?: string[] }).sources).toBeUndefined();
 	});
 
+	test("--exclude-domains and --include-domains forward parsed name lists to crawl only", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ pagesFound: 1, pages: [] }) });
+		await runCli(
+			["fetch", "https://x.test", "--depth", "1", "--exclude-domains", "ads.example,tracker.example", "--include-domains", "x.test"],
+			deps,
+		);
+		expect(operations[0]?.op).toBe("crawl");
+		expect(operations[0]?.input).toMatchObject({
+			excludeDomains: ["ads.example", "tracker.example"],
+			includeDomains: ["x.test"],
+		});
+	});
+
+	test("--exclude-domains/--include-domains are omitted entirely when not given", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ pagesFound: 1, pages: [] }) });
+		await runCli(["fetch", "https://x.test", "--depth", "1"], deps);
+		const input = operations[0]!.input as { excludeDomains?: string[]; includeDomains?: string[] };
+		expect(input.excludeDomains).toBeUndefined();
+		expect(input.includeDomains).toBeUndefined();
+	});
+
+	test("--max-cache-age-ms forwards a parsed number to fetch, crawl, and quotes", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test", "--max-cache-age-ms", "1000"], deps);
+		expect(operations[0]?.input).toMatchObject({ maxCacheAgeMs: 1000 });
+
+		const { deps: crawlDeps, operations: crawlOps } = fakeDeps({ call: () => ({ pagesFound: 1, pages: [] }) });
+		await runCli(["fetch", "https://x.test", "--depth", "1", "--max-cache-age-ms", "0"], crawlDeps);
+		expect(crawlOps[0]?.op).toBe("crawl");
+		expect(crawlOps[0]?.input).toMatchObject({ maxCacheAgeMs: 0 });
+
+		const { deps: quotesDeps, operations: quotesOps } = fakeDeps({ call: () => ({ resources: [] }) });
+		await runCli(["quotes", "q", "--urls", "https://x.test", "--max-cache-age-ms", "5000"], quotesDeps);
+		expect(quotesOps[0]?.input).toMatchObject({ maxCacheAgeMs: 5000 });
+	});
+
+	test("--max-cache-age-ms is omitted entirely when not given", async () => {
+		const { deps, operations } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
+		await runCli(["fetch", "https://x.test"], deps);
+		expect((operations[0]!.input as { maxCacheAgeMs?: number }).maxCacheAgeMs).toBeUndefined();
+	});
+
 	test("--ignore-robots is forwarded as true; omitted entirely by default", async () => {
 		const { deps: withFlag, operations: withFlagOps } = fakeDeps({ call: () => ({ url: "https://x.test", title: "X" }) });
 		await runCli(["fetch", "https://x.test", "--ignore-robots"], withFlag);

@@ -22,6 +22,7 @@
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { crawl, type IHttpClient, type IRobotsChecker, type IThrottle, searchPages } from "@danypops/web-spider";
 import type { CacheStore } from "../cache/cache-store.ts";
+import { withMaxAge } from "../cache/freshness-view.ts";
 import {
 	FETCH_DEFAULT_TIMEOUT_MS,
 	FETCH_HIGHLIGHTS_SNIPPET_RADIUS,
@@ -45,6 +46,8 @@ export interface QuotesOperationInput {
 	enhanced?: boolean;
 	/** Named ContentSourceStrategy(s) applied to every url this request fetches -- see FetchOperationInput.sources. */
 	sources?: string[];
+	/** Reject an already-cached page older than this many ms for every url this request fetches -- see FetchOperationInput.maxCacheAgeMs and src/cache/freshness-view.ts. */
+	maxCacheAgeMs?: number;
 	/** Explicit, opt-in bypass of the robots.txt check for every url this request fetches. Never a default -- every use is logged. */
 	ignoreRobots?: boolean;
 }
@@ -87,11 +90,12 @@ export class QuotesService {
 		const maxQuotesPerUrl = clamp(input.maxQuotesPerUrl, QUOTES_DEFAULT_PER_URL, QUOTES_PER_URL_CEILING);
 		const maxQuotesTotal = clamp(input.maxQuotesTotal, QUOTES_DEFAULT_TOTAL, QUOTES_TOTAL_CEILING);
 
+		const cache = input.maxCacheAgeMs !== undefined ? withMaxAge(this.deps.cache, input.maxCacheAgeMs) : this.deps.cache;
 		const result = await crawl(urls[0]!, {
 			crawlUrls: urls,
 			sameDomainOnly: false,
 			useSitemap: false,
-			cache: this.deps.cache,
+			cache,
 			throttle: this.deps.throttle,
 			robotsCache: input.ignoreRobots ? undefined : this.deps.robotsCache,
 			respectRobots: !input.ignoreRobots,

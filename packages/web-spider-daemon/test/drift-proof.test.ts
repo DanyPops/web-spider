@@ -155,6 +155,9 @@ const DOCUMENTED_TOOL_PARAMETERS = new Set([
 	"maxQuotesPerUrl",
 	"maxQuotesTotal",
 	"sources",
+	"excludeDomains",
+	"includeDomains",
+	"maxCacheAgeMs",
 ]);
 
 /** Field names the daemon's fetch/crawl/search operations actually accept (service.ts's fetchInput()/handlers()). */
@@ -186,6 +189,9 @@ const DAEMON_OPERATION_FIELDS = [
 	"maxQuotesPerUrl",
 	"maxQuotesTotal",
 	"sources",
+	"excludeDomains",
+	"includeDomains",
+	"maxCacheAgeMs",
 ];
 
 describe("daemon operation fields → documented tool parameter surface", () => {

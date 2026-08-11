@@ -22,6 +22,7 @@ import {
 	spider,
 } from "@danypops/web-spider";
 import type { CacheStore } from "../cache/cache-store.ts";
+import { withMaxAge } from "../cache/freshness-view.ts";
 import {
 	FETCH_DEFAULT_TIMEOUT_MS,
 	FETCH_HIGHLIGHTS_DEFAULT_TOP_N,
@@ -60,6 +61,15 @@ export interface FetchOperationInput {
 	 * excludeSelectors/tokenBudget/enhanced already follow.
 	 */
 	sources?: string[];
+	/**
+	 * Reject a cached hit older than this many ms, treating it as a miss --
+	 * the fresh fetch is still written back to the shared cache normally, so
+	 * this is not a full bypass like rootSelector/enhanced/sources (see
+	 * src/cache/freshness-view.ts). Omit for the cache's own default TTL.
+	 * `0` always treats a cached entry as stale (always refetch, still cache
+	 * the result) without disqualifying the request from caching entirely.
+	 */
+	maxCacheAgeMs?: number;
 	/**
 	 * Explicit, opt-in bypass of the robots.txt check for this one request.
 	 * Never a default -- every use is logged (structured, not silent) since
@@ -134,8 +144,11 @@ export class FetchService {
 			input.pdfPageEnd === undefined &&
 			!input.enhanced &&
 			!input.sources?.length;
+		// maxCacheAgeMs never widens cacheEligible -- it only narrows what counts as a
+		// hit on an already-cache-eligible request (see withMaxAge's own doc comment).
+		const cache = input.maxCacheAgeMs !== undefined ? withMaxAge(this.deps.cache, input.maxCacheAgeMs) : this.deps.cache;
 		if (cacheEligible) {
-			const hit = this.deps.cache.get(input.url);
+			const hit = cache.get(input.url);
 			if (hit) return { page: hit, cache: "hit" };
 		}
 
@@ -144,11 +157,20 @@ export class FetchService {
 			page = await spider(input.url, this.buildSpiderOpts(input, this.deps.getPlaywrightClient()));
 		}
 
-		if (cacheEligible) this.deps.cache.set(input.url, page);
+		if (cacheEligible) cache.set(input.url, page);
 		return { page, cache: "miss" };
 	}
 
 	private async fetchTree(input: FetchOperationInput): Promise<DOMNode> {
+		// The in-memory tree cache has no per-entry age tracking (unlike the shared
+		// SQLite cache's fetchedAt-based freshness view) -- a maxCacheAgeMs request
+		// bypasses it entirely (read and write) rather than silently serving a tree
+		// memoized before the caller's freshness bound existed.
+		if (input.maxCacheAgeMs !== undefined) {
+			const page = await spider(input.url, { ...this.buildSpiderOpts(input), view: "tree" });
+			return page.tree;
+		}
+
 		const key = JSON.stringify([
 			input.url,
 			input.rootSelector ?? "",

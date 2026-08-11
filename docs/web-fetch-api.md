@@ -53,6 +53,8 @@ Pass either `url` or `searchQuery` for network work. Omitting both queries the l
 | `depth` | `number` | `0` | BFS hop depth. `0` = single page. `1` = page + all linked pages. `N` = N hops deep. |
 | `maxPages` | `number` | `10` | Hard cap on total pages fetched when `depth > 0`. |
 | `sameDomain` | `boolean` | `true` | When `depth > 0`, only follow links on the same domain as the start URL. |
+| `excludeDomains` | `string[]` | -- | `depth > 0`: skip a discovered URL whose hostname matches (or is a subdomain of) any of these -- independent of and composable with `sameDomain`, e.g. staying same-domain while also skipping a same-site tracker subdomain. Server-side capped at 20 entries. |
+| `includeDomains` | `string[]` | -- | `depth > 0`: only follow a discovered URL whose hostname matches (or is a subdomain of) one of these. Server-side capped at 20 entries. |
 | `discoverOnly` | `boolean` | `false` | `depth > 0`: pages are still fetched to discover links, but no content body is returned -- an honest "URL map" result, not a claim that no fetch happened. |
 | `crawlUrls` | `string[]` | -- | Selective second-phase crawl of exactly these URLs, no re-discovery -- routes to crawl even without `depth > 0`. Useful after a `discoverOnly` pass narrows down which URLs are actually worth fetching in full. |
 | `maxTotalChars` | `number` | -- (uncapped) | `depth > 0`: total extracted-content character cap across the whole crawl -- stops the crawl once cumulative extracted content crosses this bound. |
@@ -121,6 +123,7 @@ A crawl best-first orders discovered URLs (content-likely paths like `/docs/`, `
 |---|---|---|---|
 | `timeoutMs` | `number` | `10000` | Per-request fetch timeout in milliseconds. Increase for slow sites; decrease to fail fast. |
 | `ignoreRobots` | `boolean` | `false` | Explicit, audited bypass of the robots.txt check for this one request. See [Throttling & robots.txt](#throttling--robotstxt). |
+| `maxCacheAgeMs` | `number` | -- (cache's own TTL) | Reject an already-cached hit older than this many ms, treating it as a miss for this one request -- the fresh fetch is still written back to the shared cache normally, unlike `rootSelector`/`excludeSelectors`/`tokenBudget`/`enhanced`/`sources`, which bypass the cache entirely in both directions. `0` always refetches while still caching the result for later callers. Also applies to `depth > 0` crawls and `web_quotes`. See [Cache](#cache). |
 
 ---
 
@@ -430,6 +433,8 @@ Pages are cached by the **Web Spider daemon** — a supervised Bun process, not 
 On the daemon's first-ever startup, a pre-daemon `~/.cache/web-spider/pages.json` (the old per-process JSON cache), if present, is imported once, then renamed to `pages.json.migrated` — nothing is lost, and the import never runs again once the cache is non-empty. `WEB_SPIDER_CACHE_PATH` still overrides where that legacy file is looked for, if it lived somewhere non-default.
 
 Large images (>32 KB) spill to `$XDG_DATA_HOME/web-spider/images/` automatically — there is no separate `WEB_SPIDER_IMAGES_PATH` override in the daemon architecture (that was a library-only `DiskCache` option that does not carry over).
+
+`maxCacheAgeMs` narrows the effective TTL for one request without touching the shared cache's own 30-minute default for everyone else: a request with `maxCacheAgeMs: 0` always treats a cached page as stale and re-fetches, but still writes the fresh result back to the shared cache with a full new TTL, so the *next* caller (with no `maxCacheAgeMs` of its own) gets a hit again. This is a request-scoped freshness *floor*, not a cache-wide setting -- it can only demand fresher content than the TTL already guarantees, never staler (a value larger than the TTL has no effect, since an entry past the TTL is already evicted from `get()`/`has()` regardless).
 
 ---
 

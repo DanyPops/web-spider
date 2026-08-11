@@ -202,11 +202,11 @@ function usage(stderr: (line: string) => void): number {
 			"                          [--no-same-domain] [--root-selector CSS] [--exclude-selectors CSS,CSS]",
 			"                          [--token-budget N] [--pdf-page-start N] [--pdf-page-end N] [--enhanced]",
 			"                          [--timeout-ms N] [--query TEXT] [--path DOTPATH]",
-			"                          [--top-n N] [--ignore-robots] [--sources NAME,NAME,...] [--json]",
+			"                          [--top-n N] [--ignore-robots] [--sources NAME,NAME,...] [--max-cache-age-ms N] [--json]",
 			"       web-spider search <query> [--num-results N] [--time-range day|week|month|year] [--topic news|general]",
 			"                          [--engine brave|brave-llm|tavily|exa|serper|serpapi|you] [--site-filter DOMAIN] [--full-content] [--json]",
 			"       web-spider quotes <query> --urls URL,URL,... [--max-quotes-per-url N] [--max-quotes-total N]",
-			"                          [--timeout-ms N] [--enhanced] [--ignore-robots] [--sources NAME,NAME,...] [--json]",
+			"                          [--timeout-ms N] [--enhanced] [--ignore-robots] [--sources NAME,NAME,...] [--max-cache-age-ms N] [--json]",
 			"                          (search + selective-fetch resource finder -- ranked, verbatim quotes per url, never a digested answer)",
 			"       web-spider usage [--engine NAME] [--limit N] [--json]",
 			"                          (per-call credits/cost/rate-limit-header data the engine itself reported -- never a running account balance)",
@@ -312,6 +312,9 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			"--max-total-chars",
 			"--deadline-ms",
 			"--sources",
+			"--exclude-domains",
+			"--include-domains",
+			"--max-cache-age-ms",
 		],
 		["--enhanced", "--no-same-domain", "--ignore-robots", "--discover-only"],
 	);
@@ -336,6 +339,8 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 	if (Number.isNaN(maxTotalChars)) return usage(deps.stderr);
 	const deadlineMs = parseIntFlag(parsed.values, "deadline-ms");
 	if (Number.isNaN(deadlineMs)) return usage(deps.stderr);
+	const maxCacheAgeMs = parseIntFlag(parsed.values, "max-cache-age-ms");
+	if (Number.isNaN(maxCacheAgeMs)) return usage(deps.stderr);
 	const crawlUrls = parsed.values["crawl-urls"]
 		?.split(",")
 		.map((u) => u.trim())
@@ -343,6 +348,14 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 	const sources = parsed.values.sources
 		?.split(",")
 		.map((s) => s.trim())
+		.filter(Boolean);
+	const excludeDomains = parsed.values["exclude-domains"]
+		?.split(",")
+		.map((d) => d.trim())
+		.filter(Boolean);
+	const includeDomains = parsed.values["include-domains"]
+		?.split(",")
+		.map((d) => d.trim())
 		.filter(Boolean);
 
 	try {
@@ -359,6 +372,7 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 			query: parsed.values.query,
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
 			sources: sources && sources.length > 0 ? sources : undefined,
+			maxCacheAgeMs,
 		};
 		const result =
 			(depth ?? 0) > 0 || (crawlUrls && crawlUrls.length > 0)
@@ -371,6 +385,8 @@ async function runFetch(rest: string[], deps: CliDependencies): Promise<number> 
 						crawlUrls: crawlUrls && crawlUrls.length > 0 ? crawlUrls : undefined,
 						maxTotalChars,
 						deadlineMs,
+						excludeDomains: excludeDomains && excludeDomains.length > 0 ? excludeDomains : undefined,
+						includeDomains: includeDomains && includeDomains.length > 0 ? includeDomains : undefined,
 					})
 				: await deps.client.call("fetch", { ...shared, path: parsed.values.path, topN });
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatFetchResult(result));
@@ -409,7 +425,7 @@ async function runSearch(rest: string[], deps: CliDependencies): Promise<number>
 async function runQuotes(rest: string[], deps: CliDependencies): Promise<number> {
 	const parsed = parseArgs(
 		rest,
-		["--urls", "--max-quotes-per-url", "--max-quotes-total", "--timeout-ms", "--sources"],
+		["--urls", "--max-quotes-per-url", "--max-quotes-total", "--timeout-ms", "--sources", "--max-cache-age-ms"],
 		["--enhanced", "--ignore-robots"],
 	);
 	const query = parsed?.positional[0];
@@ -426,6 +442,8 @@ async function runQuotes(rest: string[], deps: CliDependencies): Promise<number>
 	if (Number.isNaN(maxQuotesTotal)) return usage(deps.stderr);
 	const timeoutMs = parseIntFlag(parsed.values, "timeout-ms");
 	if (Number.isNaN(timeoutMs)) return usage(deps.stderr);
+	const quotesMaxCacheAgeMs = parseIntFlag(parsed.values, "max-cache-age-ms");
+	if (Number.isNaN(quotesMaxCacheAgeMs)) return usage(deps.stderr);
 	const quotesSources = parsed.values.sources
 		?.split(",")
 		.map((s) => s.trim())
@@ -441,6 +459,7 @@ async function runQuotes(rest: string[], deps: CliDependencies): Promise<number>
 			enhanced: parsed.flags.has("enhanced") || undefined,
 			ignoreRobots: parsed.flags.has("ignore-robots") || undefined,
 			sources: quotesSources && quotesSources.length > 0 ? quotesSources : undefined,
+			maxCacheAgeMs: quotesMaxCacheAgeMs,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatQuotesResult(result));
 		return 0;

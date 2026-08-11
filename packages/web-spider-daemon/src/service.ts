@@ -207,6 +207,7 @@ export function quotesInput(input: OperationInput): QuotesOperationInput {
 		enhanced: optionalBoolean(input, "enhanced"),
 		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
 		sources: optionalStringArray(input, "sources"),
+		maxCacheAgeMs: optionalNumber(input, "maxCacheAgeMs"),
 	};
 }
 
@@ -226,6 +227,7 @@ export function fetchInput(input: OperationInput): FetchOperationInput {
 		topN: optionalNumber(input, "topN"),
 		ignoreRobots: optionalBoolean(input, "ignoreRobots"),
 		sources: optionalStringArray(input, "sources"),
+		maxCacheAgeMs: optionalNumber(input, "maxCacheAgeMs"),
 	};
 }
 
@@ -355,6 +357,9 @@ function handlers(
 				crawlUrls: optionalStringArray(input, "crawlUrls"),
 				maxTotalChars: optionalNumber(input, "maxTotalChars"),
 				deadlineMs: optionalNumber(input, "deadlineMs"),
+				excludeDomains: optionalStringArray(input, "excludeDomains"),
+				includeDomains: optionalStringArray(input, "includeDomains"),
+				maxCacheAgeMs: optionalNumber(input, "maxCacheAgeMs"),
 			}),
 		quotes: (input) => quotesService.quotes(quotesInput(input)),
 		"session.create": (input) =>

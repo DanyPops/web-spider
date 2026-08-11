@@ -51,6 +51,8 @@ export const CRAWL_MAX_DEADLINE_MS_CEILING = 300_000;
 export const CRAWL_MAX_TOTAL_CHARS_CEILING = 2_000_000;
 /** Server-side cap on how many URLs a single crawlUrls selective-crawl request may name. */
 export const CRAWL_URLS_MAX_COUNT = 50;
+/** Server-side cap on how many hostnames a single crawl's excludeDomains/includeDomains may each list -- see src/fetch/domain-filter.ts. */
+export const CRAWL_DOMAIN_FILTER_MAX_COUNT = 20;
 export const SEARCH_DEFAULT_NUM_RESULTS = 10;
 export const SEARCH_MAX_NUM_RESULTS_CEILING = 50;
 export const FETCH_DEFAULT_TOKEN_BUDGET = 4_000;

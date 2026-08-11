@@ -35,6 +35,7 @@ const FETCH_PROPERTIES = {
 	topN: { type: "number" },
 	ignoreRobots: { type: "boolean" },
 	sources: { type: "array" },
+	maxCacheAgeMs: { type: "number" },
 } as const;
 
 export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchService: FetchService, crawlService: CrawlService): void {
@@ -72,6 +73,8 @@ export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchS
 				crawlUrls: { type: "array" },
 				maxTotalChars: { type: "number" },
 				deadlineMs: { type: "number" },
+				excludeDomains: { type: "array" },
+				includeDomains: { type: "array" },
 			},
 			["url"],
 		),
@@ -98,6 +101,8 @@ export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchS
 						crawlUrls: optionalStringArray(input, "crawlUrls"),
 						maxTotalChars: optionalNumber(input, "maxTotalChars"),
 						deadlineMs: optionalNumber(input, "deadlineMs"),
+						excludeDomains: optionalStringArray(input, "excludeDomains"),
+						includeDomains: optionalStringArray(input, "includeDomains"),
 					});
 				}),
 		),

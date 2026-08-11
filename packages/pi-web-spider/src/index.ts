@@ -268,6 +268,9 @@ export default async function (pi: ExtensionAPI) {
 				maxTotalChars: params.maxTotalChars,
 				deadlineMs: params.deadlineMs,
 				sources: params.sources,
+				excludeDomains: params.excludeDomains,
+				includeDomains: params.includeDomains,
+				maxCacheAgeMs: params.maxCacheAgeMs,
 			},
 			callMeta,
 		);
@@ -331,6 +334,7 @@ export default async function (pi: ExtensionAPI) {
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
 						sources: params.sources,
+						maxCacheAgeMs: params.maxCacheAgeMs,
 					},
 					callMeta,
 				);
@@ -366,6 +370,7 @@ export default async function (pi: ExtensionAPI) {
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
 						sources: params.sources,
+						maxCacheAgeMs: params.maxCacheAgeMs,
 					},
 					callMeta,
 				);
@@ -393,6 +398,7 @@ export default async function (pi: ExtensionAPI) {
 					enhanced: params.enhanced,
 					ignoreRobots: params.ignoreRobots,
 					sources: params.sources,
+					maxCacheAgeMs: params.maxCacheAgeMs,
 				},
 				callMeta,
 			);
@@ -424,6 +430,7 @@ export default async function (pi: ExtensionAPI) {
 				query: params.query,
 				ignoreRobots: params.ignoreRobots,
 				sources: params.sources,
+				maxCacheAgeMs: params.maxCacheAgeMs,
 			},
 			callMeta,
 		);
@@ -623,6 +630,24 @@ export default async function (pi: ExtensionAPI) {
 					'Named per-site strategies to try before generic fetch+Readability, e.g. ["github"] or ["mediawiki","youtube"]. Built-in: llms-txt, markdown-suffix, github, mediawiki, youtube -- each queries the site\'s real API/data endpoint instead of scraping its rendered page, often solving what enhanced would otherwise be needed for. Unknown names error listing the real ones.',
 			}),
 		),
+		excludeDomains: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					'depth>0: skip a discovered URL whose hostname matches (or is a subdomain of) any of these, e.g. ["ads.example.com"]. Independent of sameDomain -- both can be used together.',
+			}),
+		),
+		includeDomains: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					'depth>0: only follow a discovered URL whose hostname matches (or is a subdomain of) one of these, e.g. ["docs.example.com"].',
+			}),
+		),
+		maxCacheAgeMs: Type.Optional(
+			Type.Number({
+				description:
+					"Reject an already-cached hit older than this many ms, treating it as a miss -- the fresh fetch is still written back to the shared cache normally, unlike rootSelector/enhanced/sources which bypass the cache entirely. 0 always refetches while still caching the result for later callers. Omit for the cache's own default TTL.",
+			}),
+		),
 	});
 
 	pi.registerTool({
@@ -643,6 +668,10 @@ export default async function (pi: ExtensionAPI) {
 			"sources=[...] tries named per-site strategies (llms-txt, markdown-suffix, github, mediawiki, youtube) before generic fetch+Readability -- each queries a real API/data endpoint (e.g. YouTube's oEmbed, GitHub's REST API, MediaWiki's action=parse) instead of scraping the rendered page, often cheaper and more reliable than enhanced for a site one of these covers.",
 			"",
 			"A depth>0 crawl best-first orders content-likely pages first and classifies each one's pageType (article/list/js_shell) with contentOk. discoverOnly=true returns a URL map without content bodies. crawlUrls=[...] selectively (re-)crawls exactly those URLs, no re-discovery. maxTotalChars/deadlineMs bound total extracted size and wall-clock time; nextAction reports why a crawl stopped.",
+			"",
+			"excludeDomains/includeDomains=[...] scope a depth>0 crawl's frontier by hostname (with subdomains), independent of and composable with sameDomain.",
+			"",
+			"maxCacheAgeMs rejects an already-cached hit older than this many ms without disqualifying the request from the cache entirely -- the fresh fetch is still cached normally for later callers, unlike rootSelector/enhanced/sources which bypass the cache in both directions.",
 			"",
 			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, human-directed bypass for one request -- never a default.",
 		].join("\n"),
@@ -1076,6 +1105,11 @@ export default async function (pi: ExtensionAPI) {
 					"Named per-site strategies to try before generic fetch+Readability, applied to every url -- see web_fetch's own sources parameter for the full list and rationale.",
 			}),
 		),
+		maxCacheAgeMs: Type.Optional(
+			Type.Number({
+				description: "Reject an already-cached hit older than this many ms for every url -- see web_fetch's own maxCacheAgeMs.",
+			}),
+		),
 	});
 
 	type QuotesParams = Static<typeof quotesParamsSchema>;
@@ -1091,6 +1125,8 @@ export default async function (pi: ExtensionAPI) {
 			"maxQuotesPerUrl (default 3, max 20) caps each url's own share so one page can't dominate the combined result; maxQuotesTotal (default 15, max 100) bounds the whole response. A url that fails to fetch becomes { url, error } in its own resource card rather than failing the whole batch.",
 			"",
 			"sources=[...] applies named per-site strategies (llms-txt, markdown-suffix, github, mediawiki, youtube) to every url before generic fetch+Readability -- see web_fetch's own sources parameter.",
+			"",
+			"maxCacheAgeMs rejects an already-cached hit older than this many ms for every url -- see web_fetch's own maxCacheAgeMs.",
 		].join("\n"),
 		promptSnippet: "Resource finder: ranked, verbatim BM25F quotes per url, each with a citationUrl -- never an LLM-digested answer",
 		parameters: quotesParamsSchema,
@@ -1122,6 +1158,7 @@ export default async function (pi: ExtensionAPI) {
 						enhanced: params.enhanced,
 						ignoreRobots: params.ignoreRobots,
 						sources: params.sources,
+						maxCacheAgeMs: params.maxCacheAgeMs,
 					},
 					callMeta,
 				);
