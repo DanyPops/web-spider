@@ -55,18 +55,30 @@ export function anchorText(a) {
 // ---------------------------------------------------------------------------
 // Link extraction
 // ---------------------------------------------------------------------------
-/** Extract outbound links from the DOM, classified as body or nav. */
+/**
+ * Extract outbound links from the DOM, classified as body or nav.
+ *
+ * Resolves `href` against `baseUrl` manually: linkedom's anchor `.href`
+ * getter echoes the raw attribute instead of resolving it like a browser's.
+ */
 export function extractLinks(doc, baseUrl) {
     const origin = new URL(baseUrl).origin;
     return Array.from(doc.querySelectorAll("a[href]"))
         .map((a) => {
-        const href = a.href;
+        const rawHref = a.getAttribute("href") ?? "";
         const text = anchorText(a)
             .replace(/\b(open_in_new|navigate_next|navigate_before|arrow_drop_down|arrow_drop_up|chevron_right|chevron_left|expand_more|expand_less)\b/g, "")
             .replace(/\s+/g, " ")
             .trim();
-        if (!href || !text || href.startsWith("javascript:"))
+        if (!rawHref || !text || rawHref.trim().startsWith("javascript:"))
             return null;
+        let href;
+        try {
+            href = new URL(rawHref, baseUrl).href;
+        }
+        catch {
+            return null;
+        }
         return {
             href,
             text,

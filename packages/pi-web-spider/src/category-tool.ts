@@ -22,7 +22,9 @@ const categoryParamsSchema = Type.Object({
 	}),
 	url: Type.Optional(Type.String({ description: "assign/remove: the cached page's URL (must already be cached)" })),
 	category: Type.Optional(Type.String({ description: "assign/remove: category name. rename: its current name." })),
-	newName: Type.Optional(Type.String({ description: "rename: new name; merges into an existing category of that name instead of erroring" })),
+	newName: Type.Optional(
+		Type.String({ description: "rename: new name; merges into an existing category of that name instead of erroring" }),
+	),
 });
 
 type CategoryParams = Static<typeof categoryParamsSchema>;

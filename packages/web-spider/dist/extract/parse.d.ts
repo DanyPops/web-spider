@@ -16,7 +16,12 @@ export declare function parseDom(html: string, url: string): Document;
 export declare function isNavElement(el: Element): boolean;
 /** Extract visible text from an anchor, skipping SVG subtrees. */
 export declare function anchorText(a: Element): string;
-/** Extract outbound links from the DOM, classified as body or nav. */
+/**
+ * Extract outbound links from the DOM, classified as body or nav.
+ *
+ * Resolves `href` against `baseUrl` manually: linkedom's anchor `.href`
+ * getter echoes the raw attribute instead of resolving it like a browser's.
+ */
 export declare function extractLinks(doc: Document, baseUrl: string): Link[];
 /** Extract h1/h2/h3 headings from Readability article HTML. */
 export declare function extractHeadings(html: string): SpideredPage["headings"];

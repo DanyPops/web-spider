@@ -19,7 +19,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import { createSessionActDetails, createSessionLifecycleDetails, createSessionListDetails, renderWebSessionCall, renderWebSessionResult } from "./session-presentation.js";
+import {
+	createSessionActDetails,
+	createSessionLifecycleDetails,
+	createSessionListDetails,
+	renderWebSessionCall,
+	renderWebSessionResult,
+} from "./session-presentation.js";
 import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
 
 const sessionParamsSchema = Type.Object({
@@ -117,7 +123,9 @@ const sessionParamsSchema = Type.Object({
 			description: "tabs, required: list open tabs; new opens one; close closes one (default active); select switches (tabIndex required)",
 		}),
 	),
-	tabIndex: Type.Optional(Type.Number({ description: "tabs: 0-based tab index; required for select, optional for close (default active)" })),
+	tabIndex: Type.Optional(
+		Type.Number({ description: "tabs: 0-based tab index; required for select, optional for close (default active)" }),
+	),
 });
 
 type SessionParams = Static<typeof sessionParamsSchema>;

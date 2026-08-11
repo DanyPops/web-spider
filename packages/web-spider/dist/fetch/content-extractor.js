@@ -6,6 +6,7 @@ import { toLean } from "../extract/views.js";
 import { classifyContentType } from "./content-type.js";
 import { PdfContentExtractor } from "./pdf-extractor.js";
 const WORDS_PER_MINUTE = 200;
+const THIN_CONTENT_WORD_THRESHOLD = 20;
 function requireText(resource) {
     if (resource.text === undefined) {
         throw new Error(`Cannot extract textual content from "${resource.url}" — the response body was not decoded as text`);
@@ -145,8 +146,14 @@ const htmlExtractor = {
         const openGraph = extractOpenGraph(doc);
         const twitterCard = extractTwitterCard(doc);
         const jsonLd = extractJsonLd(doc);
+        const hasScript = doc.querySelector("script") !== null;
         const readabilityResult = new Readability(doc).parse();
-        const jsRendered = !readabilityResult;
+        // Readability only returns null when it finds literally zero text -- a
+        // script-hydrated shell with a few nav links otherwise "succeeds" with
+        // near-empty content. A real static page this thin has no reason to also
+        // ship a <script> tag, so treat that combination as jsRendered too.
+        const articleWordCount = (readabilityResult?.textContent ?? "").trim().split(/\s+/).filter(Boolean).length;
+        const jsRendered = !readabilityResult || (hasScript && articleWordCount < THIN_CONTENT_WORD_THRESHOLD);
         const article = readabilityResult ?? {
             title: (doc.querySelector("title")?.textContent ?? "").trim(),
             content: "",

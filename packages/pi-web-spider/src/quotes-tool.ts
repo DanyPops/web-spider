@@ -35,7 +35,9 @@ const quotesParamsSchema = Type.Object({
 		}),
 	),
 	maxCacheAgeMs: Type.Optional(
-		Type.Number({ description: "Reject an already-cached hit older than this many ms for every url -- see web_fetch's own maxCacheAgeMs." }),
+		Type.Number({
+			description: "Reject an already-cached hit older than this many ms for every url -- see web_fetch's own maxCacheAgeMs.",
+		}),
 	),
 });
 

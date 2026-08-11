@@ -13,7 +13,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import { createWebDetails, createWebResult, renderWebFetchCall, renderWebFetchResult, type WebPresentationDetails } from "./presentation.js";
+import {
+	createWebDetails,
+	createWebResult,
+	renderWebFetchCall,
+	renderWebFetchResult,
+	type WebPresentationDetails,
+} from "./presentation.js";
 import type { CallMeta, VehicleGateway } from "./vehicle-gateway.js";
 
 // ---------------------------------------------------------------------------
@@ -99,9 +105,7 @@ const crawlParamsSchema = Type.Object({
 		}),
 	),
 	maxTotalChars: Type.Optional(Type.Number({ description: "depth>0: total extracted-content character cap across the whole crawl" })),
-	deadlineMs: Type.Optional(
-		Type.Number({ description: "depth>0: wall-clock cap for the whole crawl, in milliseconds (default 120000)" }),
-	),
+	deadlineMs: Type.Optional(Type.Number({ description: "depth>0: wall-clock cap for the whole crawl, in milliseconds (default 120000)" })),
 	excludeDomains: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
@@ -110,7 +114,8 @@ const crawlParamsSchema = Type.Object({
 	),
 	includeDomains: Type.Optional(
 		Type.Array(Type.String(), {
-			description: 'depth>0: only follow a discovered URL whose hostname matches (or is a subdomain of) one of these, e.g. ["docs.example.com"].',
+			description:
+				'depth>0: only follow a discovered URL whose hostname matches (or is a subdomain of) one of these, e.g. ["docs.example.com"].',
 		}),
 	),
 });
