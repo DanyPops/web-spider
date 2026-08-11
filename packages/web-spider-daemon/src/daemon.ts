@@ -16,7 +16,13 @@ import { createWebSpiderLifecycleLog, resolveDaemonLifecycleLogPath } from "./da
 import { resolveAdditionalSearchKeys, resolveSearchEnv } from "./search/search-env.ts";
 import { createSearchKeyStore, resolveSearchKeysDir } from "./search/search-secrets.ts";
 import { createApp, createWebSpiderService } from "./service.ts";
-import { ensureAuthToken, resolveLegacyCachePath, resolveWebSpiderPaths } from "./state.ts";
+import {
+	clearSharedVehicleHandle,
+	ensureAuthToken,
+	resolveLegacyCachePath,
+	resolveWebSpiderPaths,
+	writeSharedVehicleHandle,
+} from "./state.ts";
 
 const logger = createLogger("web-spider-daemon");
 
@@ -57,7 +63,14 @@ export async function serveMain(): Promise<void> {
 			{ name: "optimize", intervalMs: DB_OPTIMIZE_INTERVAL_MS, run: () => service.optimize() },
 		],
 		lifecycleLog,
-		onShutdown: () => service.close(),
+		onShutdown: () => {
+			try {
+				clearSharedVehicleHandle();
+			} catch (error) {
+				logger.error("shared_vehicle_handle_remove_failed", { message: error instanceof Error ? error.message : String(error) });
+			}
+			return service.close();
+		},
 		onListen: ({ host, port, instanceId }) => {
 			currentIdentity = {
 				instanceId,
@@ -66,6 +79,11 @@ export async function serveMain(): Promise<void> {
 				provenance: readLaunchProvenance(process.env),
 			};
 			logger.info("listening", { host, port });
+			try {
+				writeSharedVehicleHandle(port, paths.token);
+			} catch (error) {
+				logger.error("shared_vehicle_handle_write_failed", { message: error instanceof Error ? error.message : String(error) });
+			}
 		},
 	});
 }

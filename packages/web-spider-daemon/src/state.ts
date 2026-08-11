@@ -11,7 +11,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	type DaemonHandle as DaemonKitHandle,
+	LOOPBACK_HOST,
 	resolveDaemonPaths,
+	resolveSharedVehicleHandlePath,
 	ensureAuthToken as vehicleEnsureAuthToken,
 	readDaemonHandle as vehicleReadDaemonHandle,
 	removeDaemonHandle as vehicleRemoveDaemonHandle,
@@ -75,6 +77,34 @@ export function readDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()
 
 export function removeDaemonHandle(paths: WebSpiderPaths = resolveWebSpiderPaths()): void {
 	vehicleRemoveDaemonHandle(paths.handle);
+}
+
+/** Web Spider's own stable identity name in the shared Vehicle Handle Directory (see @danypops/vehicle-server's resolveSharedVehicleHandlePath) -- must match the ownVehicleName a broker-mode consumer (e.g. Papyrus, Pi Packed) discovers it under. */
+export const WEB_SPIDER_VEHICLE_NAME = "web-spider";
+
+/**
+ * Writes Web Spider's entry into the shared, cross-package Vehicle Handle Directory
+ * (independent of writeDaemonHandle's own private per-package handle file above) -- the
+ * seam a broker-mode tools_list/tools_man discovery scan reads without needing to already
+ * know Web Spider's own state-directory convention in advance. env is injectable for tests;
+ * defaults to process.env.
+ */
+export function writeSharedVehicleHandle(
+	port: number,
+	tokenFilePath: string,
+	pid: number = process.pid,
+	env: Record<string, string | undefined> = process.env,
+): void {
+	vehicleWriteDaemonHandle(resolveSharedVehicleHandlePath(WEB_SPIDER_VEHICLE_NAME, { env }), {
+		host: LOOPBACK_HOST,
+		port,
+		pid,
+		tokenPath: tokenFilePath,
+	});
+}
+
+export function clearSharedVehicleHandle(env: Record<string, string | undefined> = process.env): void {
+	vehicleRemoveDaemonHandle(resolveSharedVehicleHandlePath(WEB_SPIDER_VEHICLE_NAME, { env }));
 }
 
 /**

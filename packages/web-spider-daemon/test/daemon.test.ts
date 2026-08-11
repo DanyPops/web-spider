@@ -9,9 +9,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LAUNCH_PROVENANCE_ENV_VAR } from "@danypops/vehicle-server/daemon";
 import { connectWebSpiderClient } from "../src/client.ts";
 import { readDaemonHandle, resolveWebSpiderPaths } from "../src/state.ts";
 import { VERSION } from "../src/version.ts";
+
+/**
+ * Deleted, not just left unset: spreading process.env below otherwise leaks whatever ambient
+ * provenance the test runner ITSELF happens to be running under (e.g. a gate-runner daemon that
+ * was itself auto-spawned) into the spawned subprocess-under-test, defeating the "unknown"
+ * assertion below for a reason having nothing to do with the daemon code being tested.
+ */
+function isolatedSpawnEnv(overrides: Record<string, string>): Record<string, string | undefined> {
+	const env = { ...process.env, ...overrides };
+	delete env[LAUNCH_PROVENANCE_ENV_VAR];
+	return env;
+}
 
 const CLI_PATH = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -33,8 +46,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<vo
 describe("web-spider daemon — walking skeleton end-to-end", () => {
 	test("serve → authenticate → one real operation → clean shutdown", async () => {
 		const root = mkdtempSync(join(tmpdir(), "web-spider-e2e-"));
-		const env = {
-			...process.env,
+		const env = isolatedSpawnEnv({
 			// HOME is overridden too, not just the XDG_* vars: resolveLegacyCachePath()
 			// falls back to the real home directory (os.homedir() honors $HOME on
 			// POSIX) when WEB_SPIDER_CACHE_PATH is unset. Without this, a spawned
@@ -47,7 +59,7 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 			XDG_RUNTIME_DIR: join(root, "run"),
 			XDG_CONFIG_HOME: join(root, "config"),
 			WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
-		};
+		});
 		const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 });
 
 		const proc = Bun.spawn(["bun", CLI_PATH, "serve"], { env, stdout: "pipe", stderr: "pipe" });
@@ -90,15 +102,14 @@ describe("web-spider daemon — walking skeleton end-to-end", () => {
 
 	test("daemon.diagnose reports this instance's own identity, and a restarted daemon sees the prior instance's real history", async () => {
 		const root = mkdtempSync(join(tmpdir(), "web-spider-e2e-diagnose-"));
-		const env = {
-			...process.env,
+		const env = isolatedSpawnEnv({
 			HOME: root,
 			XDG_DATA_HOME: join(root, "data"),
 			XDG_STATE_HOME: join(root, "state"),
 			XDG_RUNTIME_DIR: join(root, "run"),
 			XDG_CONFIG_HOME: join(root, "config"),
 			WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
-		};
+		});
 		const paths = resolveWebSpiderPaths({ env, home: root, uid: 1000 });
 
 		const first = Bun.spawn(["bun", CLI_PATH, "serve"], { env, stdout: "pipe", stderr: "pipe" });

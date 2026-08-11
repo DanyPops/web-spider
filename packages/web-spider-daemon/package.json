@@ -47,7 +47,7 @@
 	},
 	"dependencies": {
 		"@danypops/vehicle-core": "^0.14.0",
-		"@danypops/vehicle-server": "^0.20.1",
+		"@danypops/vehicle-server": "^0.22.0",
 		"@danypops/vehicle-client": "^0.7.1",
 		"@danypops/enigma-client": "^0.6.1",
 		"@danypops/web-spider": "^0.18.0"

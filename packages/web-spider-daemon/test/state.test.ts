@@ -2,13 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readDaemonHandle as readVehicleHandle, resolveSharedVehicleHandlePath } from "@danypops/vehicle-server/paths";
 import {
+	clearSharedVehicleHandle,
 	ensureAuthToken,
 	readDaemonHandle,
 	removeDaemonHandle,
 	resolveLegacyCachePath,
 	resolveWebSpiderPaths,
+	WEB_SPIDER_VEHICLE_NAME,
 	writeDaemonHandle,
+	writeSharedVehicleHandle,
 } from "../src/state.ts";
 
 function tempEnv() {
@@ -79,6 +83,23 @@ describe("daemon handle round-trip", () => {
 		try {
 			writeDaemonHandle(paths, { host: "127.0.0.1", port: 70_000 as unknown as number, pid: 1 });
 			expect(readDaemonHandle(paths)).toBeNull();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("shared Vehicle Handle Directory", () => {
+	test("writes and clears an entry, carrying a real tokenPath, discoverable by broker mode", () => {
+		const { root } = tempEnv();
+		const env = { XDG_RUNTIME_DIR: root };
+		try {
+			const tokenFilePath = join(root, "auth-token");
+			writeSharedVehicleHandle(43_126, tokenFilePath, 77_777, env);
+			const sharedPath = resolveSharedVehicleHandlePath(WEB_SPIDER_VEHICLE_NAME, { env });
+			expect(readVehicleHandle(sharedPath)).toEqual({ host: "127.0.0.1", port: 43_126, pid: 77_777, tokenPath: tokenFilePath });
+			clearSharedVehicleHandle(env);
+			expect(readVehicleHandle(sharedPath)).toBeNull();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
