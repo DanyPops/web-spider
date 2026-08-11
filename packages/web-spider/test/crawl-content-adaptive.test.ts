@@ -89,6 +89,17 @@ describe("crawl() default page classification (HeuristicPageClassifier is now th
 		const page = result.pages.get("https://example.com");
 		expect(page?.markdown).toContain("- [Item 0](https://example.com/item-0)");
 	});
+
+	it("follows relative-href links from a list-classified seed instead of stalling the frontier", async () => {
+		const hrefs = Array.from({ length: 20 }, (_, i) => `/item-${i}`);
+		const site: Site = { "https://example.com/": { body: listHtml("Index", hrefs) } };
+		for (const href of hrefs) site[`https://example.com${href}`] = { body: htmlWithLinks("Item", [], 50) };
+
+		const result = await crawl("https://example.com/", { httpClient: siteClient(site), maxDepth: 1, maxPages: 5, useSitemap: false });
+
+		expect(result.pages.size).toBeGreaterThan(1);
+		expect(result.nextAction).toBe("max-pages");
+	});
 });
 
 describe("HeuristicPageClassifier unit behavior", () => {
