@@ -19,10 +19,10 @@
     },
     "packages/pi-web-spider": {
       "name": "@danypops/pi-web-spider",
-      "version": "0.24.4",
+      "version": "0.24.5",
       "dependencies": {
         "@danypops/vehicle-client": "^0.7.1",
-        "@danypops/vehicle-client-pi": "^0.39.0",
+        "@danypops/vehicle-client-pi": "^0.40.1",
         "@danypops/vehicle-core": "^0.14.0",
         "@danypops/web-spider": "^0.19.0",
         "@danypops/web-spider-daemon": "^0.24.0",
@@ -183,7 +183,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.7.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.4" } }, "sha512-aob1GKRwM3/nMkeijkjEQ2yLrEWBFOOVBzswl4z0oS5Lvgt9fJNyxMzVedW1e7fngp/AmqbRzSaQm0eqkadWbQ=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.39.0", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.9.1", "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.1", "malevich-tui-components": "^0.27.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-+QeRjLlHGV7uUf+TT8rFGXcg5GKB7x5l/Ta0JIN/RNe97ZbC2op6J6UQJVYcE6eDAVWCDQD7wrfnef2AZibvsg=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.40.1", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.9.1", "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.1", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-Ih8rrB8UkVqORhDS8liCMBHm8vI8U1V1/HnjLv1zggJUXF7IqjDuZ60yUrne1IDTpBFCXmMDQCqgLp56CRKmlA=="],
 
     "@danypops/vehicle-core": ["@danypops/vehicle-core@0.14.0", "", {}, "sha512-8LZw3NxT+0H31Bu+UxUjpa+y+EdiuZGulawuXJ5g/T7SF95y+sNm51MMiawLddgFVN06EWKtcmOg/gTaUEuImA=="],
 
