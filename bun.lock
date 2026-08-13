@@ -19,14 +19,14 @@
     },
     "packages/pi-web-spider": {
       "name": "@danypops/pi-web-spider",
-      "version": "0.24.5",
+      "version": "0.24.6",
       "dependencies": {
         "@danypops/vehicle-client": "^0.7.1",
         "@danypops/vehicle-client-pi": "^0.40.1",
         "@danypops/vehicle-core": "^0.14.0",
         "@danypops/web-spider": "^0.19.0",
         "@danypops/web-spider-daemon": "^0.24.0",
-        "malevich-tui-components": "0.27.0",
+        "malevich-tui-components": "0.28.0",
       },
       "devDependencies": {
         "@biomejs/biome": "^2.4.15",
@@ -96,7 +96,7 @@
     "unrs-resolver",
   ],
   "overrides": {
-    "malevich-tui-components": "0.27.0",
+    "malevich-tui-components": "0.28.0",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
@@ -777,7 +777,7 @@
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 
-    "malevich-tui-components": ["malevich-tui-components@0.27.0", "", {}, "sha512-F7JftZhZFERXfDiSr9ofEDILr/1Ikd7wkjXi0Zgec+WtBLVImGjbM24P0m6YTaCPsEIyqT9jWmy88nw72F7jBQ=="],
+    "malevich-tui-components": ["malevich-tui-components@0.28.0", "", {}, "sha512-tjAAIkfEzLjKG6UMH/IMV88baqhR3vuhoWckSaMS9yXdHoM02cRyv8x72G6KMOM9wp49BLa7a3C0j2t5as+f5g=="],
 
     "marked": ["marked@18.0.5", "", { "bin": "bin/marked.js" }, "sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w=="],
 
