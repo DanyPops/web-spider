@@ -32,7 +32,7 @@ import {
 	SESSION_NAME_MAX_LENGTH,
 	SESSION_REGISTRY_MAX_CONCURRENT,
 } from "../constants.ts";
-import { createSessionInfo, isValidSessionName, type SessionInfo } from "./session.ts";
+import { createSessionInfo, isValidSessionName, type SessionInfo, withClosed } from "./session.ts";
 import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "./session-registry.ts";
 
 /**
@@ -46,6 +46,44 @@ import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from
  * PlaywrightSessionRegistry surfaces that tab's own version as the
  * session's reported snapshotVersion after every action.
  */
+export type BrowserSessionEvent =
+	| { kind: "lifecycle"; sessionName: string; state: "starting" | "open" | "closing" | "close-failed" | "closed" }
+	| { kind: "page"; sessionName: string; pageId: string; state: "open" | "closed" | "crashed" }
+	| { kind: "navigation"; sessionName: string; pageId: string; revision: number; url: string; mainFrame: true }
+	| { kind: "finalization"; sessionName: string; stage: "context" | "browser"; outcome: "ok" | "error" };
+
+export type BrowserSessionObserver = (event: BrowserSessionEvent) => void | Promise<void>;
+
+function boundedObserverEmitter(observer: BrowserSessionObserver | undefined, logger?: Logger, maxQueued = 100) {
+	const queue: BrowserSessionEvent[] = [];
+	let draining = false;
+	const drain = async () => {
+		if (draining) return;
+		draining = true;
+		try {
+			while (queue.length > 0) {
+				const event = queue.shift() as BrowserSessionEvent;
+				try {
+					await observer?.(event);
+				} catch (error) {
+					logger?.warn("session_observer_failed", { error: String(error), kind: event.kind });
+				}
+			}
+		} finally {
+			draining = false;
+		}
+	};
+	return (event: BrowserSessionEvent) => {
+		if (!observer) return;
+		if (queue.length >= maxQueued) {
+			logger?.warn("session_observer_overflow", { maxQueued, kind: event.kind });
+			return;
+		}
+		queue.push(event);
+		void drain();
+	};
+}
+
 export interface BrowserSessionRuntime {
 	close(): Promise<void>;
 	/** The currently active tab's persistent page. Lazily creates tab 0 on first call; returns the active tab's page on every subsequent call. */
@@ -54,16 +92,16 @@ export interface BrowserSessionRuntime {
 	newTab(url?: string): Promise<TabInfo>;
 	closeTab(tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }>;
 	selectTab(tabIndex: number): Promise<TabInfo>;
-	/** The active tab's own tracked snapshotVersion, without changing it. 0 if no tab has ever been created. */
+	/** The active tab's own event-driven navigation revision, without changing it. 0 if no tab has ever been created. */
 	activeSnapshotVersion(): number;
-	/** Bumps and returns the active tab's own tracked version (called after a successful navigate on it). */
-	bumpActiveSnapshotVersion(): number;
 }
 
 export type BrowserLauncher = (opts: {
 	forceChromeChannel: boolean;
 	headed: boolean;
 	downloadsDir: string;
+	sessionName: string;
+	emitEvent: (event: BrowserSessionEvent) => void;
 }) => Promise<BrowserSessionRuntime>;
 
 interface Tab {
@@ -88,6 +126,7 @@ export async function createBrowserSessionRuntime(
 	browser: PlaywrightBrowserLike,
 	downloadsDir: string,
 	logger?: Logger,
+	events?: { sessionName: string; emit: (event: BrowserSessionEvent) => void },
 ): Promise<BrowserSessionRuntime> {
 	let context: PlaywrightBrowserContextLike;
 	try {
@@ -108,7 +147,7 @@ export async function createBrowserSessionRuntime(
 
 	const activeIndex = () => tabs.findIndex((tab) => tab.pageId === activePageId);
 
-	function unregisterPage(playwrightPage: PlaywrightPageLike): void {
+	function unregisterPage(playwrightPage: PlaywrightPageLike, state?: "closed" | "crashed"): void {
 		const tab = tabByPage.get(playwrightPage);
 		if (!tab) return;
 		const closedIndex = tabs.indexOf(tab);
@@ -117,6 +156,7 @@ export async function createBrowserSessionRuntime(
 		if (activePageId === tab.pageId) {
 			activePageId = tabs[Math.min(closedIndex, tabs.length - 1)]?.pageId ?? null;
 		}
+		if (state && events) events.emit({ kind: "page", sessionName: events.sessionName, pageId: tab.pageId, state });
 	}
 
 	function registerPage(playwrightPage: PlaywrightPageLike): Tab | undefined {
@@ -138,8 +178,27 @@ export async function createBrowserSessionRuntime(
 		tabByPage.set(playwrightPage, tab);
 		tabs.push(tab);
 		activePageId = tab.pageId;
-		playwrightPage.on("close", () => unregisterPage(playwrightPage));
-		playwrightPage.on("crash", () => unregisterPage(playwrightPage));
+		const mainFrame = playwrightPage.mainFrame();
+		playwrightPage.on("framenavigated", (frame) => {
+			// A revision describes committed top-level navigation state. Frame-only
+			// navigation and arbitrary DOM mutation deliberately do not invalidate
+			// callers. Playwright emits this for agent and human navigations alike.
+			if (frame === mainFrame && frame.url() !== "about:blank") {
+				tab.version += 1;
+				if (events)
+					events.emit({
+						kind: "navigation",
+						sessionName: events.sessionName,
+						pageId: tab.pageId,
+						revision: tab.version,
+						url: frame.url(),
+						mainFrame: true,
+					});
+			}
+		});
+		playwrightPage.on("close", () => unregisterPage(playwrightPage, "closed"));
+		playwrightPage.on("crash", () => unregisterPage(playwrightPage, "crashed"));
+		if (events) events.emit({ kind: "page", sessionName: events.sessionName, pageId: tab.pageId, state: "open" });
 		return tab;
 	}
 
@@ -196,12 +255,16 @@ export async function createBrowserSessionRuntime(
 			let contextError: unknown;
 			try {
 				await context.close();
+				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: "ok" });
 			} catch (error) {
 				contextError = error;
+				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: "error" });
 			}
 			try {
 				await browser.close();
+				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: "ok" });
 			} catch (browserError) {
+				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: "error" });
 				if (contextError) {
 					logger?.warn("session_browser_cleanup_failed", { error: String(browserError), stage: "runtime-close" });
 				} else {
@@ -258,12 +321,6 @@ export async function createBrowserSessionRuntime(
 			return describeTab(tabIndex);
 		},
 		activeSnapshotVersion: () => tabs.find((tab) => tab.pageId === activePageId)?.version ?? 0,
-		bumpActiveSnapshotVersion: () => {
-			const tab = tabs.find((candidate) => candidate.pageId === activePageId);
-			if (!tab) throw new Error("session has no open tabs");
-			tab.version += 1;
-			return tab.version;
-		},
 	};
 }
 
@@ -324,6 +381,10 @@ interface PlaywrightResponseLike {
 	request(): PlaywrightRequestLike;
 }
 
+export interface PlaywrightFrameLike {
+	url(): string;
+}
+
 export interface PlaywrightPageLike {
 	goto(url: string, opts?: { timeout?: number }): Promise<unknown>;
 	click(selector: string, opts?: { timeout?: number }): Promise<void>;
@@ -341,7 +402,9 @@ export interface PlaywrightPageLike {
 	on(event: "download", handler: (download: PlaywrightDownloadLike) => void | Promise<void>): void;
 	on(event: "console", handler: (message: PlaywrightConsoleMessageLike) => void | Promise<void>): void;
 	on(event: "response", handler: (response: PlaywrightResponseLike) => void | Promise<void>): void;
+	on(event: "framenavigated", handler: (frame: PlaywrightFrameLike) => void | Promise<void>): void;
 	on(event: "close" | "crash", handler: () => void | Promise<void>): void;
+	mainFrame(): PlaywrightFrameLike;
 	/** Global keyboard press, not tied to any element — for keys like Escape with no natural target. Real Playwright API has no timeout option here (there's no element to wait for). */
 	keyboard: { press(key: string): Promise<void> };
 }
@@ -512,11 +575,11 @@ export function resolveBrowserLaunchOptions(forceChromeChannel: boolean, headed:
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
 export function defaultBrowserLauncher(logger?: Logger): BrowserLauncher {
-	return async ({ forceChromeChannel, headed, downloadsDir }) => {
+	return async ({ forceChromeChannel, headed, downloadsDir, sessionName, emitEvent }) => {
 		const { chromium } = await import("playwright-core");
 		const browser = await chromium.launch(resolveBrowserLaunchOptions(forceChromeChannel, headed));
 		mkdirSync(downloadsDir, { recursive: true });
-		return await createBrowserSessionRuntime(browser, downloadsDir, logger);
+		return await createBrowserSessionRuntime(browser, downloadsDir, logger, { sessionName, emit: emitEvent });
 	};
 }
 
@@ -529,10 +592,23 @@ export interface PlaywrightSessionRegistryOptions {
 	downloadsBaseDir?: string;
 	/** Structured logger for otherwise-unobservable failures (dialog/download event handlers that nothing awaits). Optional so existing tests/wiring that don't care about it keep working unchanged. */
 	logger?: Logger;
+	/** Bounded, failure-isolated mechanical lifecycle/page/navigation seam. It receives metadata only and never writes to the audit journal. */
+	observer?: BrowserSessionObserver;
+	observerMaxQueued?: number;
+}
+
+type SessionLifecycleState = "open" | "closing" | "close-failed" | "closed";
+
+interface SessionEntry {
+	info: SessionInfo;
+	browser: BrowserSessionRuntime;
+	state: SessionLifecycleState;
+	emitEvent: (event: BrowserSessionEvent) => void;
+	closePromise?: Promise<void>;
 }
 
 export class PlaywrightSessionRegistry implements SessionRegistry {
-	private readonly sessions = new Map<string, { info: SessionInfo; browser: BrowserSessionRuntime }>();
+	private readonly sessions = new Map<string, SessionEntry>();
 	/** Reserves a name synchronously before the launch await completes, so two concurrent create() calls for the same name (or racing the ceiling) can't both succeed. */
 	private readonly pending = new Set<string>();
 	private readonly launcher: BrowserLauncher;
@@ -541,6 +617,8 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly now: () => number;
 	private readonly downloadsBaseDir: string;
 	private readonly logger?: Logger;
+	private readonly observer?: BrowserSessionObserver;
+	private readonly observerMaxQueued: number;
 
 	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
 		this.launcher = opts.launcher ?? defaultBrowserLauncher(opts.logger);
@@ -549,6 +627,8 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		this.now = opts.now ?? Date.now;
 		this.downloadsBaseDir = opts.downloadsBaseDir ?? join(tmpdir(), "web-spider-downloads");
 		this.logger = opts.logger;
+		this.observer = opts.observer;
+		this.observerMaxQueued = opts.observerMaxQueued ?? 100;
 	}
 
 	async create(name: string, opts: CreateSessionOptions = {}): Promise<SessionInfo> {
@@ -560,16 +640,21 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		if (this.sessions.has(name) || this.pending.has(name)) {
 			throw new Error(`session already exists: "${name}"`);
 		}
-		if (this.sessions.size + this.pending.size >= this.maxConcurrent) {
+		const retainedRuntimes = [...this.sessions.values()].filter((entry) => entry.state !== "closed").length;
+		if (retainedRuntimes + this.pending.size >= this.maxConcurrent) {
 			throw new Error(`session limit reached (${this.maxConcurrent} concurrent sessions max) — close an existing session first`);
 		}
 
 		this.pending.add(name);
+		const emitEvent = boundedObserverEmitter(this.observer, this.logger, this.observerMaxQueued);
+		emitEvent({ kind: "lifecycle", sessionName: name, state: "starting" });
 		try {
 			const browser = await this.launcher({
 				forceChromeChannel: opts.forceChromeChannel ?? false,
 				headed: opts.headed ?? false,
 				downloadsDir: join(this.downloadsBaseDir, name),
+				sessionName: name,
+				emitEvent,
 			});
 			try {
 				// Create the initial page before publishing the session. Context-level
@@ -585,7 +670,8 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 				throw error;
 			}
 			const info = createSessionInfo(name, this.now());
-			this.sessions.set(name, { info, browser });
+			this.sessions.set(name, { info, browser, state: "open", emitEvent });
+			emitEvent({ kind: "lifecycle", sessionName: name, state: "open" });
 			return info;
 		} finally {
 			this.pending.delete(name);
@@ -593,32 +679,29 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	}
 
 	list(): SessionInfo[] {
-		return [...this.sessions.values()].map((entry) => entry.info);
+		return [...this.sessions.values()]
+			.filter((entry) => entry.state !== "closed")
+			.map((entry) => (entry.state === "open" ? this.syncInfo(entry) : entry.info));
 	}
 
 	get(name: string): SessionInfo | undefined {
-		return this.sessions.get(name)?.info;
+		const entry = this.sessions.get(name);
+		return entry?.state === "open" ? this.syncInfo(entry) : undefined;
+	}
+
+	private openEntry(name: string): SessionEntry {
+		const entry = this.sessions.get(name);
+		if (!entry || entry.state !== "open") throw new Error(`no such open session: "${name}"`);
+		return entry;
 	}
 
 	async page(name: string) {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
-		return entry.browser.page();
-	}
-
-	/** Sources the reported version from the active tab's own tracked counter, bumping it — not withBumpedSnapshotVersion's session-wide "+1" (each tab tracks its own independently; see LaunchedBrowser's own doc comment). */
-	bumpSnapshotVersion(name: string): SessionInfo {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
-		const version = entry.browser.bumpActiveSnapshotVersion();
-		entry.info = { ...entry.info, snapshotVersion: version, lastActivityAt: this.now() };
-		return entry.info;
+		return this.openEntry(name).browser.page();
 	}
 
 	/** Refreshes the reported version to the active tab's own current value — correctly reflects a tab switch that happened via a preceding tabs(select)/tabs(new)/tabs(close) call in the same act(), not just "unchanged" as withTouchedActivity would report. */
 	touchActivity(name: string): SessionInfo {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
+		const entry = this.openEntry(name);
 		entry.info = { ...entry.info, snapshotVersion: entry.browser.activeSnapshotVersion(), lastActivityAt: this.now() };
 		return entry.info;
 	}
@@ -632,37 +715,41 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	 * a real walking-skeleton test: registry.get() briefly reported tab 0's
 	 * version immediately after newTab() switched the active tab away.
 	 */
-	private refreshInfo(entry: { info: SessionInfo; browser: BrowserSessionRuntime }): void {
-		entry.info = { ...entry.info, snapshotVersion: entry.browser.activeSnapshotVersion(), lastActivityAt: this.now() };
+	private syncInfo(entry: SessionEntry): SessionInfo {
+		const snapshotVersion = entry.browser.activeSnapshotVersion();
+		if (snapshotVersion !== entry.info.snapshotVersion) {
+			entry.info = { ...entry.info, snapshotVersion, lastActivityAt: this.now() };
+		}
+		return entry.info;
+	}
+
+	private refreshInfo(entry: SessionEntry): void {
+		entry.info = { ...this.syncInfo(entry), lastActivityAt: this.now() };
 	}
 
 	async listTabs(name: string): Promise<TabInfo[]> {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
+		const entry = this.openEntry(name);
 		const tabs = await entry.browser.listTabs();
 		this.refreshInfo(entry);
 		return tabs;
 	}
 
 	async newTab(name: string, url?: string): Promise<TabInfo> {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
+		const entry = this.openEntry(name);
 		const tab = await entry.browser.newTab(url);
 		this.refreshInfo(entry);
 		return tab;
 	}
 
 	async closeTab(name: string, tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }> {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
+		const entry = this.openEntry(name);
 		const result = await entry.browser.closeTab(tabIndex);
 		this.refreshInfo(entry);
 		return result;
 	}
 
 	async selectTab(name: string, tabIndex: number): Promise<TabInfo> {
-		const entry = this.sessions.get(name);
-		if (!entry) throw new Error(`no such session: "${name}"`);
+		const entry = this.openEntry(name);
 		const tab = await entry.browser.selectTab(tabIndex);
 		this.refreshInfo(entry);
 		return tab;
@@ -671,12 +758,35 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	async close(name: string): Promise<void> {
 		const entry = this.sessions.get(name);
 		if (!entry) throw new Error(`no such session: "${name}"`);
-		this.sessions.delete(name);
-		await entry.browser.close();
+		if (entry.state === "closed") return;
+		if (entry.state === "closing") return entry.closePromise;
+
+		entry.state = "closing";
+		entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closing" });
+		const closePromise = entry.browser.close().then(
+			() => {
+				entry.state = "closed";
+				entry.info = withClosed(entry.info);
+				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closed" });
+			},
+			(error) => {
+				entry.state = "close-failed";
+				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "close-failed" });
+				throw error;
+			},
+		);
+		entry.closePromise = closePromise;
+		try {
+			await closePromise;
+		} finally {
+			entry.closePromise = undefined;
+		}
 	}
 
 	async closeAll(): Promise<void> {
-		const names = [...this.sessions.keys()];
+		const names = [...this.sessions.entries()]
+			.filter(([, entry]) => entry.state !== "closed")
+			.map(([name]) => name);
 		await Promise.allSettled(names.map((name) => this.close(name)));
 	}
 }

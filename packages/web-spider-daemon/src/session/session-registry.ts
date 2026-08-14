@@ -130,11 +130,9 @@ export interface SessionRegistry {
 	get(name: string): SessionInfo | undefined;
 	/** The session's one persistent page, for act() dispatch. Throws for an unknown session. */
 	page(name: string): Promise<SessionPage>;
-	/** Idempotent-in-error-shape: closing an unknown or already-closed session throws a clear, typed error. */
+	/** Destination-idempotent after success. A finalization failure retains ownership so retrying the same name can complete cleanup; only a never-known name errors. */
 	close(name: string): Promise<void>;
-	/** Bumps and returns the session's snapshot version (called after a successful navigate) — the *active tab's own* version, not a session-wide counter (each tab tracks its own independently, since a stale-snapshot check is fundamentally about one page's navigation state). Throws for an unknown session. */
-	bumpSnapshotVersion(name: string): SessionInfo;
-	/** Refreshes the reported snapshotVersion to the active tab's own current value (called after a successful click/eval/screenshot/tabs/... — anything that isn't navigate) without bumping it. Throws for an unknown session. */
+	/** Refreshes the reported snapshotVersion from the active page's browser-event-driven navigation revision without bumping it. Throws for an unknown session. */
 	touchActivity(name: string): SessionInfo;
 	/** Lists every open page in current index order, including automatically discovered popups. Each result also has a stable pageId. Throws for an unknown session. */
 	listTabs(name: string): Promise<TabInfo[]>;
@@ -144,6 +142,6 @@ export interface SessionRegistry {
 	closeTab(name: string, tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }>;
 	/** Switches the active tab, surfacing its own already-tracked snapshotVersion. Throws for an unknown session or an out-of-range tabIndex. */
 	selectTab(name: string, tabIndex: number): Promise<TabInfo>;
-	/** Daemon-shutdown hygiene — tears down every live session. Never throws; best-effort. */
+	/** Daemon-shutdown hygiene — independently attempts every non-finalized session. Never throws; failed runtimes remain retained for a later bounded retry. */
 	closeAll(): Promise<void>;
 }

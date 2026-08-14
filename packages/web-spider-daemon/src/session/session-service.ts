@@ -421,7 +421,10 @@ export class SessionService {
 			const page = await this.registry.page(input.name);
 			const { result, screenshotBase64 } = await handler.run(page, input, this.registry, input.name);
 
-			const updated = input.action === "navigate" ? this.registry.bumpSnapshotVersion(input.name) : this.registry.touchActivity(input.name);
+			// Navigation revisions are advanced by committed browser events, not by
+			// assuming a dispatched command caused one. This also covers human clicks,
+			// reload/history actions, and redirects while avoiding false DOM freshness.
+			const updated = this.registry.touchActivity(input.name);
 			record("ok", "");
 			return { name: input.name, action: input.action, snapshotVersion: updated.snapshotVersion, result, screenshotBase64 };
 		} catch (error) {

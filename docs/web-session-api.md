@@ -43,20 +43,24 @@ site — `web_session` is for driving one.
 |---|---|---|
 | `create` | `name` | Launches an isolated, single-use Playwright browser process for this name. `headed: true` opens a visible window for human takeover; it defaults to `false`. Optional `forceChromeChannel` (default `false`) uses the full installed Chrome instead of Playwright's bundled Chromium. |
 | `list` | — | Lists every live session. |
-| `close` | `name` | Tears the session's browser down. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
+| `close` | `name` | Tears the session's context and browser down in order. Successful repeated close is idempotent. A failed close retains the runtime under the same name so retry can finish cleanup. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
 | `act` | `name`, `snapshotVersion`, `action` | Dispatches one action against the session's one persistent page. |
 
 ## Snapshot version — required, not busywork, and per-tab
 
 Every `act` response includes `snapshotVersion`. Pass it back on your next `act` call for that
-session. A stale value is **rejected** rather than silently acting on out-of-date state — the page
-may have navigated or changed since you last observed it. `create` returns `snapshotVersion: 0` to
-start with; `navigate` bumps it; every other action leaves it unchanged.
+session. A stale value is **rejected** rather than silently acting on out-of-date navigation state.
+`create` returns `snapshotVersion: 0`. Every committed top-level navigation then advances that
+page's version, regardless of whether it came from agent `navigate`, a human click, form submission,
+reload, back/forward, hash change, or `pushState`/`replaceState`. A click that does not navigate does
+not advance it. Subframe navigation and DOM-only mutation do not advance it; this is deliberately a
+navigation revision, not a false claim that every DOM change is observed.
 
 ```json
 // create → { "name": "s1", "snapshotVersion": 0, ... }
-// act(navigate) → { "snapshotVersion": 1, ... }   ← use 1 for the next act() call
-// act(click)    → { "snapshotVersion": 1, ... }   ← click doesn't bump it
+// act(navigate)          → { "snapshotVersion": 1, ... }
+// human clicks a link    → current version becomes 2
+// act(click, non-nav)    → version stays 2
 ```
 
 Acting with a stale value throws a clear error rather than a silent wrong result — this is a
@@ -103,7 +107,8 @@ in every `act` response reflects whichever tab is currently active; switching ta
 
 ```json
 // tab 0: act(navigate) twice -> { "snapshotVersion": 2, ... }
-// tabs(new)             -> { "snapshotVersion": 0, ... }   <- fresh tab, its own count
+// tabs(new, no URL)     -> { "snapshotVersion": 0, ... }   <- fresh blank tab
+// tabs(new, with URL)   -> { "snapshotVersion": 1, ... }   <- its first committed navigation
 // tabs(select, index:0) -> { "snapshotVersion": 2, ... }   <- tab 0's own history, untouched
 ```
 
@@ -113,8 +118,8 @@ in every `act` response reflects whichever tab is currently active; switching ta
 
 | Action | Parameters | Bumps snapshotVersion? | Notes |
 |---|---|---|---|
-| `navigate` | `url` | Yes | Loads a URL. |
-| `click` | `selector` | No | |
+| `navigate` | `url` | On commit | Loads a URL; the browser's committed main-frame event advances the revision. |
+| `click` | `selector` | If it navigates | Non-navigating clicks leave the revision unchanged; link/form/reload navigation advances it. |
 | `hover` | `selector` | No | Reveals hover-triggered menus/tooltips — the only way to trigger CSS `:hover` state; click/focus do not. |
 | `pressKey` | `key`, optional `selector` | No | Presses a keyboard key (e.g. `"Enter"`, `"Escape"`, `"Tab"`, `"ArrowLeft"`). With `selector`, focuses that element first. Without one, a global keyboard press — for keys like `Escape` with no natural target element. |
 | `type` | `selector`, `text`, optional `clear` (default `true`) | No | Real per-key keyboard input (Playwright's `pressSequentially`), not a directly-set value — works with pages that have their own JS-bound keyboard handling. `clear: false` appends instead of replacing. |

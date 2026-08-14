@@ -11,11 +11,10 @@ export interface SessionInfo {
 	createdAt: number;
 	lastActivityAt: number;
 	/**
-	 * Monotonic counter, incremented on every navigation. Lets a future
-	 * caller detect "the page changed under me between snapshot and action"
-	 * (Seeshell-derived freshness requirement) — this module only owns the
-	 * counter itself; incrementing on real navigation is the "act" daemon
-	 * operation's responsibility (a later task), not this registry's.
+	 * Per-page monotonic navigation revision, advanced from committed
+	 * top-level browser events. It detects agent or human navigation between
+	 * observation and action without falsely claiming arbitrary DOM-mutation
+	 * freshness. The registry projects the active page's revision here.
 	 */
 	snapshotVersion: number;
 	/** True once close() has completed; a closed session is never reused. */

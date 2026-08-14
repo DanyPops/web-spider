@@ -48,7 +48,7 @@ export interface FakeSessionPage extends SessionPage {
 	screenshotCalls: Array<{ fullPage?: boolean; selector?: string; scale?: "css" | "device" }>;
 }
 
-export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
+export function createFakePage(opts: FakePageOptions = {}, onNavigationCommitted?: () => void): FakeSessionPage {
 	const gotoCalls: FakeSessionPage["gotoCalls"] = [];
 	const clickCalls: FakeSessionPage["clickCalls"] = [];
 	const hoverCalls: FakeSessionPage["hoverCalls"] = [];
@@ -95,6 +95,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 		async goto(url, callOpts) {
 			gotoCalls.push({ url, timeoutMs: callOpts?.timeoutMs });
 			if (opts.failGoto) throw new Error("simulated navigation failure");
+			onNavigationCommitted?.();
 		},
 		async click(selector, callOpts) {
 			clickCalls.push({ selector, timeoutMs: callOpts?.timeoutMs });
@@ -204,11 +205,17 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 		const tabs: FakeTab[] = [];
 		let nextPageNumber = 1;
 		let activeIndex = -1;
+		const createTab = (url = "about:blank", initialVersion = 0): FakeTab => {
+			const tab = { pageId: `page-${nextPageNumber++}`, page: undefined as unknown as FakeSessionPage, version: initialVersion, url };
+			tab.page = createFakePage(opts.pageOptionsForSession?.(sessionIndex), () => {
+				tab.version += 1;
+			});
+			pages.push(tab.page);
+			return tab;
+		};
 		const ensureFirstTab = () => {
 			if (tabs.length === 0) {
-				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
-				pages.push(page);
-				tabs.push({ pageId: `page-${nextPageNumber++}`, page, version: 0, url: "about:blank" });
+				tabs.push(createTab());
 				activeIndex = 0;
 			}
 		};
@@ -233,9 +240,7 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 			},
 			newTab: async (url) => {
 				ensureFirstTab();
-				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
-				pages.push(page);
-				tabs.push({ pageId: `page-${nextPageNumber++}`, page, version: 0, url: url ?? "about:blank" });
+				tabs.push(createTab(url, url === undefined ? 0 : 1));
 				activeIndex = tabs.length - 1;
 				return describeTab(activeIndex);
 			},
@@ -259,11 +264,6 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 				return describeTab(activeIndex);
 			},
 			activeSnapshotVersion: () => tabs[activeIndex]?.version ?? 0,
-			bumpActiveSnapshotVersion: () => {
-				const tab = tabs[activeIndex] as FakeTab;
-				tab.version += 1;
-				return tab.version;
-			},
 		};
 		launched.push(browser);
 		return browser;

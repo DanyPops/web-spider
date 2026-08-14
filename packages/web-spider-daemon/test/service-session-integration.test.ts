@@ -6,6 +6,7 @@
  * in isolation — the same path a real client (CLI, a future tool) uses.
  */
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:http";
 import { createApp, createWebSpiderService } from "../src/service.ts";
 
 const TOKEN = "test-token";
@@ -22,56 +23,63 @@ async function post(app: { fetch(request: Request): Promise<Response> }, op: str
 }
 
 describe("session.* operations — real end-to-end through createWebSpiderService/createApp", () => {
-	test("create → act(navigate) → act(click) → act(eval) → act(screenshot) → list → close, with a stale-snapshot rejection along the way", async () => {
+	test("create → act(navigate) → browser-driven link navigation rejects stale actions end to end", async () => {
+		const server = createServer((req, res) => {
+			res.writeHead(200, { "content-type": "text/html" });
+			res.end(req.url === "/first" ? "<a id='b' href='/second'>go</a>" : "<p id='destination'>there</p>");
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as { port: number }).port;
 		const service = createWebSpiderService(":memory:");
 		const app = createApp({ service, token: TOKEN });
 		try {
 			const created = await post(app, "session.create", { name: "e2e" });
 			expect(created.status).toBe(200);
-			const info = created.body.result as { name: string; snapshotVersion: number };
-			expect(info).toMatchObject({ name: "e2e", snapshotVersion: 0 });
+			expect(created.body.result).toMatchObject({ name: "e2e", snapshotVersion: 0 });
 
 			const navigate = await post(app, "session.act", {
 				name: "e2e",
 				snapshotVersion: 0,
 				action: "navigate",
-				url: "data:text/html,<button id='b'>hi</button>",
+				url: `http://127.0.0.1:${port}/first`,
 			});
 			expect(navigate.status).toBe(200);
 			expect((navigate.body.result as { snapshotVersion: number }).snapshotVersion).toBe(1);
 
-			// Stale: still trying with the pre-navigate version.
 			const stale = await post(app, "session.act", { name: "e2e", snapshotVersion: 0, action: "click", selector: "#b" });
 			expect(stale.status).toBe(409);
 			expect(stale.body.error).toMatch(/snapshot version mismatch/);
 
 			const click = await post(app, "session.act", { name: "e2e", snapshotVersion: 1, action: "click", selector: "#b" });
 			expect(click.status).toBe(200);
-			expect((click.body.result as { snapshotVersion: number }).snapshotVersion).toBe(1); // click never bumps it
+			expect((click.body.result as { snapshotVersion: number }).snapshotVersion).toBe(2);
 
-			const evalResult = await post(app, "session.act", {
+			const staleAfterLinkNavigation = await post(app, "session.act", {
 				name: "e2e",
 				snapshotVersion: 1,
 				action: "eval",
-				script: "document.getElementById('b').textContent",
+				script: "document.body.textContent",
+			});
+			expect(staleAfterLinkNavigation.status).toBe(409);
+
+			const evalResult = await post(app, "session.act", {
+				name: "e2e",
+				snapshotVersion: 2,
+				action: "eval",
+				script: "document.getElementById('destination').textContent",
 			});
 			expect(evalResult.status).toBe(200);
-			expect((evalResult.body.result as { result: unknown }).result).toBe("hi");
+			expect((evalResult.body.result as { result: unknown }).result).toBe("there");
 
-			const screenshot = await post(app, "session.act", { name: "e2e", snapshotVersion: 1, action: "screenshot" });
+			const screenshot = await post(app, "session.act", { name: "e2e", snapshotVersion: 2, action: "screenshot" });
 			expect(screenshot.status).toBe(200);
 			expect(typeof (screenshot.body.result as { screenshotBase64: string }).screenshotBase64).toBe("string");
 
-			const list = await post(app, "session.list", {});
-			expect((list.body.result as { sessions: unknown[] }).sessions).toHaveLength(1);
-
 			const closed = await post(app, "session.close", { name: "e2e" });
 			expect(closed.body.result).toEqual({ name: "e2e", closed: true });
-
-			const listAfterClose = await post(app, "session.list", {});
-			expect((listAfterClose.body.result as { sessions: unknown[] }).sessions).toHaveLength(0);
 		} finally {
 			await service.close();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
 		}
 	}, 30_000);
 

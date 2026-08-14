@@ -701,12 +701,12 @@ describe("SessionService — act: tabs (does not bump snapshotVersion of its own
 		expect(journal.entries[0]).toMatchObject({ action: "tabs", outcome: "ok", target: "<tabs:list>" });
 	});
 
-	test("new opens a second tab, index 1, and makes it active with a fresh snapshotVersion of 0", async () => {
+	test("new with a URL opens a second tab and reports its committed navigation revision", async () => {
 		const { service, journal } = makeHarness();
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "new", url: "https://x.test/" });
 		expect(out.result).toEqual({ pageId: "page-2", index: 1, url: "https://x.test/", title: "", active: true });
-		expect(out.snapshotVersion).toBe(0);
+		expect(out.snapshotVersion).toBe(1);
 		expect(journal.entries[0]!.target).toBe("<tabs:new>");
 	});
 
