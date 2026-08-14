@@ -1,4 +1,4 @@
-import type { BrowserLauncher, LaunchedBrowser } from "../../src/session/playwright-session-registry.ts";
+import type { BrowserLauncher, BrowserSessionRuntime } from "../../src/session/playwright-session-registry.ts";
 import type { SessionPage } from "../../src/session/session-registry.ts";
 
 export interface FakePageOptions {
@@ -171,7 +171,7 @@ export function createFakePage(opts: FakePageOptions = {}): FakeSessionPage {
 export interface FakeLauncherOptions {
 	delayMs?: number;
 	failClose?: boolean;
-	onLaunch?: (forceChromeChannel: boolean) => void;
+	onLaunch?: (forceChromeChannel: boolean, headed: boolean) => void;
 	pageOptionsForSession?: (sessionIndex: number) => FakePageOptions;
 }
 
@@ -184,34 +184,42 @@ export interface FakeLauncherOptions {
  */
 export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 	launcher: BrowserLauncher;
-	launched: LaunchedBrowser[];
+	launched: BrowserSessionRuntime[];
 	pages: FakeSessionPage[];
 } {
-	const launched: LaunchedBrowser[] = [];
+	const launched: BrowserSessionRuntime[] = [];
 	const pages: FakeSessionPage[] = [];
-	const launcher: BrowserLauncher = async ({ forceChromeChannel }) => {
-		opts.onLaunch?.(forceChromeChannel);
+	const launcher: BrowserLauncher = async ({ forceChromeChannel, headed }) => {
+		opts.onLaunch?.(forceChromeChannel, headed);
 		if (opts.delayMs) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
 		// Capture this session's index before pushing — page() is called later,
 		// by which point launched.length would already have advanced past it.
 		const sessionIndex = launched.length;
 		interface FakeTab {
+			pageId: string;
 			page: FakeSessionPage;
 			version: number;
 			url: string;
 		}
 		const tabs: FakeTab[] = [];
+		let nextPageNumber = 1;
 		let activeIndex = -1;
 		const ensureFirstTab = () => {
 			if (tabs.length === 0) {
 				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
 				pages.push(page);
-				tabs.push({ page, version: 0, url: "about:blank" });
+				tabs.push({ pageId: `page-${nextPageNumber++}`, page, version: 0, url: "about:blank" });
 				activeIndex = 0;
 			}
 		};
-		const describeTab = (index: number) => ({ index, url: (tabs[index] as FakeTab).url, title: "", active: index === activeIndex });
-		const browser: LaunchedBrowser = {
+		const describeTab = (index: number) => ({
+			pageId: (tabs[index] as FakeTab).pageId,
+			index,
+			url: (tabs[index] as FakeTab).url,
+			title: "",
+			active: index === activeIndex,
+		});
+		const browser: BrowserSessionRuntime = {
 			close: async () => {
 				if (opts.failClose) throw new Error("simulated close failure");
 			},
@@ -227,7 +235,7 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 				ensureFirstTab();
 				const page = createFakePage(opts.pageOptionsForSession?.(sessionIndex));
 				pages.push(page);
-				tabs.push({ page, version: 0, url: url ?? "about:blank" });
+				tabs.push({ pageId: `page-${nextPageNumber++}`, page, version: 0, url: url ?? "about:blank" });
 				activeIndex = tabs.length - 1;
 				return describeTab(activeIndex);
 			},

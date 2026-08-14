@@ -329,7 +329,10 @@ export class SessionService {
 	async create(input: SessionCreateInput): Promise<SessionInfo> {
 		const start = this.now();
 		try {
-			const info = await this.registry.create(input.name, { forceChromeChannel: input.forceChromeChannel });
+			const info = await this.registry.create(input.name, {
+				forceChromeChannel: input.forceChromeChannel,
+				headed: input.headed,
+			});
 			this.logger?.debug("session_create", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
 			return info;
 		} catch (error) {

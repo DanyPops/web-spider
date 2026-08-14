@@ -85,6 +85,9 @@ export interface SessionPage {
 }
 
 export interface TabInfo {
+	/** Stable opaque identity for this page; never changes when another tab closes and is never reused within the session. */
+	pageId: string;
+	/** Backward-compatible projection over the current open-page order. May change when an earlier page closes. */
 	index: number;
 	url: string;
 	title: string;
@@ -94,10 +97,17 @@ export interface TabInfo {
 export interface CreateSessionOptions {
 	/**
 	 * Force the full installed chrome/chromium channel instead of Playwright's
-	 * own default (chromium-headless-shell in headless mode). A deliberate,
-	 * explicit per-call choice, never a silent default either way.
+	 * own bundled Chromium channel. A deliberate, explicit per-call choice,
+	 * never a silent default either way.
 	 */
 	forceChromeChannel?: boolean;
+	/**
+	 * Show the browser window so a human can take over for CAPTCHA, login, or
+	 * consent. The same persistent page remains attached after the human is
+	 * done, so agent automation can resume with its cookies/storage intact.
+	 * Defaults to false; background automation must never unexpectedly open UI.
+	 */
+	headed?: boolean;
 }
 
 /**
@@ -107,13 +117,11 @@ export interface CreateSessionOptions {
  * this port is deliberately narrow so that task can depend on a stable,
  * already-tested foundation.
  *
- * Isolation model: one owned Playwright Browser process per named session
- * (agent-browser's full-process-per-session semantics, not
- * browser.newContext()) — a session's cookies/storage/navigation history
- * are never shared with another session or the operator's own browser.
- * Full process isolation gets this "never shared" property for free (each
- * launched browser gets its own separate temporary profile directory) —
- * no explicit storageState plumbing is required for isolation itself.
+ * Isolation model: one owned Playwright Browser process and one explicit
+ * BrowserContext per named session. Tabs inside that context share cookies,
+ * cache, and origin storage; separate named sessions remain process-isolated
+ * from each other and the operator's own browser. No storageState plumbing
+ * is required for isolation itself.
  */
 export interface SessionRegistry {
 	/** Rejects (does not silently queue or evict) once the concurrent-session ceiling is reached. */
@@ -128,9 +136,9 @@ export interface SessionRegistry {
 	bumpSnapshotVersion(name: string): SessionInfo;
 	/** Refreshes the reported snapshotVersion to the active tab's own current value (called after a successful click/eval/screenshot/tabs/... — anything that isn't navigate) without bumping it. Throws for an unknown session. */
 	touchActivity(name: string): SessionInfo;
-	/** Lists every open tab in index order. Lazily creates tab 0 if the session has never had a page touched yet. Throws for an unknown session. */
+	/** Lists every open page in current index order, including automatically discovered popups. Each result also has a stable pageId. Throws for an unknown session. */
 	listTabs(name: string): Promise<TabInfo[]>;
-	/** Opens a new tab (optionally navigating it immediately), makes it active with a fresh snapshotVersion of 0, and returns its info. Rejects past SESSION_MAX_TABS. Throws for an unknown session. */
+	/** Opens a new tab in the session's explicit shared context (optionally navigating it immediately), makes it active with a fresh snapshotVersion of 0, and returns stable-ID info. Rejects past SESSION_MAX_TABS. Throws for an unknown session. */
 	newTab(name: string, url?: string): Promise<TabInfo>;
 	/** Closes a tab (defaults to the active one). If the active tab is closed, activation falls back to the tab now at the same index, or the last remaining tab, or null if none remain — documented, deterministic, not implicit. Throws for an unknown session or an out-of-range tabIndex. */
 	closeTab(name: string, tabIndex?: number): Promise<{ closedIndex: number; newActiveIndex: number | null }>;

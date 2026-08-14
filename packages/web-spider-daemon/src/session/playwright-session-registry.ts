@@ -1,15 +1,17 @@
 /**
  * Playwright-backed SessionRegistry — one owned Browser process per named
- * session (full-process isolation, agent-browser's model, not
- * browser.newContext()) so a session's cookies/storage/navigation history
- * are never shared with another session or the operator's own browser.
+ * session, with one explicit BrowserContext inside that process. Tabs in a
+ * session share cookies/cache/origin storage while separate named sessions
+ * remain process-isolated from each other and the operator's own browser.
  *
  * Default launch uses channel:"chromium" (Playwright's own bundled build,
  * "new headless mode") — never channel:"chrome" (the operator's own system-
- * installed, branded Chrome) unless forceChromeChannel opts in. This is a
- * revision of an earlier decision to leave headless: true unspecified,
- * which resolves to Playwright's separate, legacy "chromium-headless-shell"
- * build: found unreliable for a real, deterministic, CI-reproduced case
+ * installed, branded Chrome) unless forceChromeChannel opts in. `headed`
+ * only changes whether that explicitly selected browser shows a window; it
+ * never silently changes the channel. This is a revision of an earlier
+ * decision to leave headless: true unspecified, which resolves to
+ * Playwright's separate, legacy "chromium-headless-shell" build: found
+ * unreliable for a real, deterministic, CI-reproduced case
  * (a JS confirm() dialog's click() action hanging to a 30s timeout, not
  * sporadic — reproduced twice in a row). Chrome's own documentation
  * describes new headless mode as "the real Chrome browser... more
@@ -44,7 +46,7 @@ import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from
  * PlaywrightSessionRegistry surfaces that tab's own version as the
  * session's reported snapshotVersion after every action.
  */
-export interface LaunchedBrowser {
+export interface BrowserSessionRuntime {
 	close(): Promise<void>;
 	/** The currently active tab's persistent page. Lazily creates tab 0 on first call; returns the active tab's page on every subsequent call. */
 	page(): Promise<SessionPage>;
@@ -58,31 +60,117 @@ export interface LaunchedBrowser {
 	bumpActiveSnapshotVersion(): number;
 }
 
-export type BrowserLauncher = (opts: { forceChromeChannel: boolean; downloadsDir: string }) => Promise<LaunchedBrowser>;
+export type BrowserLauncher = (opts: {
+	forceChromeChannel: boolean;
+	headed: boolean;
+	downloadsDir: string;
+}) => Promise<BrowserSessionRuntime>;
 
 interface Tab {
+	pageId: string;
 	playwrightPage: PlaywrightPageLike;
 	sessionPage: SessionPage;
 	version: number;
 }
 
-function wrapPlaywrightBrowser(
-	browser: { newPage: () => Promise<PlaywrightPageLike>; close: () => Promise<void> },
+interface PlaywrightBrowserContextLike {
+	newPage(): Promise<PlaywrightPageLike>;
+	on(event: "page", handler: (page: PlaywrightPageLike) => void): void;
+	close(): Promise<void>;
+}
+
+interface PlaywrightBrowserLike {
+	newContext(): Promise<PlaywrightBrowserContextLike>;
+	close(): Promise<void>;
+}
+
+export async function createBrowserSessionRuntime(
+	browser: PlaywrightBrowserLike,
 	downloadsDir: string,
 	logger?: Logger,
-): LaunchedBrowser {
+): Promise<BrowserSessionRuntime> {
+	let context: PlaywrightBrowserContextLike;
+	try {
+		context = await browser.newContext();
+	} catch (error) {
+		try {
+			await browser.close();
+		} catch (closeError) {
+			logger?.warn("session_browser_cleanup_failed", { error: String(closeError), stage: "context-creation" });
+		}
+		throw error;
+	}
 	const tabs: Tab[] = [];
-	let activeIndex = -1; // -1: no tab created yet
+	const tabByPage = new Map<PlaywrightPageLike, Tab>();
+	let activePageId: string | null = null;
+	let nextPageNumber = 1;
 	let ensureFirstTabPromise: Promise<void> | undefined;
+
+	const activeIndex = () => tabs.findIndex((tab) => tab.pageId === activePageId);
+
+	function unregisterPage(playwrightPage: PlaywrightPageLike): void {
+		const tab = tabByPage.get(playwrightPage);
+		if (!tab) return;
+		const closedIndex = tabs.indexOf(tab);
+		tabByPage.delete(playwrightPage);
+		tabs.splice(closedIndex, 1);
+		if (activePageId === tab.pageId) {
+			activePageId = tabs[Math.min(closedIndex, tabs.length - 1)]?.pageId ?? null;
+		}
+	}
+
+	function registerPage(playwrightPage: PlaywrightPageLike): Tab | undefined {
+		const existing = tabByPage.get(playwrightPage);
+		if (existing) return existing;
+		if (tabs.length >= SESSION_MAX_TABS) {
+			logger?.warn("session_tab_limit_exceeded", { maxTabs: SESSION_MAX_TABS });
+			void playwrightPage.close().catch((error) => {
+				logger?.warn("session_excess_tab_close_failed", { error: String(error) });
+			});
+			return undefined;
+		}
+		const tab = {
+			pageId: `page-${nextPageNumber++}`,
+			playwrightPage,
+			sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger),
+			version: 0,
+		};
+		tabByPage.set(playwrightPage, tab);
+		tabs.push(tab);
+		activePageId = tab.pageId;
+		playwrightPage.on("close", () => unregisterPage(playwrightPage));
+		playwrightPage.on("crash", () => unregisterPage(playwrightPage));
+		return tab;
+	}
+
+	// Context-level discovery sees popups and human-created tabs that never
+	// pass through registry.newTab(). registerPage is idempotent because
+	// context.newPage() also emits this event before resolving.
+	try {
+		context.on("page", registerPage);
+	} catch (error) {
+		try {
+			await context.close();
+		} catch (closeError) {
+			logger?.warn("session_context_cleanup_failed", { error: String(closeError), stage: "page-listener-setup" });
+		}
+		try {
+			await browser.close();
+		} catch (closeError) {
+			logger?.warn("session_browser_cleanup_failed", { error: String(closeError), stage: "page-listener-setup" });
+		}
+		throw error;
+	}
 
 	// Idempotent and safe to call from any method — the first real access
 	// (page(), listTabs(), etc.) lazily creates tab 0, exactly matching the
 	// pre-multi-tab behavior for every caller that never touches tabs at all.
 	function ensureFirstTab(): Promise<void> {
 		if (!ensureFirstTabPromise) {
-			ensureFirstTabPromise = browser.newPage().then((playwrightPage) => {
-				tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger), version: 0 });
-				activeIndex = 0;
+			ensureFirstTabPromise = context.newPage().then((playwrightPage) => {
+				const tab = registerPage(playwrightPage);
+				if (!tab) throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session)`);
+				activePageId = tab.pageId;
 			});
 		}
 		return ensureFirstTabPromise;
@@ -90,14 +178,53 @@ function wrapPlaywrightBrowser(
 
 	async function describeTab(index: number): Promise<TabInfo> {
 		const tab = tabs[index] as Tab;
-		return { index, url: tab.playwrightPage.url(), title: await tab.playwrightPage.title(), active: index === activeIndex };
+		return {
+			pageId: tab.pageId,
+			index,
+			url: tab.playwrightPage.url(),
+			title: await tab.playwrightPage.title(),
+			active: tab.pageId === activePageId,
+		};
+	}
+
+	let closed = false;
+	let closePromise: Promise<void> | undefined;
+	async function closeRuntime(): Promise<void> {
+		if (closed) return;
+		if (closePromise) return closePromise;
+		closePromise = (async () => {
+			let contextError: unknown;
+			try {
+				await context.close();
+			} catch (error) {
+				contextError = error;
+			}
+			try {
+				await browser.close();
+			} catch (browserError) {
+				if (contextError) {
+					logger?.warn("session_browser_cleanup_failed", { error: String(browserError), stage: "runtime-close" });
+				} else {
+					throw browserError;
+				}
+			}
+			if (contextError) throw contextError;
+			closed = true;
+		})();
+		try {
+			await closePromise;
+		} finally {
+			if (!closed) closePromise = undefined;
+		}
 	}
 
 	return {
-		close: () => browser.close(),
+		close: closeRuntime,
 		page: async () => {
 			await ensureFirstTab();
-			return (tabs[activeIndex] as Tab).sessionPage;
+			const tab = tabs.find((candidate) => candidate.pageId === activePageId);
+			if (!tab) throw new Error("session has no open tabs");
+			return tab.sessionPage;
 		},
 		listTabs: async () => {
 			await ensureFirstTab();
@@ -107,40 +234,33 @@ function wrapPlaywrightBrowser(
 			await ensureFirstTab();
 			if (tabs.length >= SESSION_MAX_TABS)
 				throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
-			const playwrightPage = await browser.newPage();
+			const playwrightPage = await context.newPage();
+			const tab = registerPage(playwrightPage);
+			if (!tab) throw new Error(`tab limit reached (${SESSION_MAX_TABS} tabs max per session) — close a tab first`);
+			activePageId = tab.pageId;
 			if (url !== undefined) await playwrightPage.goto(url);
-			tabs.push({ playwrightPage, sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger), version: 0 });
-			activeIndex = tabs.length - 1;
-			return describeTab(activeIndex);
+			return describeTab(tabs.indexOf(tab));
 		},
 		closeTab: async (tabIndex) => {
 			await ensureFirstTab();
-			const indexToClose = tabIndex ?? activeIndex;
+			const indexToClose = tabIndex ?? activeIndex();
 			if (indexToClose < 0 || indexToClose >= tabs.length) throw new Error(`no such tab: ${indexToClose}`);
-			await (tabs[indexToClose] as Tab).playwrightPage.close();
-			tabs.splice(indexToClose, 1);
-			let newActiveIndex: number | null;
-			if (tabs.length === 0) {
-				newActiveIndex = null;
-			} else if (indexToClose === activeIndex) {
-				newActiveIndex = Math.min(indexToClose, tabs.length - 1);
-			} else if (indexToClose < activeIndex) {
-				newActiveIndex = activeIndex - 1;
-			} else {
-				newActiveIndex = activeIndex;
-			}
-			activeIndex = newActiveIndex ?? -1;
-			return { closedIndex: indexToClose, newActiveIndex };
+			const pageToClose = (tabs[indexToClose] as Tab).playwrightPage;
+			await pageToClose.close();
+			unregisterPage(pageToClose);
+			const newActiveIndex = activeIndex();
+			return { closedIndex: indexToClose, newActiveIndex: newActiveIndex >= 0 ? newActiveIndex : null };
 		},
 		selectTab: async (tabIndex) => {
 			await ensureFirstTab();
 			if (tabIndex < 0 || tabIndex >= tabs.length) throw new Error(`no such tab: ${tabIndex}`);
-			activeIndex = tabIndex;
-			return describeTab(activeIndex);
+			activePageId = (tabs[tabIndex] as Tab).pageId;
+			return describeTab(tabIndex);
 		},
-		activeSnapshotVersion: () => tabs[activeIndex]?.version ?? 0,
+		activeSnapshotVersion: () => tabs.find((tab) => tab.pageId === activePageId)?.version ?? 0,
 		bumpActiveSnapshotVersion: () => {
-			const tab = tabs[activeIndex] as Tab;
+			const tab = tabs.find((candidate) => candidate.pageId === activePageId);
+			if (!tab) throw new Error("session has no open tabs");
 			tab.version += 1;
 			return tab.version;
 		},
@@ -221,6 +341,7 @@ export interface PlaywrightPageLike {
 	on(event: "download", handler: (download: PlaywrightDownloadLike) => void | Promise<void>): void;
 	on(event: "console", handler: (message: PlaywrightConsoleMessageLike) => void | Promise<void>): void;
 	on(event: "response", handler: (response: PlaywrightResponseLike) => void | Promise<void>): void;
+	on(event: "close" | "crash", handler: () => void | Promise<void>): void;
 	/** Global keyboard press, not tied to any element — for keys like Escape with no natural target. Real Playwright API has no timeout option here (there's no element to wait for). */
 	keyboard: { press(key: string): Promise<void> };
 }
@@ -382,16 +503,20 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 	};
 }
 
+export function resolveBrowserLaunchOptions(forceChromeChannel: boolean, headed: boolean): {
+	channel: "chrome" | "chromium";
+	headless: boolean;
+} {
+	return { channel: forceChromeChannel ? "chrome" : "chromium", headless: !headed };
+}
+
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
 export function defaultBrowserLauncher(logger?: Logger): BrowserLauncher {
-	return async ({ forceChromeChannel, downloadsDir }) => {
+	return async ({ forceChromeChannel, headed, downloadsDir }) => {
 		const { chromium } = await import("playwright-core");
-		const launchOpts = forceChromeChannel
-			? { channel: "chrome" as const, headless: true }
-			: { channel: "chromium" as const, headless: true };
-		const browser = await chromium.launch(launchOpts);
+		const browser = await chromium.launch(resolveBrowserLaunchOptions(forceChromeChannel, headed));
 		mkdirSync(downloadsDir, { recursive: true });
-		return wrapPlaywrightBrowser(browser, downloadsDir, logger);
+		return await createBrowserSessionRuntime(browser, downloadsDir, logger);
 	};
 }
 
@@ -407,7 +532,7 @@ export interface PlaywrightSessionRegistryOptions {
 }
 
 export class PlaywrightSessionRegistry implements SessionRegistry {
-	private readonly sessions = new Map<string, { info: SessionInfo; browser: LaunchedBrowser }>();
+	private readonly sessions = new Map<string, { info: SessionInfo; browser: BrowserSessionRuntime }>();
 	/** Reserves a name synchronously before the launch await completes, so two concurrent create() calls for the same name (or racing the ceiling) can't both succeed. */
 	private readonly pending = new Set<string>();
 	private readonly launcher: BrowserLauncher;
@@ -415,6 +540,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly maxNameLength: number;
 	private readonly now: () => number;
 	private readonly downloadsBaseDir: string;
+	private readonly logger?: Logger;
 
 	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
 		this.launcher = opts.launcher ?? defaultBrowserLauncher(opts.logger);
@@ -422,6 +548,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		this.maxNameLength = opts.maxNameLength ?? SESSION_NAME_MAX_LENGTH;
 		this.now = opts.now ?? Date.now;
 		this.downloadsBaseDir = opts.downloadsBaseDir ?? join(tmpdir(), "web-spider-downloads");
+		this.logger = opts.logger;
 	}
 
 	async create(name: string, opts: CreateSessionOptions = {}): Promise<SessionInfo> {
@@ -441,8 +568,22 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		try {
 			const browser = await this.launcher({
 				forceChromeChannel: opts.forceChromeChannel ?? false,
+				headed: opts.headed ?? false,
 				downloadsDir: join(this.downloadsBaseDir, name),
 			});
+			try {
+				// Create the initial page before publishing the session. Context-level
+				// hooks are already installed by BrowserSessionRuntime, and a page
+				// creation failure cannot leave a registered half-session behind.
+				await browser.page();
+			} catch (error) {
+				try {
+					await browser.close();
+				} catch (closeError) {
+					this.logger?.warn("session_browser_cleanup_failed", { error: String(closeError), stage: "initial-page" });
+				}
+				throw error;
+			}
 			const info = createSessionInfo(name, this.now());
 			this.sessions.set(name, { info, browser });
 			return info;
@@ -491,7 +632,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	 * a real walking-skeleton test: registry.get() briefly reported tab 0's
 	 * version immediately after newTab() switched the active tab away.
 	 */
-	private refreshInfo(entry: { info: SessionInfo; browser: LaunchedBrowser }): void {
+	private refreshInfo(entry: { info: SessionInfo; browser: BrowserSessionRuntime }): void {
 		entry.info = { ...entry.info, snapshotVersion: entry.browser.activeSnapshotVersion(), lastActivityAt: this.now() };
 	}
 

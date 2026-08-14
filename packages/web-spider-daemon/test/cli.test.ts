@@ -484,20 +484,22 @@ describe("runCli cache list/search", () => {
 });
 
 describe("runCli session create/list/close", () => {
-	test("create forwards the name and forceChromeChannel:undefined by default", async () => {
+	test("create keeps headed and forceChromeChannel undefined by default", async () => {
 		const { deps, operations } = fakeDeps({
 			call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }),
 		});
 		await runCli(["session", "create", "agent1"], deps);
-		expect(operations).toEqual([{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined } }]);
+		expect(operations).toEqual([
+			{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined, headed: undefined } },
+		]);
 	});
 
-	test("create forwards forceChromeChannel:true with --force-chrome-channel", async () => {
+	test("create forwards headed and forceChromeChannel when requested for human takeover", async () => {
 		const { deps, operations } = fakeDeps({
 			call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }),
 		});
-		await runCli(["session", "create", "agent1", "--force-chrome-channel"], deps);
-		expect((operations[0]!.input as { forceChromeChannel: boolean }).forceChromeChannel).toBe(true);
+		await runCli(["session", "create", "agent1", "--headed", "--force-chrome-channel"], deps);
+		expect(operations[0]!.input).toMatchObject({ headed: true, forceChromeChannel: true });
 	});
 
 	test("create missing name prints usage", async () => {

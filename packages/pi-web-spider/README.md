@@ -11,7 +11,7 @@ Web fetch, web search, and real browser sessions for [Pi](https://github.com/ear
 - **Honest PDF extraction** — bounded text-layer extraction with an automatic OCR fallback for scanned or garbled pages. A page that genuinely can't be recovered reports `contentOk: false`, never a false-success claim.
 - **Real structured extraction, not scraping** — GitHub (REST/GraphQL), MediaWiki (Wikipedia and any MediaWiki wiki), `llms.txt`, and `.md`-suffix docs (AWS-docs-style) are queried through their actual APIs.
 - **A disk-backed page cache that survives restarts** — every fetch is cached to SQLite (WAL) and searchable by full text, domain, tag, curated category, or date range, at zero network cost on a hit.
-- **Real interactive browser sessions** — `web_session` for pages a single fetch can't handle: type, click, select, wait on async results, read tables, screenshot, handle native dialogs, capture downloads.
+- **Real interactive browser sessions** — `web_session` for pages a single fetch can't handle: type, click, select, wait on async results, read tables, screenshot, handle native dialogs, capture downloads, or open a headed browser so a human can complete CAPTCHA/login/consent before the agent resumes the same session.
 - **A standalone resource finder, not just a summarizer** — `web_quotes` returns ranked, verbatim quotes per URL with a copy-pasteable citation link, never an LLM-digested answer.
 
 ```
@@ -56,7 +56,7 @@ Fetch a URL, crawl N hops deep, or search the web — one tool, three modes:
 Structured extraction beats generic scraping where a real API exists: GitHub (REST/GraphQL), MediaWiki (Wikipedia and any MediaWiki wiki), `llms.txt`, and `.md`-suffix docs (AWS-docs-style) are recognized and queried directly.
 
 ### `web_session`
-Persistent, named browser sessions for pages that need real interaction, not a single fetch: type into search boxes, select dropdowns, wait on async results, read a table. Supports navigate/click/hover/type/select/waitFor, structured extraction (`queryText`/`readTable`), accessibility-tree snapshots, screenshots, native dialog handling, file downloads, tab management, and console/network capture.
+Persistent, named browser sessions for pages that need real interaction, not a single fetch: type into search boxes, select dropdowns, wait on async results, read a table. Supports navigate/click/hover/type/select/waitFor, structured extraction (`queryText`/`readTable`), accessibility-tree snapshots, screenshots, native dialog handling, file downloads, tab management, and console/network capture. Create with `headed: true` (and preferably `forceChromeChannel: true` for anti-bot-sensitive sites) to hand a visible browser to the user for CAPTCHA/login/consent, then resume agent actions on that same cookie-bearing session.
 
 ### `web_category`
 Your own curated relevance categories over cached pages (e.g. "Code", "PTP Protocol") — distinct from a page's domain or its publisher's own tags. A page can belong to more than one category; assign, remove, rename, or list.

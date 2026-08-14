@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import {
+	createBrowserSessionRuntime,
 	defaultBrowserLauncher,
 	type PlaywrightDialogLike,
 	type PlaywrightDownloadLike,
 	type PlaywrightPageLike,
 	PlaywrightSessionRegistry,
+	resolveBrowserLaunchOptions,
 	wrapPlaywrightPage,
 } from "../src/session/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
@@ -26,6 +28,18 @@ function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Recor
 		error: () => {},
 	};
 }
+
+describe("resolveBrowserLaunchOptions", () => {
+	test("headless remains the default and headed only changes window visibility", () => {
+		expect(resolveBrowserLaunchOptions(false, false)).toEqual({ channel: "chromium", headless: true });
+		expect(resolveBrowserLaunchOptions(false, true)).toEqual({ channel: "chromium", headless: false });
+	});
+
+	test("full Chrome remains an independent explicit choice", () => {
+		expect(resolveBrowserLaunchOptions(true, false)).toEqual({ channel: "chrome", headless: true });
+		expect(resolveBrowserLaunchOptions(true, true)).toEqual({ channel: "chrome", headless: false });
+	});
+});
 
 describe("PlaywrightSessionRegistry — create", () => {
 	test("returns a fresh SessionInfo and forwards forceChromeChannel (default false)", async () => {
@@ -45,6 +59,21 @@ describe("PlaywrightSessionRegistry — create", () => {
 
 		await registry.create("agent1", { forceChromeChannel: true });
 		expect(seenChannels).toEqual([true]);
+	});
+
+	test("defaults to headless and forwards headed:true only when explicitly requested", async () => {
+		const seen: Array<{ forceChromeChannel: boolean; headed: boolean }> = [];
+		const { launcher } = fakeLauncher({
+			onLaunch: (forceChromeChannel, headed) => seen.push({ forceChromeChannel, headed }),
+		});
+		const registry = new PlaywrightSessionRegistry({ launcher });
+
+		await registry.create("background");
+		await registry.create("human", { forceChromeChannel: true, headed: true });
+		expect(seen).toEqual([
+			{ forceChromeChannel: false, headed: false },
+			{ forceChromeChannel: true, headed: true },
+		]);
 	});
 
 	test("rejects an invalid name without ever calling the launcher", async () => {
@@ -101,6 +130,33 @@ describe("PlaywrightSessionRegistry — create", () => {
 		expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already exists/);
 		expect(launched).toHaveLength(1);
 		expect(registry.list()).toHaveLength(1);
+	});
+
+	test("initial-page creation failure closes the runtime and never registers a partial session", async () => {
+		let closeCalls = 0;
+		const launcher = async () => ({
+			close: async () => {
+				closeCalls++;
+			},
+			page: async () => {
+				throw new Error("simulated initial page creation failure");
+			},
+			listTabs: async () => [],
+			newTab: async () => {
+				throw new Error("not used");
+			},
+			closeTab: async () => ({ closedIndex: 0, newActiveIndex: null }),
+			selectTab: async () => {
+				throw new Error("not used");
+			},
+			activeSnapshotVersion: () => 0,
+			bumpActiveSnapshotVersion: () => 1,
+		});
+		const registry = new PlaywrightSessionRegistry({ launcher });
+
+		await expect(registry.create("broken-page")).rejects.toThrow(/initial page creation failure/);
+		expect(closeCalls).toBe(1);
+		expect(registry.list()).toHaveLength(0);
 	});
 
 	test("a race against the ceiling never overshoots it", async () => {
@@ -245,8 +301,198 @@ describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
 	});
 });
 
+describe("BrowserSessionRuntime — explicit context ownership", () => {
+	function minimalPage(): PlaywrightPageLike {
+		return {
+			goto: async () => {},
+			click: async () => {},
+			url: () => "about:blank",
+			title: async () => "",
+			close: async () => {},
+			locator: () => {
+				throw new Error("not used");
+			},
+			getByText: () => {
+				throw new Error("not used");
+			},
+			waitForLoadState: async () => {},
+			evaluate: async () => undefined,
+			screenshot: async () => new Uint8Array(),
+			ariaSnapshot: async () => "",
+			on: () => {},
+			keyboard: { press: async () => {} },
+		} as unknown as PlaywrightPageLike;
+	}
+
+	test("owns exactly one context, installs discovery before the first page, and closes context before browser", async () => {
+		const events: string[] = [];
+		const page = minimalPage();
+		let pageHandler: ((page: PlaywrightPageLike) => void) | undefined;
+		const context = {
+			on: (_event: "page", handler: (page: PlaywrightPageLike) => void) => {
+				events.push("context:on:page");
+				pageHandler = handler;
+			},
+			newPage: async () => {
+				events.push("context:newPage");
+				pageHandler?.(page);
+				return page;
+			},
+			close: async () => {
+				events.push("context:close");
+			},
+		};
+		let contextCreates = 0;
+		const browser = {
+			newContext: async () => {
+				contextCreates++;
+				events.push("browser:newContext");
+				return context;
+			},
+			close: async () => {
+				events.push("browser:close");
+			},
+		};
+
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+		expect(contextCreates).toBe(1);
+		expect(events).toEqual(["browser:newContext", "context:on:page"]);
+
+		await runtime.page();
+		expect(events.slice(0, 3)).toEqual(["browser:newContext", "context:on:page", "context:newPage"]);
+
+		await runtime.close();
+		expect(events.slice(-2)).toEqual(["context:close", "browser:close"]);
+	});
+
+	test("closes and refuses a human-created page that would exceed the session tab cap", async () => {
+		let pageHandler: ((page: PlaywrightPageLike) => void) | undefined;
+		const closeCounts = new Map<PlaywrightPageLike, number>();
+		const makeTrackedPage = (): PlaywrightPageLike => {
+			const handlers = new Map<string, () => void>();
+			const page = {
+				...minimalPage(),
+				on: (event: string, handler: () => void) => handlers.set(event, handler),
+				close: async () => {
+					closeCounts.set(page as unknown as PlaywrightPageLike, (closeCounts.get(page as unknown as PlaywrightPageLike) ?? 0) + 1);
+					handlers.get("close")?.();
+				},
+			} as unknown as PlaywrightPageLike;
+			closeCounts.set(page, 0);
+			return page;
+		};
+		const initialPage = makeTrackedPage();
+		const context = {
+			on: (_event: "page", handler: (page: PlaywrightPageLike) => void) => {
+				pageHandler = handler;
+			},
+			newPage: async () => {
+				pageHandler?.(initialPage);
+				return initialPage;
+			},
+			close: async () => {},
+		};
+		const browser = { newContext: async () => context, close: async () => {} };
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+		await runtime.page();
+
+		let overflowPage: PlaywrightPageLike | undefined;
+		for (let index = 0; index < 10; index++) {
+			const page = makeTrackedPage();
+			if (index === 9) overflowPage = page;
+			pageHandler?.(page);
+		}
+		await Promise.resolve();
+
+		expect(await runtime.listTabs()).toHaveLength(10);
+		expect(closeCounts.get(overflowPage as PlaywrightPageLike)).toBe(1);
+	});
+
+	test("cleans up context and browser when page-discovery setup fails", async () => {
+		const closed: string[] = [];
+		const context = {
+			on: () => {
+				throw new Error("simulated page listener setup failure");
+			},
+			newPage: async () => minimalPage(),
+			close: async () => {
+				closed.push("context");
+			},
+		};
+		const browser = {
+			newContext: async () => context,
+			close: async () => {
+				closed.push("browser");
+			},
+		};
+
+		await expect(createBrowserSessionRuntime(browser, "/tmp/unused")).rejects.toThrow(/listener setup failure/);
+		expect(closed).toEqual(["context", "browser"]);
+	});
+
+	test("runtime close is destination-idempotent after successful context-before-browser finalization", async () => {
+		let contextCloses = 0;
+		let browserCloses = 0;
+		const context = {
+			on: () => {},
+			newPage: async () => minimalPage(),
+			close: async () => {
+				contextCloses++;
+			},
+		};
+		const browser = {
+			newContext: async () => context,
+			close: async () => {
+				browserCloses++;
+			},
+		};
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+
+		await runtime.close();
+		await runtime.close();
+		expect(contextCloses).toBe(1);
+		expect(browserCloses).toBe(1);
+	});
+
+	test("still closes the browser when context close fails, while preserving the context error", async () => {
+		let browserClosed = false;
+		const context = {
+			on: () => {},
+			newPage: async () => minimalPage(),
+			close: async () => {
+				throw new Error("simulated context close failure");
+			},
+		};
+		const browser = {
+			newContext: async () => context,
+			close: async () => {
+				browserClosed = true;
+			},
+		};
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+
+		await expect(runtime.close()).rejects.toThrow(/context close failure/);
+		expect(browserClosed).toBe(true);
+	});
+
+	test("closes the already-launched browser when explicit context creation fails", async () => {
+		let browserClosed = false;
+		const browser = {
+			newContext: async () => {
+				throw new Error("simulated context creation failure");
+			},
+			close: async () => {
+				browserClosed = true;
+			},
+		};
+
+		await expect(createBrowserSessionRuntime(browser, "/tmp/unused")).rejects.toThrow(/context creation failure/);
+		expect(browserClosed).toBe(true);
+	});
+});
+
 describe("defaultBrowserLauncher — real Playwright integration (walking skeleton)", () => {
-	test("actually launches and closes a real, isolated chromium-headless-shell process end to end", async () => {
+	test("actually launches and closes a real, isolated bundled Chromium process end to end", async () => {
 		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
 		const info = await registry.create("real-session");
 		expect(info.name).toBe("real-session");
@@ -714,6 +960,154 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		expect(await remainingPage.evaluate<string>("document.title")).toBe("tab-one");
 
 		await registry.close("real-tabs-session");
+	}, 30_000);
+
+	test("real tabs share cookies and localStorage through one BrowserContext", async () => {
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/html" });
+			res.end("<p>shared-context fixture</p>");
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as { port: number }).port;
+		const origin = `http://127.0.0.1:${port}`;
+
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		try {
+			await registry.create("real-shared-context-session");
+			const page0 = await registry.page("real-shared-context-session");
+			await page0.goto(origin);
+			await page0.evaluate("document.cookie = 'shared-cookie=from-tab-zero; path=/'; localStorage.setItem('shared-key', 'from-tab-zero')");
+
+			await registry.newTab("real-shared-context-session", origin);
+			const page1 = await registry.page("real-shared-context-session");
+
+			expect(await page1.evaluate<string>("document.cookie")).toContain("shared-cookie=from-tab-zero");
+			expect(await page1.evaluate<string>("localStorage.getItem('shared-key')")).toBe("from-tab-zero");
+		} finally {
+			if (registry.get("real-shared-context-session")) await registry.close("real-shared-context-session");
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
+	}, 30_000);
+
+	test("real named sessions remain process-isolated even for the same origin", async () => {
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/html" });
+			res.end("<p>session-isolation fixture</p>");
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as { port: number }).port;
+		const origin = `http://127.0.0.1:${port}`;
+
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 2 });
+		try {
+			await registry.create("real-isolated-session-a");
+			await registry.create("real-isolated-session-b");
+			const pageA = await registry.page("real-isolated-session-a");
+			const pageB = await registry.page("real-isolated-session-b");
+			await pageA.goto(origin);
+			await pageB.goto(origin);
+			await pageA.evaluate("document.cookie = 'isolated-cookie=only-a; path=/'; localStorage.setItem('isolated-key', 'only-a')");
+
+			expect(await pageB.evaluate<string>("document.cookie")).not.toContain("isolated-cookie=only-a");
+			expect(await pageB.evaluate<string>("localStorage.getItem('isolated-key')")).toBeNull();
+		} finally {
+			await registry.closeAll();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
+	}, 30_000);
+
+	test("real user-created popup is automatically discovered exactly once", async () => {
+		const server = createServer((req, res) => {
+			res.writeHead(200, { "content-type": "text/html" });
+			if (req.url === "/popup") res.end("<title>popup</title><p>child</p>");
+			else res.end("<button id='open' onclick=\"window.open('/popup', '_blank')\">open</button>");
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as { port: number }).port;
+
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		try {
+			await registry.create("real-popup-discovery-session");
+			const page = await registry.page("real-popup-discovery-session");
+			await page.goto(`http://127.0.0.1:${port}/`);
+			await page.click("#open");
+
+			let tabs = await registry.listTabs("real-popup-discovery-session");
+			for (let attempt = 0; attempt < 20 && tabs.length !== 2; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 25));
+				tabs = await registry.listTabs("real-popup-discovery-session");
+			}
+
+			expect(tabs).toHaveLength(2);
+			expect(tabs.filter((tab) => tab.url === `http://127.0.0.1:${port}/popup`)).toHaveLength(1);
+		} finally {
+			if (registry.get("real-popup-discovery-session")) await registry.close("real-popup-discovery-session");
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
+	}, 30_000);
+
+	test("real page IDs remain stable when earlier tabs close and are never reused", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		try {
+			await registry.create("real-stable-page-id-session");
+			const initial = await registry.listTabs("real-stable-page-id-session");
+			const firstPageId = (initial[0] as { pageId?: string }).pageId;
+			expect(firstPageId).toBeString();
+
+			const second = await registry.newTab("real-stable-page-id-session", "data:text/html,<title>second</title>");
+			const secondPageId = (second as { pageId?: string }).pageId;
+			expect(secondPageId).toBeString();
+			expect(secondPageId).not.toBe(firstPageId);
+
+			await registry.closeTab("real-stable-page-id-session", 0);
+			const afterClose = await registry.listTabs("real-stable-page-id-session");
+			expect(afterClose).toHaveLength(1);
+			expect((afterClose[0] as { pageId?: string }).pageId).toBe(secondPageId);
+			expect(afterClose[0]?.index).toBe(0);
+
+			const third = await registry.newTab("real-stable-page-id-session");
+			expect((third as { pageId?: string }).pageId).not.toBe(firstPageId);
+			expect((third as { pageId?: string }).pageId).not.toBe(secondPageId);
+		} finally {
+			if (registry.get("real-stable-page-id-session")) await registry.close("real-stable-page-id-session");
+		}
+	}, 30_000);
+
+	test("real popup closed by the page is removed from the registry with deterministic active fallback", async () => {
+		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		try {
+			await registry.create("real-external-page-close-session");
+			const opener = await registry.page("real-external-page-close-session");
+			await opener.goto("data:text/html,<button id='open' onclick=\"window.open('about:blank', '_blank')\">open</button>");
+			await opener.click("#open");
+
+			let tabs = await registry.listTabs("real-external-page-close-session");
+			for (let attempt = 0; attempt < 20 && tabs.length !== 2; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 25));
+				tabs = await registry.listTabs("real-external-page-close-session");
+			}
+			expect(tabs).toHaveLength(2);
+
+			const popup = await registry.page("real-external-page-close-session");
+			await popup.evaluate("window.close()");
+
+			for (let attempt = 0; attempt < 20; attempt++) {
+				try {
+					tabs = await registry.listTabs("real-external-page-close-session");
+					if (tabs.length === 1) break;
+				} catch {
+					// Before close-event handling exists, querying a stale closed page
+					// can reject. Keep polling so the behavioral assertion remains clear.
+				}
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+
+			expect(tabs).toHaveLength(1);
+			expect(tabs[0]).toMatchObject({ index: 0, active: true });
+			expect(await registry.page("real-external-page-close-session")).toBe(opener);
+		} finally {
+			if (registry.get("real-external-page-close-session")) await registry.close("real-external-page-close-session");
+		}
 	}, 30_000);
 
 	test("real per-tab snapshotVersion isolation: navigating one tab never affects another tab's own version", async () => {

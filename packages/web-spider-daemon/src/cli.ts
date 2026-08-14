@@ -226,7 +226,7 @@ function usage(stderr: (line: string) => void): number {
 			"       web-spider category rename <category> <newName> [--json]",
 			"       web-spider category list [--json]",
 			"       web-spider cache search <query> [--limit N] [--json]",
-			"       web-spider session create <name> [--force-chrome-channel] [--json]",
+			"       web-spider session create <name> [--headed] [--force-chrome-channel] [--json]",
 			"       web-spider session list [--json]",
 			"       web-spider session close <name> [--json]",
 			"       web-spider session act <name> --action navigate --snapshot-version N --url URL [--timeout-ms N] [--json]",
@@ -752,13 +752,14 @@ async function runDaemonDiagnose(rest: string[], deps: CliDependencies): Promise
 }
 
 async function runSessionCreate(rest: string[], deps: CliDependencies): Promise<number> {
-	const parsed = parseArgs(rest, [], ["--force-chrome-channel"]);
+	const parsed = parseArgs(rest, [], ["--headed", "--force-chrome-channel"]);
 	const name = parsed?.positional[0];
 	if (!parsed || !name) return usage(deps.stderr);
 	try {
 		const result = await deps.client.call("session.create", {
 			name,
 			forceChromeChannel: parsed.flags.has("force-chrome-channel") || undefined,
+			headed: parsed.flags.has("headed") || undefined,
 		});
 		deps.stdout(parsed.flags.has("json") ? JSON.stringify(result) : formatSessionCreateResult(result));
 		return 0;

@@ -108,7 +108,7 @@ export interface OperationInputs {
 	fetch: FetchOperationInput;
 	crawl: CrawlOperationInput;
 	quotes: QuotesOperationInput;
-	"session.create": { name: string; forceChromeChannel?: boolean };
+	"session.create": { name: string; forceChromeChannel?: boolean; headed?: boolean };
 	"session.list": Record<string, never>;
 	"session.close": SessionCloseInput;
 	"session.act": SessionActInput;
@@ -363,7 +363,11 @@ function handlers(
 			}),
 		quotes: (input) => quotesService.quotes(quotesInput(input)),
 		"session.create": (input) =>
-			sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
+			sessionService.create({
+				name: requireString(input, "name"),
+				forceChromeChannel: optionalBoolean(input, "forceChromeChannel"),
+				headed: optionalBoolean(input, "headed"),
+			}),
 		"session.list": () => ({ sessions: sessionService.list() }),
 		"session.close": (input) => sessionService.close({ name: requireString(input, "name") }),
 		"session.act": (input) => sessionService.act(sessionActInput(input)),

@@ -154,8 +154,9 @@ export function createSessionActDetails(input: {
 		case "tabs": {
 			if (Array.isArray(input.result)) {
 				const rows = input.result.map((t) => {
-					const tab = t as { index?: unknown; url?: unknown; title?: unknown; active?: unknown };
-					return `${tab.active ? "●" : "○"} [${tab.index}] ${bounded(String(tab.title || tab.url || ""), 60) ?? ""}`;
+					const tab = t as { pageId?: unknown; index?: unknown; url?: unknown; title?: unknown; active?: unknown };
+					const stableId = tab.pageId ? ` ${bounded(String(tab.pageId), 40)}` : "";
+					return `${tab.active ? "●" : "○"} [${tab.index}]${stableId} ${bounded(String(tab.title || tab.url || ""), 60) ?? ""}`;
 				});
 				const { items, total, truncated } = boundedItems(rows);
 				return { ...base, summary: `${total} tab${total === 1 ? "" : "s"}`, items, total, truncated };

@@ -116,12 +116,13 @@ describe("web_session dual-channel presentation", () => {
 			action: "tabs",
 			snapshotVersion: 1,
 			result: [
-				{ index: 0, url: "https://a.test", title: "A", active: false },
-				{ index: 1, url: "https://b.test", title: "B", active: true },
+				{ pageId: "page-1", index: 0, url: "https://a.test", title: "A", active: false },
+				{ pageId: "page-2", index: 1, url: "https://b.test", title: "B", active: true },
 			],
 		});
 		expect(render(list)).toContain("2 tabs");
 		expect(render(list)).toContain("[0]");
+		expect(render(list)).toContain("page-1");
 
 		const created = createSessionActDetails({
 			name: "s1",

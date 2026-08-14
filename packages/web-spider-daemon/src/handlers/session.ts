@@ -32,7 +32,10 @@ export function registerSessionVehicleOperations(registry: VehicleRegistry, sess
 		name: "session.create",
 		version: 1,
 		description: "Launches a new persistent browser session under the given name.",
-		input: defineLooseObjectSchema({ name: { type: "string" }, forceChromeChannel: { type: "boolean" } }, ["name"]),
+		input: defineLooseObjectSchema(
+			{ name: { type: "string" }, forceChromeChannel: { type: "boolean" }, headed: { type: "boolean" } },
+			["name"],
+		),
 		output: passthroughVehicleSchema,
 		permissions: ["web-spider:read", "web-spider:write"],
 		effect: "local-write",
@@ -44,7 +47,11 @@ export function registerSessionVehicleOperations(registry: VehicleRegistry, sess
 		bindVehicleOperation(createOperation, () => async (context) => {
 			const input = context.input as Record<string, unknown>;
 			return withVehicleErrorParity(() =>
-				sessionService.create({ name: requireString(input, "name"), forceChromeChannel: optionalBoolean(input, "forceChromeChannel") }),
+				sessionService.create({
+					name: requireString(input, "name"),
+					forceChromeChannel: optionalBoolean(input, "forceChromeChannel"),
+					headed: optionalBoolean(input, "headed"),
+				}),
 			);
 		}),
 	);

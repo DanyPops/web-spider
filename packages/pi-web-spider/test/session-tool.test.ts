@@ -55,10 +55,12 @@ afterAll(async () => {
 });
 
 describe("web_session — tool registration", () => {
-	it("registers with a parameters schema and no custom rendering (default Pi rendering is fine for v1)", () => {
+	it("registers the session schema, including explicit headed human takeover", () => {
 		const definition = h.tools.get("web_session")?.definition;
 		expect(definition).toBeDefined();
 		expect(definition?.parameters).toBeDefined();
+		const properties = (definition?.parameters as { properties?: Record<string, unknown> }).properties;
+		expect(properties).toHaveProperty("headed");
 	});
 
 	it("session.create/act/close now route through the real Vehicle protocol -- Activity Broker fires for every one", async () => {

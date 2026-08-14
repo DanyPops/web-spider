@@ -34,7 +34,13 @@ const sessionParamsSchema = Type.Object({
 	}),
 	name: Type.Optional(Type.String({ description: "Session name (create/close/act)" })),
 	forceChromeChannel: Type.Optional(
-		Type.Boolean({ description: "create: use the full installed Chrome channel instead of the default headless shell" }),
+		Type.Boolean({ description: "create: use the full installed Chrome channel instead of Playwright's bundled Chromium" }),
+	),
+	headed: Type.Optional(
+		Type.Boolean({
+			description:
+				"create: show a real browser window for human takeover (CAPTCHA/login/consent); defaults false. The agent can resume the same session afterward.",
+		}),
 	),
 	snapshotVersion: Type.Optional(
 		Type.Number({
@@ -154,7 +160,7 @@ const SESSION_OPERATION_HANDLERS: Record<SessionParams["operation"], SessionOper
 		if (!params.name) throw new Error("name is required for operation=create");
 		const result = await gateway.invoke<{ name: string; snapshotVersion: number; closed: boolean }>(
 			"session.create",
-			{ name: params.name, forceChromeChannel: params.forceChromeChannel },
+			{ name: params.name, forceChromeChannel: params.forceChromeChannel, headed: params.headed },
 			callMeta,
 		);
 		return {
@@ -245,11 +251,12 @@ export function registerSessionTool(pi: ExtensionAPI, gateway: OperationGateway)
 		description: [
 			"Persistent, named browser sessions for pages that need real interaction -- typing, selecting dropdowns, waiting on async results, reading tables -- rather than a single fetch.",
 			"tmux-session semantics: create once, act on the same page repeatedly, close when done. hover is the only way to trigger CSS :hover-revealed menus/tooltips. Always close sessions you no longer need.",
+			"If CAPTCHA, login, or consent requires a human, create with headed:true (prefer forceChromeChannel:true for anti-bot-sensitive pages), ask the user to complete it in the visible browser, then continue acting on that same session. If the blocked session was already created headless, close and recreate it headed.",
 			"",
 			"Every act() response returns snapshotVersion; pass it back on your next call for that session. A stale value is rejected rather than silently acting on a page that may have navigated underneath you. create returns snapshotVersion:0.",
 		].join("\n"),
 		promptSnippet:
-			"Persistent browser sessions: create/act(navigate|click|hover|pressKey|type|select|waitFor|queryText|readTable|snapshot|handleDialog|downloads|consoleMessages|networkRequests|tabs|eval|screenshot)/list/close",
+			"Persistent browser sessions: create (headed:true for human CAPTCHA/login takeover)/act(navigate|click|hover|pressKey|type|select|waitFor|queryText|readTable|snapshot|handleDialog|downloads|consoleMessages|networkRequests|tabs|eval|screenshot)/list/close",
 		parameters: sessionParamsSchema,
 		renderCall(args, theme, context) {
 			return renderWebSessionCall(args, theme, context);

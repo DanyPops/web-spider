@@ -59,6 +59,18 @@ describe("SessionService — create/list/close", () => {
 		expect(info).toEqual({ name: "agent1", createdAt: 1_000, lastActivityAt: 1_000, snapshotVersion: 0, closed: false });
 	});
 
+	test("create forwards explicit headed human takeover", async () => {
+		const seen: Array<{ forceChromeChannel: boolean; headed: boolean }> = [];
+		const { launcher } = fakeLauncher({
+			onLaunch: (forceChromeChannel, headed) => seen.push({ forceChromeChannel, headed }),
+		});
+		const registry = new PlaywrightSessionRegistry({ launcher });
+		const service = new SessionService(registry, new FakeAuditJournal());
+
+		await service.create({ name: "human", forceChromeChannel: true, headed: true });
+		expect(seen).toEqual([{ forceChromeChannel: true, headed: true }]);
+	});
+
 	test("list forwards to the registry", async () => {
 		const { service } = makeHarness();
 		await service.create({ name: "a" });
@@ -137,7 +149,7 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 		await service.create({ name: "a" });
 		const huge = "x".repeat(20_000);
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "eval", script: huge })).rejects.toThrow(/exceeds/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a successful screenshot returns base64 bytes and the journal records only a fixed placeholder, never image bytes", async () => {
@@ -169,7 +181,7 @@ describe("SessionService — act: click / eval / screenshot (do not bump snapsho
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "screenshot", fullPage: true, selector: "#chart" })).rejects.toThrow(
 			/fullPage or selector, not both/,
 		);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 });
 
@@ -195,14 +207,14 @@ describe("SessionService — act: type (does not bump snapshotVersion)", () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", text: "hi" })).rejects.toThrow(/selector is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("type without text is rejected before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search" })).rejects.toThrow(/text is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("oversized text is rejected before touching the page", async () => {
@@ -212,7 +224,7 @@ describe("SessionService — act: type (does not bump snapshotVersion)", () => {
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "type", selector: "#search", text: huge })).rejects.toThrow(
 			/exceeds/,
 		);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level type failure is journaled and rethrown", async () => {
@@ -252,7 +264,7 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", value: "wg3" })).rejects.toThrow(/selector is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("select without value or label is rejected before touching the page", async () => {
@@ -261,7 +273,7 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg" })).rejects.toThrow(
 			/value or label is required/,
 		);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("select with both value and label is rejected before touching the page", async () => {
@@ -270,7 +282,7 @@ describe("SessionService — act: select (does not bump snapshotVersion)", () =>
 		await expect(
 			service.act({ name: "a", snapshotVersion: 0, action: "select", selector: "#wg", value: "wg3", label: "WG3" }),
 		).rejects.toThrow(/only one of value or label/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level select failure is journaled and rethrown", async () => {
@@ -318,14 +330,14 @@ describe("SessionService — act: waitFor (does not bump snapshotVersion)", () =
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor" })).rejects.toThrow(/requires exactly one/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("requires exactly one of selector/text/loadState — rejects more than one before touching the page", async () => {
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", selector: "#x", text: "y" })).rejects.toThrow(/only one/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("rejects state alongside loadState before touching the page", async () => {
@@ -334,7 +346,7 @@ describe("SessionService — act: waitFor (does not bump snapshotVersion)", () =
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "waitFor", loadState: "load", state: "visible" })).rejects.toThrow(
 			/state is not valid alongside loadState/,
 		);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level waitFor timeout is journaled and rethrown", async () => {
@@ -378,7 +390,7 @@ describe("SessionService — act: queryText (does not bump snapshotVersion)", ()
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "queryText" })).rejects.toThrow(/selector is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level failure is journaled and rethrown", async () => {
@@ -428,7 +440,7 @@ describe("SessionService — act: readTable (does not bump snapshotVersion)", ()
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "readTable" })).rejects.toThrow(/selector is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level failure is journaled and rethrown", async () => {
@@ -478,7 +490,7 @@ describe("SessionService — act: snapshot (does not bump snapshotVersion)", () 
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "snapshot", depth: -1 })).rejects.toThrow(/non-negative integer/);
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "snapshot", depth: 1.5 })).rejects.toThrow(/non-negative integer/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("bounds an oversized snapshot with a truncation marker", async () => {
@@ -527,7 +539,7 @@ describe("SessionService — act: handleDialog (does not bump snapshotVersion)",
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "handleDialog" })).rejects.toThrow(/accept is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level failure is journaled and rethrown", async () => {
@@ -574,7 +586,7 @@ describe("SessionService — act: hover (does not bump snapshotVersion)", () => 
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "hover" })).rejects.toThrow(/selector is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level failure is journaled and rethrown", async () => {
@@ -608,7 +620,7 @@ describe("SessionService — act: pressKey (does not bump snapshotVersion)", () 
 		const { service, pages } = makeHarness();
 		await service.create({ name: "a" });
 		await expect(service.act({ name: "a", snapshotVersion: 0, action: "pressKey" })).rejects.toThrow(/key is required/);
-		expect(pages).toHaveLength(0);
+		expect(pages).toHaveLength(1); // the eager initial page exists, but validation prevented an action dispatch
 	});
 
 	test("a page-level failure is journaled and rethrown", async () => {
@@ -685,7 +697,7 @@ describe("SessionService — act: tabs (does not bump snapshotVersion of its own
 		const { service, journal } = makeHarness();
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "list" });
-		expect(out.result).toEqual([{ index: 0, url: "about:blank", title: "", active: true }]);
+		expect(out.result).toEqual([{ pageId: "page-1", index: 0, url: "about:blank", title: "", active: true }]);
 		expect(journal.entries[0]).toMatchObject({ action: "tabs", outcome: "ok", target: "<tabs:list>" });
 	});
 
@@ -693,7 +705,7 @@ describe("SessionService — act: tabs (does not bump snapshotVersion of its own
 		const { service, journal } = makeHarness();
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "tabs", tabOperation: "new", url: "https://x.test/" });
-		expect(out.result).toEqual({ index: 1, url: "https://x.test/", title: "", active: true });
+		expect(out.result).toEqual({ pageId: "page-2", index: 1, url: "https://x.test/", title: "", active: true });
 		expect(out.snapshotVersion).toBe(0);
 		expect(journal.entries[0]!.target).toBe("<tabs:new>");
 	});

@@ -14,7 +14,8 @@ site — `web_session` is for driving one.
 
 | Goal | Call |
 |---|---|
-| Start a session | `{ operation: "create", name: "…" }` |
+| Start a background session | `{ operation: "create", name: "…" }` |
+| Give a human the wheel for CAPTCHA/login | `{ operation: "create", name: "…", headed: true, forceChromeChannel: true }` |
 | Load a page | `{ operation: "act", name, snapshotVersion, action: "navigate", url }` |
 | Click something | `{ operation: "act", ..., action: "click", selector }` |
 | Reveal a hover-triggered menu/tooltip | `{ operation: "act", ..., action: "hover", selector }` |
@@ -40,7 +41,7 @@ site — `web_session` is for driving one.
 
 | Operation | Required parameters | Notes |
 |---|---|---|
-| `create` | `name` | Launches an isolated, single-use Playwright browser process for this name. Optional `forceChromeChannel` (default `false`) forces the full installed Chrome channel instead of Playwright's own headless shell. |
+| `create` | `name` | Launches an isolated, single-use Playwright browser process for this name. `headed: true` opens a visible window for human takeover; it defaults to `false`. Optional `forceChromeChannel` (default `false`) uses the full installed Chrome instead of Playwright's bundled Chromium. |
 | `list` | — | Lists every live session. |
 | `close` | `name` | Tears the session's browser down. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
 | `act` | `name`, `snapshotVersion`, `action` | Dispatches one action against the session's one persistent page. |
@@ -60,6 +61,40 @@ start with; `navigate` bumps it; every other action leaves it unchanged.
 
 Acting with a stale value throws a clear error rather than a silent wrong result — this is a
 deliberate safety property, not friction to work around.
+
+## Human takeover for CAPTCHA, login, or consent
+
+A headed session is the handoff point between agent automation and a real human. It does not solve
+or bypass a challenge. It opens the session's isolated browser window so the user can complete the
+step personally; the browser remains under `web_session` afterward with the same cookies, local
+storage, tabs, and network listeners.
+
+Recommended flow:
+
+1. Create with `{ headed: true, forceChromeChannel: true }` for anti-bot-sensitive sites.
+2. Navigate to the target page.
+3. Tell the user the visible browser is ready and ask them to complete the challenge, then confirm.
+4. After confirmation, call `snapshot`, `waitFor`, or `networkRequests` on the **same session** and
+   continue extraction.
+
+If a challenge is discovered in a session that was already created headless, a headless browser
+cannot be made visible in place. Close it, recreate the same name with `headed: true`, navigate
+again, and hand over the new visible window. Once a session was created headed, human and agent can
+alternate control without recreating it.
+
+Headed launch requires an available desktop/display. If the daemon is running on a displayless
+server, Playwright returns an actionable launch error; use the feature on the user's desktop rather
+than attempting to emulate a human challenge response.
+
+Each named session owns one isolated browser process and one explicit browser context. Tabs in that
+session therefore share cookies, HTTP cache, permissions, service workers, initialization hooks,
+and same-origin `localStorage`; different named sessions share none of those. `sessionStorage`
+remains scoped by normal browser top-level-page rules and must not be assumed to be shared between
+tabs. Popups and tabs opened directly by the page or human are discovered automatically.
+
+Every page also receives a stable opaque `pageId`. Its numeric `index` is only a backward-compatible
+projection of the current open-tab order and can change when an earlier tab closes; `pageId` does
+not change or get reused. Existing `tabIndex` inputs remain supported.
 
 **Each tab tracks its own `snapshotVersion` independently** — a stale-snapshot check is
 fundamentally about *one page's* navigation state, not the session as a whole. The `snapshotVersion`
@@ -92,7 +127,7 @@ in every `act` response reflects whichever tab is currently active; switching ta
 | `downloads` | — | No | Returns every file downloaded on this page since session creation (most recent last, bounded to 20 entries): `{filename, path, url, failure}`. Each file has already been saved to disk by the time it appears here (a persistent listener registered at session creation, not a new interaction) — call this *after* the action expected to trigger a download, since a download may not finish before the triggering action's own response returns (verified empirically: Playwright's own recommended pattern races the download event against the triggering click rather than checking afterward). A real limitation: bounded by entry count, not total disk usage — a single very large file is not size-capped. |
 | `consoleMessages` | — | No | Returns every console message (`log`/`warn`/`error`/`info`/`debug`) logged on the page since session creation: `{type, text, timestamp}`, bounded to 100 entries. Buffered by a persistent listener — not retroactively queryable, so it only ever reflects what happened *after* the session started. |
 | `networkRequests` | optional `includeStatic` | No | Returns every network request/response observed since session creation: `{url, method, status, resourceType}`, bounded to 100 entries. Excludes successful static resources (`image`/`stylesheet`/`font`/`script`) by default, matching Playwright's own AI-agent tooling convention — `includeStatic: true` includes everything. |
-| `tabs` | `tabOperation`, optional `tabIndex`/`url` | No† | Manages multiple tabs within one session. `list`: every open tab, index-addressed, `{index, url, title, active}`. `new`: opens a tab (optionally navigating it via `url`), makes it active. `close`: closes a tab (defaults to the active one); if the active tab is closed, activation falls back to the tab now at the same index, or the last remaining tab, or none if it was the last tab. `select`: switches the active tab (`tabIndex` required). Bounded to 10 tabs per session. † Doesn't bump `snapshotVersion` itself, but **`snapshotVersion` is per-tab, not per-session** — see below. |
+| `tabs` | `tabOperation`, optional `tabIndex`/`url` | No† | Manages every page in the session's shared context, including human-created popups. `list`: every open tab as `{pageId, index, url, title, active}`; `pageId` is stable while `index` may shift after a close. `new`: opens a tab (optionally navigating it via `url`) and makes it active. `close`: closes a tab (defaults to active); if active closes, activation falls back to the tab now at that index, then the last remaining tab, or none. `select`: switches by compatibility `tabIndex`. Bounded to 10 tabs; an excess page-created popup is closed and not registered. † Doesn't bump `snapshotVersion` itself, but **`snapshotVersion` is per-tab, not per-session** — see below. |
 | `eval` | `script` | No | Arbitrary JavaScript; returns its JSON-serializable result. Prefer the actions above when they fit — `eval` is the least structured, least auditable option. |
 | `screenshot` | optional `fullPage`, `selector`, `scale` | No | Returns a PNG as a real image content block (not embedded in the JSON result). Defaults to viewport-only, matching Playwright's own real default. `fullPage: true` captures the whole scrollable page; `selector` captures just that one element's bounding box instead ("download only this graphical element for inspection") — mutually exclusive with `fullPage`. `scale: "css"` (default) is CSS-pixel-sized; `"device"` uses the real device pixel ratio. |
 
@@ -113,6 +148,7 @@ Exactly one of `selector`, `text`, or `loadState` is required:
 | `operation` | `"create" \| "list" \| "close" \| "act"` | always, required |
 | `name` | `string` | create / close / act |
 | `forceChromeChannel` | `boolean` | create |
+| `headed` | `boolean` | create; show a visible browser for human takeover (default `false`) |
 | `snapshotVersion` | `number` | act, required |
 | `action` | `"navigate" \| "click" \| "hover" \| "pressKey" \| "type" \| "select" \| "waitFor" \| "queryText" \| "readTable" \| "snapshot" \| "handleDialog" \| "downloads" \| "consoleMessages" \| "networkRequests" \| "tabs" \| "eval" \| "screenshot"` | act, required |
 | `url` | `string` | navigate, tabs (new, optional) |
