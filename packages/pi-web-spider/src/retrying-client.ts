@@ -21,7 +21,11 @@ import { connectOrStartWebSpiderClient, connectOrStartWebSpiderVehicleClient, ty
 type ClientConnector = () => Promise<WebSpiderClient>;
 
 let connector: ClientConnector = () => connectOrStartWebSpiderClient();
-const retryingClient = createRetryingClient<WebSpiderClient>(() => connector(), { label: "Web Spider" });
+// connectRetry:true (vehicle-client's own bounded background retry budget) covers a daemon
+// that crashed and is mid systemd-restart -- layered on top of connectOrStartWebSpiderClient's
+// own auto-spawn poll loop, not a replacement for it: this only matters if that poll loop's own
+// window elapses without success, giving one more bounded round of attempts before failing.
+const retryingClient = createRetryingClient<WebSpiderClient>(() => connector(), { label: "Web Spider", connectRetry: true });
 
 export async function callWebSpider<T = unknown>(operation: string, input: Record<string, unknown>): Promise<T> {
 	return retryingClient.call((client) => client.call<T>(operation, input));
@@ -54,10 +58,13 @@ export function resetWebSpiderClientConnectorForTests(): void {
 type VehicleClientConnector = () => Promise<RemoteVehicleClient>;
 
 let vehicleConnector: VehicleClientConnector = () => connectOrStartWebSpiderVehicleClient();
-let vehicleClient: VehicleClient = createReconnectingVehicleClient(() => vehicleConnector());
+let vehicleClient: VehicleClient = createReconnectingVehicleClient(() => vehicleConnector(), { connectRetry: true });
 
 const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write"];
 
+// Test-only reset helpers deliberately omit connectRetry -- a test double's connector failure
+// should surface immediately, not spend real wall-clock time retrying a budget that only matters
+// for the real systemd-restart scenario the production client above (line ~61) is built for.
 export function setWebSpiderVehicleClientConnectorForTests(value: VehicleClientConnector): void {
 	vehicleConnector = value;
 	vehicleClient = createReconnectingVehicleClient(() => vehicleConnector());
