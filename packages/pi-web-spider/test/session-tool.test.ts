@@ -126,7 +126,11 @@ describe("web_session — real end-to-end lifecycle", () => {
 		expect(JSON.parse(listed.content[0].text).sessions.map((s: any) => s.name)).toContain("e2e-session");
 
 		const closed = (await h.invokeTool("web_session", { operation: "close", name: "e2e-session" })) as any;
-		expect(JSON.parse(closed.content[0].text)).toEqual({ name: "e2e-session", closed: true });
+		expect(JSON.parse(closed.content[0].text)).toEqual({
+			name: "e2e-session",
+			closed: true,
+			finalization: { context: "ok", browser: "ok", completed: true },
+		});
 	}, 30_000);
 
 	it("screenshot returns both a text summary and a real image content block", async () => {
@@ -309,7 +313,7 @@ describe("web_session — the seven newer actions, end to end through the tool b
 		await h.invokeTool("web_session", { operation: "close", name: "observability-tool-session" });
 	}, 30_000);
 
-	it("tabs opens a second tab, and switching back preserves the first tab's own snapshotVersion", async () => {
+	it("tabs with a URL gets its own committed revision, and switching back preserves the first tab's revision", async () => {
 		await h.invokeTool("web_session", { operation: "create", name: "tabs-tool-session" });
 		const nav1 = (await h.invokeTool("web_session", {
 			operation: "act",
@@ -330,12 +334,12 @@ describe("web_session — the seven newer actions, end to end through the tool b
 		})) as any;
 		const newTabBody = JSON.parse(newTab.content[0].text);
 		expect(newTabBody.result).toMatchObject({ index: 1, active: true });
-		expect(newTabBody.snapshotVersion).toBe(0);
+		expect(newTabBody.snapshotVersion).toBe(1);
 
 		const selectBack = (await h.invokeTool("web_session", {
 			operation: "act",
 			name: "tabs-tool-session",
-			snapshotVersion: 0,
+			snapshotVersion: 1,
 			action: "tabs",
 			tabOperation: "select",
 			tabIndex: 0,

@@ -229,6 +229,7 @@ export function fakeLauncher(opts: FakeLauncherOptions = {}): {
 		const browser: BrowserSessionRuntime = {
 			close: async () => {
 				if (opts.failClose) throw new Error("simulated close failure");
+				return { context: "ok", browser: "ok", completed: true };
 			},
 			page: async () => {
 				ensureFirstTab();

@@ -64,6 +64,7 @@ import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
 import type { SearchUsageJournal } from "./search/search-usage-journal.ts";
 import { SQLiteSearchUsageJournal } from "./search/sqlite-search-usage-journal.ts";
 import { PlaywrightSessionRegistry } from "./session/playwright-session-registry.ts";
+import type { SessionFinalizationReport } from "./session/session-registry.ts";
 import type { SessionInfo } from "./session/session.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./session/session-audit.ts";
 import {
@@ -129,7 +130,7 @@ export interface OperationOutputs {
 	quotes: QuotesOperationOutput;
 	"session.create": SessionInfo;
 	"session.list": { sessions: SessionInfo[] };
-	"session.close": { name: string; closed: true };
+	"session.close": { name: string; closed: true; finalization: SessionFinalizationReport };
 	"session.act": SessionActOutput;
 	"category.assign": CategoryAssignmentResult;
 	"category.remove": { url: string; category: string; removed: true };

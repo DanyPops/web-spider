@@ -1,5 +1,13 @@
 import type { SessionInfo } from "./session.ts";
 
+export type FinalizationStageOutcome = "ok" | "error" | "timeout";
+
+export interface SessionFinalizationReport {
+	context: FinalizationStageOutcome;
+	browser: FinalizationStageOutcome;
+	completed: boolean;
+}
+
 /**
  * The minimal surface act() dispatch needs from a live page — deliberately
  * not the full Playwright Page type. One SessionPage per session, created
@@ -131,7 +139,7 @@ export interface SessionRegistry {
 	/** The session's one persistent page, for act() dispatch. Throws for an unknown session. */
 	page(name: string): Promise<SessionPage>;
 	/** Destination-idempotent after success. A finalization failure retains ownership so retrying the same name can complete cleanup; only a never-known name errors. */
-	close(name: string): Promise<void>;
+	close(name: string): Promise<SessionFinalizationReport>;
 	/** Refreshes the reported snapshotVersion from the active page's browser-event-driven navigation revision without bumping it. Throws for an unknown session. */
 	touchActivity(name: string): SessionInfo;
 	/** Lists every open page in current index order, including automatically discovered popups. Each result also has a stable pageId. Throws for an unknown session. */

@@ -86,7 +86,11 @@ describe("SessionService — create/list/close", () => {
 	test("close forwards to the registry and returns {name, closed:true}", async () => {
 		const { service } = makeHarness();
 		await service.create({ name: "a" });
-		await expect(service.close({ name: "a" })).resolves.toEqual({ name: "a", closed: true });
+		await expect(service.close({ name: "a" })).resolves.toEqual({
+			name: "a",
+			closed: true,
+			finalization: { context: "ok", browser: "ok", completed: true },
+		});
 		expect(service.list()).toHaveLength(0);
 	});
 });

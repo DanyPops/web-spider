@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import {
+	type BrowserLauncher,
 	createBrowserSessionRuntime,
 	defaultBrowserLauncher,
 	type PlaywrightDialogLike,
@@ -12,6 +13,8 @@ import {
 	type PlaywrightPageLike,
 	PlaywrightSessionRegistry,
 	resolveBrowserLaunchOptions,
+	SessionFinalizationError,
+	transitionSessionLifecycle,
 	wrapPlaywrightPage,
 } from "../src/session/playwright-session-registry.ts";
 import { fakeLauncher } from "./helpers/fake-session-registry.ts";
@@ -39,6 +42,31 @@ describe("resolveBrowserLaunchOptions", () => {
 		expect(resolveBrowserLaunchOptions(true, false)).toEqual({ channel: "chrome", headless: true });
 		expect(resolveBrowserLaunchOptions(true, true)).toEqual({ channel: "chrome", headless: false });
 	});
+});
+
+describe("session lifecycle transition table", () => {
+	const valid = [
+		["starting", "open"],
+		["starting", "close-failed"],
+		["open", "closing"],
+		["closing", "closed"],
+		["closing", "close-failed"],
+		["close-failed", "closing"],
+		["closed", "closed"],
+	] as const;
+	for (const [current, next] of valid) {
+		test(`${current} -> ${next}`, () => expect(transitionSessionLifecycle(current, next)).toBe(next));
+	}
+
+	for (const [current, next] of [
+		["starting", "closed"],
+		["open", "closed"],
+		["closing", "open"],
+		["close-failed", "open"],
+		["closed", "open"],
+	] as const) {
+		test(`rejects ${current} -> ${next}`, () => expect(() => transitionSessionLifecycle(current, next)).toThrow(/invalid session lifecycle/));
+	}
 });
 
 describe("PlaywrightSessionRegistry — create", () => {
@@ -137,6 +165,7 @@ describe("PlaywrightSessionRegistry — create", () => {
 		const launcher = async () => ({
 			close: async () => {
 				closeCalls++;
+				return { context: "ok" as const, browser: "ok" as const, completed: true };
 			},
 			page: async () => {
 				throw new Error("simulated initial page creation failure");
@@ -150,7 +179,6 @@ describe("PlaywrightSessionRegistry — create", () => {
 				throw new Error("not used");
 			},
 			activeSnapshotVersion: () => 0,
-			bumpActiveSnapshotVersion: () => 1,
 		});
 		const registry = new PlaywrightSessionRegistry({ launcher });
 
@@ -210,8 +238,8 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 		const { launcher } = fakeLauncher();
 		const registry = new PlaywrightSessionRegistry({ launcher });
 		await registry.create("a");
-		await registry.close("a");
-		await expect(registry.close("a")).resolves.toBeUndefined();
+		const first = await registry.close("a");
+		await expect(registry.close("a")).resolves.toBe(first);
 	});
 
 	test("close failure retains the runtime and a later retry can complete cleanup", async () => {
@@ -224,12 +252,12 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 		runtime.close = async () => {
 			attempts++;
 			if (attempts === 1) throw new Error("simulated close failure");
-			await successfulClose();
+			return successfulClose();
 		};
 
 		await expect(registry.close("a")).rejects.toThrow(/simulated close failure/);
 		expect(registry.list()).toHaveLength(1);
-		await expect(registry.close("a")).resolves.toBeUndefined();
+		await expect(registry.close("a")).resolves.toEqual({ context: "ok", browser: "ok", completed: true });
 		expect(registry.list()).toHaveLength(0);
 		expect(attempts).toBe(2);
 	});
@@ -246,6 +274,7 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 		launched[0]!.close = async () => {
 			attempts++;
 			await gate;
+			return { context: "ok", browser: "ok", completed: true };
 		};
 
 		const first = registry.close("a");
@@ -276,6 +305,64 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 			msg: "session_observer_failed",
 			fields: { error: "Error: observer unavailable", kind: "lifecycle" },
 		});
+	});
+
+	test("a slow overflowing observer is bounded and cannot block browser finalization", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const logger = fakeLogger();
+		const { launcher } = fakeLauncher();
+		const registry = new PlaywrightSessionRegistry({
+			launcher,
+			logger,
+			observerMaxQueued: 1,
+			observer: async () => gate,
+		});
+
+		await registry.create("a");
+		await expect(registry.close("a")).resolves.toMatchObject({ completed: true });
+		expect(logger.warnCalls.some((call) => call.msg === "session_observer_overflow")).toBe(true);
+		expect(logger.warnCalls.find((call) => call.msg === "session_observer_overflow")?.fields).toEqual({
+			maxQueued: 1,
+			kind: "lifecycle",
+		});
+		release();
+	});
+
+	test("bounded shutdown lets healthy sessions finalize when another session times out", async () => {
+		const base = fakeLauncher().launcher;
+		let healthyClosed = false;
+		const launcher: BrowserLauncher = async (options) => {
+			const runtime = await base(options);
+			if (options.sessionName === "hung") {
+				runtime.close = async ({ timeoutMs = 10 } = {}) => {
+					await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+					throw new SessionFinalizationError("context finalization timed out", {
+						context: "timeout",
+						browser: "ok",
+						completed: false,
+					});
+				};
+			} else {
+				const close = runtime.close.bind(runtime);
+				runtime.close = async (opts) => {
+					healthyClosed = true;
+					return close(opts);
+				};
+			}
+			return runtime;
+		};
+		const registry = new PlaywrightSessionRegistry({ launcher, maxConcurrent: 2, finalizationTimeoutMs: 10 });
+		await registry.create("hung");
+		await registry.create("healthy");
+
+		const started = performance.now();
+		await registry.closeAll();
+		expect(performance.now() - started).toBeLessThan(100);
+		expect(healthyClosed).toBe(true);
+		expect(registry.list().map((session) => session.name)).toEqual(["hung"]);
 	});
 
 	test("closeAll() attempts every session and retains failed runtimes for retry", async () => {
@@ -506,13 +593,15 @@ describe("BrowserSessionRuntime — explicit context ownership", () => {
 		};
 		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
 
-		await runtime.close();
-		await runtime.close();
+		const first = await runtime.close();
+		const second = await runtime.close();
+		expect(first).toEqual({ context: "ok", browser: "ok", completed: true });
+		expect(second).toBe(first);
 		expect(contextCloses).toBe(1);
 		expect(browserCloses).toBe(1);
 	});
 
-	test("still closes the browser when context close fails, while preserving the context error", async () => {
+	test("still closes the browser when context close fails and attaches a structured partial report", async () => {
 		let browserClosed = false;
 		const context = {
 			on: () => {},
@@ -529,8 +618,83 @@ describe("BrowserSessionRuntime — explicit context ownership", () => {
 		};
 		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
 
-		await expect(runtime.close()).rejects.toThrow(/context close failure/);
+		const error = await runtime.close().catch((caught) => caught);
+		expect(error).toMatchObject({
+			message: expect.stringMatching(/context close failure/),
+			report: { context: "error", browser: "ok", completed: false },
+		});
 		expect(browserClosed).toBe(true);
+	});
+
+	test("browser failure after context success reports partial finalization and can be retried", async () => {
+		let browserAttempts = 0;
+		const context = { on: () => {}, newPage: async () => minimalPage(), close: async () => {} };
+		const browser = {
+			newContext: async () => context,
+			close: async () => {
+				browserAttempts++;
+				if (browserAttempts === 1) throw new Error("simulated browser close failure");
+			},
+		};
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+
+		const error = await runtime.close().catch((caught) => caught);
+		expect(error).toMatchObject({ report: { context: "ok", browser: "error", completed: false } });
+		await expect(runtime.close()).resolves.toEqual({ context: "ok", browser: "ok", completed: true });
+		expect(browserAttempts).toBe(2);
+	});
+
+	test("a context finalization timeout is bounded, identifies its stage, and still attempts browser close", async () => {
+		let browserClosed = false;
+		const context = {
+			on: () => {},
+			newPage: async () => minimalPage(),
+			close: () => new Promise<void>(() => {}),
+		};
+		const browser = {
+			newContext: async () => context,
+			close: async () => {
+				browserClosed = true;
+			},
+		};
+		const runtime = await createBrowserSessionRuntime(browser, "/tmp/unused");
+		const closeWithTimeout = runtime.close as unknown as (opts: { timeoutMs: number }) => Promise<void>;
+
+		const error = await closeWithTimeout({ timeoutMs: 10 }).catch((caught) => caught);
+		expect(error).toMatchObject({ report: { context: "timeout", browser: "ok", completed: false } });
+		expect(browserClosed).toBe(true);
+	});
+
+	test("duplicate same-turn Playwright navigation callbacks do not double-increment, while a later reload still does", async () => {
+		const frame = { url: () => "https://example.test/one" };
+		let navigated: ((frame: { url(): string }) => void) | undefined;
+		const page = {
+			...minimalPage(),
+			mainFrame: () => frame,
+			on: (event: string, handler: (value: never) => void) => {
+				if (event === "framenavigated") navigated = handler as unknown as typeof navigated;
+			},
+		} as unknown as PlaywrightPageLike;
+		let pageHandler: ((page: PlaywrightPageLike) => void) | undefined;
+		const context = {
+			on: (_event: "page", handler: (page: PlaywrightPageLike) => void) => {
+				pageHandler = handler;
+			},
+			newPage: async () => {
+				pageHandler?.(page);
+				return page;
+			},
+			close: async () => {},
+		};
+		const runtime = await createBrowserSessionRuntime({ newContext: async () => context, close: async () => {} }, "/tmp/unused");
+		await runtime.page();
+
+		navigated?.(frame);
+		navigated?.(frame);
+		expect(runtime.activeSnapshotVersion()).toBe(1);
+		await Promise.resolve();
+		navigated?.(frame);
+		expect(runtime.activeSnapshotVersion()).toBe(2);
 	});
 
 	test("closes the already-launched browser when explicit context creation fails", async () => {
@@ -1187,8 +1351,15 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 	test("real human-style link navigation advances revision while DOM-only mutation does not", async () => {
 		const server = createServer((req, res) => {
+			if (req.url?.startsWith("/redirect")) {
+				res.writeHead(302, { location: "/final" });
+				res.end();
+				return;
+			}
 			res.writeHead(200, { "content-type": "text/html" });
-			res.end(req.url === "/first" ? "<a id='next' href='/second'>next</a>" : "<p id='destination'>second</p>");
+			if (req.url === "/first") res.end("<a id='next' href='/second'>next</a>");
+			else if (req.url === "/second") res.end("<form action='/redirect'><button id='submit'>submit</button></form>");
+			else res.end("<p id='destination'>final</p>");
 		});
 		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 		const port = (server.address() as { port: number }).port;
@@ -1211,10 +1382,14 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 
 			await page.evaluate("document.body.dataset.changed = 'yes'");
 			expect(registry.get("real-human-navigation-version-session")?.snapshotVersion).toBe(2);
+
+			await page.click("#submit");
+			expect(registry.get("real-human-navigation-version-session")?.snapshotVersion).toBe(3);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			expect(observedNavigations.map(({ revision, url }) => ({ revision, url }))).toEqual([
 				{ revision: 1, url: `http://127.0.0.1:${port}/first` },
 				{ revision: 2, url: `http://127.0.0.1:${port}/second` },
+				{ revision: 3, url: `http://127.0.0.1:${port}/final` },
 			]);
 			expect(new Set(observedNavigations.map((event) => event.pageId)).size).toBe(1);
 		} finally {
@@ -1234,7 +1409,14 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		});
 		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 		const port = (server.address() as { port: number }).port;
-		const registry = new PlaywrightSessionRegistry({ launcher: defaultBrowserLauncher(), maxConcurrent: 1 });
+		const frameNavigations: Array<{ pageId: string; frameId: string; url: string }> = [];
+		const registry = new PlaywrightSessionRegistry({
+			launcher: defaultBrowserLauncher(),
+			maxConcurrent: 1,
+			observer: (event) => {
+				if (event.kind === "frame-navigation") frameNavigations.push(event);
+			},
+		});
 		try {
 			await registry.create("real-history-version-session");
 			const page = await registry.page("real-history-version-session");
@@ -1247,16 +1429,33 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(3);
 			await page.evaluate("location.hash = 'section'");
 			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(4);
+			await page.evaluate(`new Promise(resolve => {
+				addEventListener('popstate', resolve, { once: true });
+				history.back();
+			})`);
+			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(5);
+			await page.evaluate(`new Promise(resolve => {
+				addEventListener('popstate', resolve, { once: true });
+				history.forward();
+			})`);
+			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(6);
 
 			await page.evaluate(`new Promise(resolve => {
 				const frame = document.getElementById('child');
 				frame.onload = resolve;
 				frame.src = '/frame-two';
 			})`);
-			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(4);
+			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(6);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const childEvents = frameNavigations.filter((event) => event.url.endsWith("/frame-one") || event.url.endsWith("/frame-two"));
+			expect(childEvents.map((event) => event.url)).toEqual([
+				`http://127.0.0.1:${port}/frame-one`,
+				`http://127.0.0.1:${port}/frame-two`,
+			]);
+			expect(new Set(childEvents.map((event) => `${event.pageId}:${event.frameId}`)).size).toBe(1);
 
 			await page.click("#reload");
-			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(5);
+			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(7);
 		} finally {
 			await registry.closeAll();
 			await new Promise<void>((resolve) => server.close(() => resolve()));

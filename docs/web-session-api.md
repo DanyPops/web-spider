@@ -43,7 +43,7 @@ site — `web_session` is for driving one.
 |---|---|---|
 | `create` | `name` | Launches an isolated, single-use Playwright browser process for this name. `headed: true` opens a visible window for human takeover; it defaults to `false`. Optional `forceChromeChannel` (default `false`) uses the full installed Chrome instead of Playwright's bundled Chromium. |
 | `list` | — | Lists every live session. |
-| `close` | `name` | Tears the session's context and browser down in order. Successful repeated close is idempotent. A failed close retains the runtime under the same name so retry can finish cleanup. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
+| `close` | `name` | Tears the session's context and browser down in order and returns `finalization: {context, browser, completed}`. Each stage is `ok`, `error`, or `timeout`. Successful repeated close is idempotent and returns the same report. A failed/timed-out close retains the runtime under the same name so retry can finish cleanup. Always close sessions you no longer need — each one is a real, resource-consuming browser process (bounded: 5 concurrent sessions max). |
 | `act` | `name`, `snapshotVersion`, `action` | Dispatches one action against the session's one persistent page. |
 
 ## Snapshot version — required, not busywork, and per-tab

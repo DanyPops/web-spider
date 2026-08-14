@@ -179,7 +179,11 @@ const SESSION_OPERATION_HANDLERS: Record<SessionParams["operation"], SessionOper
 
 	async close(params, callMeta, gateway) {
 		if (!params.name) throw new Error("name is required for operation=close");
-		const result = await gateway.invoke<{ name: string; closed: true }>("session.close", { name: params.name }, callMeta);
+		const result = await gateway.invoke<{
+			name: string;
+			closed: true;
+			finalization?: { context: string; browser: string; completed: boolean };
+		}>("session.close", { name: params.name }, callMeta);
 		return {
 			content: [{ type: "text", text: JSON.stringify(result) }],
 			details: createSessionLifecycleDetails("close", result.name, { closed: true }),

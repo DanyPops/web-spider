@@ -24,7 +24,7 @@ import {
 import type { SessionInfo } from "./session.ts";
 import { boundedJournalError, journalTargetFor, type SessionAction } from "./session-audit.ts";
 import type { SessionAuditJournal } from "./session-audit-journal.ts";
-import type { CreateSessionOptions, SessionPage, SessionRegistry } from "./session-registry.ts";
+import type { CreateSessionOptions, SessionFinalizationReport, SessionPage, SessionRegistry } from "./session-registry.ts";
 
 export class SessionNotFoundError extends Error {}
 export class StaleSnapshotError extends Error {}
@@ -350,12 +350,12 @@ export class SessionService {
 		return this.registry.list();
 	}
 
-	async close(input: SessionCloseInput): Promise<{ name: string; closed: true }> {
+	async close(input: SessionCloseInput): Promise<{ name: string; closed: true; finalization: SessionFinalizationReport }> {
 		const start = this.now();
 		try {
-			await this.registry.close(input.name);
+			const finalization = await this.registry.close(input.name);
 			this.logger?.debug("session_close", { sessionName: input.name, outcome: "ok", durationMs: this.now() - start });
-			return { name: input.name, closed: true };
+			return { name: input.name, closed: true, finalization };
 		} catch (error) {
 			this.logger?.warn("session_close", {
 				sessionName: input.name,

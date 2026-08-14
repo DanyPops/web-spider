@@ -76,7 +76,11 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 			expect(typeof (screenshot.body.result as { screenshotBase64: string }).screenshotBase64).toBe("string");
 
 			const closed = await post(app, "session.close", { name: "e2e" });
-			expect(closed.body.result).toEqual({ name: "e2e", closed: true });
+			expect(closed.body.result).toEqual({
+				name: "e2e",
+				closed: true,
+				finalization: { context: "ok", browser: "ok", completed: true },
+			});
 		} finally {
 			await service.close();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -156,7 +160,11 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 			expect(((list.body.output?.sessions ?? []) as unknown[]).length).toBe(1);
 
 			const closed = await invoke(app, "session.close", { name: "vehicle-e2e" });
-			expect(closed.body.output).toEqual({ name: "vehicle-e2e", closed: true });
+			expect(closed.body.output).toEqual({
+				name: "vehicle-e2e",
+				closed: true,
+				finalization: { context: "ok", browser: "ok", completed: true },
+			});
 
 			const listAfterClose = await invoke(app, "session.list", {});
 			expect(((listAfterClose.body.output?.sessions ?? []) as unknown[]).length).toBe(0);

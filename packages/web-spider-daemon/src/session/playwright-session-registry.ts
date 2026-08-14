@@ -33,7 +33,14 @@ import {
 	SESSION_REGISTRY_MAX_CONCURRENT,
 } from "../constants.ts";
 import { createSessionInfo, isValidSessionName, type SessionInfo, withClosed } from "./session.ts";
-import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from "./session-registry.ts";
+import type {
+	CreateSessionOptions,
+	FinalizationStageOutcome,
+	SessionFinalizationReport,
+	SessionPage,
+	SessionRegistry,
+	TabInfo,
+} from "./session-registry.ts";
 
 /**
  * The minimal surface this module needs from a launched browser. Manages
@@ -46,11 +53,22 @@ import type { CreateSessionOptions, SessionPage, SessionRegistry, TabInfo } from
  * PlaywrightSessionRegistry surfaces that tab's own version as the
  * session's reported snapshotVersion after every action.
  */
+export class SessionFinalizationError extends Error {
+	constructor(
+		message: string,
+		readonly report: SessionFinalizationReport,
+	) {
+		super(message);
+		this.name = "SessionFinalizationError";
+	}
+}
+
 export type BrowserSessionEvent =
 	| { kind: "lifecycle"; sessionName: string; state: "starting" | "open" | "closing" | "close-failed" | "closed" }
 	| { kind: "page"; sessionName: string; pageId: string; state: "open" | "closed" | "crashed" }
-	| { kind: "navigation"; sessionName: string; pageId: string; revision: number; url: string; mainFrame: true }
-	| { kind: "finalization"; sessionName: string; stage: "context" | "browser"; outcome: "ok" | "error" };
+	| { kind: "navigation"; sessionName: string; pageId: string; frameId: "frame-1"; revision: number; url: string; mainFrame: true }
+	| { kind: "frame-navigation"; sessionName: string; pageId: string; frameId: string; url: string; mainFrame: false }
+	| { kind: "finalization"; sessionName: string; stage: "context" | "browser"; outcome: FinalizationStageOutcome };
 
 export type BrowserSessionObserver = (event: BrowserSessionEvent) => void | Promise<void>;
 
@@ -85,7 +103,7 @@ function boundedObserverEmitter(observer: BrowserSessionObserver | undefined, lo
 }
 
 export interface BrowserSessionRuntime {
-	close(): Promise<void>;
+	close(opts?: { timeoutMs?: number }): Promise<SessionFinalizationReport>;
 	/** The currently active tab's persistent page. Lazily creates tab 0 on first call; returns the active tab's page on every subsequent call. */
 	page(): Promise<SessionPage>;
 	listTabs(): Promise<TabInfo[]>;
@@ -179,21 +197,38 @@ export async function createBrowserSessionRuntime(
 		tabs.push(tab);
 		activePageId = tab.pageId;
 		const mainFrame = playwrightPage.mainFrame();
+		const frameIds = new Map<PlaywrightFrameLike, string>([[mainFrame, "frame-1"]]);
+		const pendingNavigationCallbacks = new Set<string>();
+		let nextFrameNumber = 2;
 		playwrightPage.on("framenavigated", (frame) => {
 			// A revision describes committed top-level navigation state. Frame-only
 			// navigation and arbitrary DOM mutation deliberately do not invalidate
 			// callers. Playwright emits this for agent and human navigations alike.
-			if (frame === mainFrame && frame.url() !== "about:blank") {
+			const url = frame.url();
+			if (url === "about:blank") return;
+			let frameId = frameIds.get(frame);
+			if (!frameId) {
+				frameId = `frame-${nextFrameNumber++}`;
+				frameIds.set(frame, frameId);
+			}
+			const callbackKey = `${frameId}\0${url}`;
+			if (pendingNavigationCallbacks.has(callbackKey)) return;
+			pendingNavigationCallbacks.add(callbackKey);
+			queueMicrotask(() => pendingNavigationCallbacks.delete(callbackKey));
+			if (frame === mainFrame) {
 				tab.version += 1;
 				if (events)
 					events.emit({
 						kind: "navigation",
 						sessionName: events.sessionName,
 						pageId: tab.pageId,
+						frameId: "frame-1",
 						revision: tab.version,
-						url: frame.url(),
+						url,
 						mainFrame: true,
 					});
+			} else if (events) {
+				events.emit({ kind: "frame-navigation", sessionName: events.sessionName, pageId: tab.pageId, frameId, url, mainFrame: false });
 			}
 		});
 		playwrightPage.on("close", () => unregisterPage(playwrightPage, "closed"));
@@ -246,38 +281,56 @@ export async function createBrowserSessionRuntime(
 		};
 	}
 
-	let closed = false;
-	let closePromise: Promise<void> | undefined;
-	async function closeRuntime(): Promise<void> {
-		if (closed) return;
+	let closedReport: SessionFinalizationReport | undefined;
+	let closePromise: Promise<SessionFinalizationReport> | undefined;
+	async function runFinalizationStage(action: () => Promise<void>, timeoutMs: number): Promise<{ outcome: FinalizationStageOutcome; error?: unknown }> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				action(),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(() => reject(new Error(`finalization timed out after ${timeoutMs}ms`)), timeoutMs);
+					timer.unref?.();
+				}),
+			]);
+			return { outcome: "ok" };
+		} catch (error) {
+			return { outcome: error instanceof Error && error.message.startsWith("finalization timed out") ? "timeout" : "error", error };
+		} finally {
+			if (timer) clearTimeout(timer);
+		}
+	}
+	async function closeRuntime(opts: { timeoutMs?: number } = {}): Promise<SessionFinalizationReport> {
+		if (closedReport) return closedReport;
 		if (closePromise) return closePromise;
+		const timeoutMs = opts.timeoutMs ?? 10_000;
 		closePromise = (async () => {
-			let contextError: unknown;
-			try {
-				await context.close();
-				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: "ok" });
-			} catch (error) {
-				contextError = error;
-				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: "error" });
+			const contextResult = await runFinalizationStage(() => context.close(), timeoutMs);
+			if (events)
+				events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: contextResult.outcome });
+
+			const browserResult = await runFinalizationStage(() => browser.close(), timeoutMs);
+			if (events)
+				events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: browserResult.outcome });
+
+			const report: SessionFinalizationReport = {
+				context: contextResult.outcome,
+				browser: browserResult.outcome,
+				completed: contextResult.outcome === "ok" && browserResult.outcome === "ok",
+			};
+			if (!report.completed) {
+				if (contextResult.error && browserResult.error)
+					logger?.warn("session_browser_cleanup_failed", { error: String(browserResult.error), stage: "runtime-close" });
+				const primary = contextResult.error ?? browserResult.error;
+				throw new SessionFinalizationError(String(primary ?? "session finalization failed"), report);
 			}
-			try {
-				await browser.close();
-				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: "ok" });
-			} catch (browserError) {
-				if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: "error" });
-				if (contextError) {
-					logger?.warn("session_browser_cleanup_failed", { error: String(browserError), stage: "runtime-close" });
-				} else {
-					throw browserError;
-				}
-			}
-			if (contextError) throw contextError;
-			closed = true;
+			closedReport = report;
+			return report;
 		})();
 		try {
-			await closePromise;
+			return await closePromise;
 		} finally {
-			if (!closed) closePromise = undefined;
+			if (!closedReport) closePromise = undefined;
 		}
 	}
 
@@ -595,16 +648,30 @@ export interface PlaywrightSessionRegistryOptions {
 	/** Bounded, failure-isolated mechanical lifecycle/page/navigation seam. It receives metadata only and never writes to the audit journal. */
 	observer?: BrowserSessionObserver;
 	observerMaxQueued?: number;
+	/** Per context/browser finalization stage. Defaults to 10s, so shutdown cannot wait forever on one Playwright resource. */
+	finalizationTimeoutMs?: number;
 }
 
-type SessionLifecycleState = "open" | "closing" | "close-failed" | "closed";
+export type SessionLifecycleState = "starting" | "open" | "closing" | "close-failed" | "closed";
+
+export function transitionSessionLifecycle(current: SessionLifecycleState, next: SessionLifecycleState): SessionLifecycleState {
+	const valid =
+		(current === "starting" && (next === "open" || next === "close-failed")) ||
+		(current === "open" && next === "closing") ||
+		(current === "closing" && (next === "closed" || next === "close-failed")) ||
+		(current === "close-failed" && next === "closing") ||
+		(current === "closed" && next === "closed");
+	if (!valid) throw new Error(`invalid session lifecycle transition: ${current} -> ${next}`);
+	return next;
+}
 
 interface SessionEntry {
 	info: SessionInfo;
 	browser: BrowserSessionRuntime;
 	state: SessionLifecycleState;
 	emitEvent: (event: BrowserSessionEvent) => void;
-	closePromise?: Promise<void>;
+	closePromise?: Promise<SessionFinalizationReport>;
+	finalizationReport?: SessionFinalizationReport;
 }
 
 export class PlaywrightSessionRegistry implements SessionRegistry {
@@ -619,6 +686,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly logger?: Logger;
 	private readonly observer?: BrowserSessionObserver;
 	private readonly observerMaxQueued: number;
+	private readonly finalizationTimeoutMs: number;
 
 	constructor(opts: PlaywrightSessionRegistryOptions = {}) {
 		this.launcher = opts.launcher ?? defaultBrowserLauncher(opts.logger);
@@ -629,6 +697,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		this.logger = opts.logger;
 		this.observer = opts.observer;
 		this.observerMaxQueued = opts.observerMaxQueued ?? 100;
+		this.finalizationTimeoutMs = opts.finalizationTimeoutMs ?? 10_000;
 	}
 
 	async create(name: string, opts: CreateSessionOptions = {}): Promise<SessionInfo> {
@@ -755,29 +824,31 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		return tab;
 	}
 
-	async close(name: string): Promise<void> {
+	async close(name: string): Promise<SessionFinalizationReport> {
 		const entry = this.sessions.get(name);
 		if (!entry) throw new Error(`no such session: "${name}"`);
-		if (entry.state === "closed") return;
-		if (entry.state === "closing") return entry.closePromise;
+		if (entry.state === "closed") return entry.finalizationReport as SessionFinalizationReport;
+		if (entry.state === "closing") return entry.closePromise as Promise<SessionFinalizationReport>;
 
-		entry.state = "closing";
+		entry.state = transitionSessionLifecycle(entry.state, "closing");
 		entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closing" });
-		const closePromise = entry.browser.close().then(
-			() => {
-				entry.state = "closed";
+		const closePromise = entry.browser.close({ timeoutMs: this.finalizationTimeoutMs }).then(
+			(report) => {
+				entry.state = transitionSessionLifecycle(entry.state, "closed");
 				entry.info = withClosed(entry.info);
+				entry.finalizationReport = report;
 				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closed" });
+				return report;
 			},
 			(error) => {
-				entry.state = "close-failed";
+				entry.state = transitionSessionLifecycle(entry.state, "close-failed");
 				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "close-failed" });
 				throw error;
 			},
 		);
 		entry.closePromise = closePromise;
 		try {
-			await closePromise;
+			return await closePromise;
 		} finally {
 			entry.closePromise = undefined;
 		}
