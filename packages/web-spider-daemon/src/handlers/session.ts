@@ -32,10 +32,9 @@ export function registerSessionVehicleOperations(registry: VehicleRegistry, sess
 		name: "session.create",
 		version: 1,
 		description: "Launches a new persistent browser session under the given name.",
-		input: defineLooseObjectSchema(
-			{ name: { type: "string" }, forceChromeChannel: { type: "boolean" }, headed: { type: "boolean" } },
-			["name"],
-		),
+		input: defineLooseObjectSchema({ name: { type: "string" }, forceChromeChannel: { type: "boolean" }, headed: { type: "boolean" } }, [
+			"name",
+		]),
 		output: passthroughVehicleSchema,
 		permissions: ["web-spider:read", "web-spider:write"],
 		effect: "local-write",

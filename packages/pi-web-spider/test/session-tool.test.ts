@@ -59,7 +59,8 @@ describe("web_session — tool registration", () => {
 		const definition = h.tools.get("web_session")?.definition;
 		expect(definition).toBeDefined();
 		expect(definition?.parameters).toBeDefined();
-		const properties = (definition?.parameters as { properties?: Record<string, unknown> }).properties;
+		const parameters = definition?.parameters as { properties?: Record<string, unknown> } | undefined;
+		const properties = parameters?.properties;
 		expect(properties).toHaveProperty("headed");
 	});
 

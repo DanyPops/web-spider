@@ -489,9 +489,7 @@ describe("runCli session create/list/close", () => {
 			call: () => ({ name: "agent1", createdAt: 1, lastActivityAt: 1, snapshotVersion: 0, closed: false }),
 		});
 		await runCli(["session", "create", "agent1"], deps);
-		expect(operations).toEqual([
-			{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined, headed: undefined } },
-		]);
+		expect(operations).toEqual([{ op: "session.create", input: { name: "agent1", forceChromeChannel: undefined, headed: undefined } }]);
 	});
 
 	test("create forwards headed and forceChromeChannel when requested for human takeover", async () => {

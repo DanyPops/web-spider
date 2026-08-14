@@ -283,7 +283,10 @@ export async function createBrowserSessionRuntime(
 
 	let closedReport: SessionFinalizationReport | undefined;
 	let closePromise: Promise<SessionFinalizationReport> | undefined;
-	async function runFinalizationStage(action: () => Promise<void>, timeoutMs: number): Promise<{ outcome: FinalizationStageOutcome; error?: unknown }> {
+	async function runFinalizationStage(
+		action: () => Promise<void>,
+		timeoutMs: number,
+	): Promise<{ outcome: FinalizationStageOutcome; error?: unknown }> {
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			await Promise.race([
@@ -306,12 +309,10 @@ export async function createBrowserSessionRuntime(
 		const timeoutMs = opts.timeoutMs ?? 10_000;
 		closePromise = (async () => {
 			const contextResult = await runFinalizationStage(() => context.close(), timeoutMs);
-			if (events)
-				events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: contextResult.outcome });
+			if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "context", outcome: contextResult.outcome });
 
 			const browserResult = await runFinalizationStage(() => browser.close(), timeoutMs);
-			if (events)
-				events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: browserResult.outcome });
+			if (events) events.emit({ kind: "finalization", sessionName: events.sessionName, stage: "browser", outcome: browserResult.outcome });
 
 			const report: SessionFinalizationReport = {
 				context: contextResult.outcome,
@@ -619,7 +620,10 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 	};
 }
 
-export function resolveBrowserLaunchOptions(forceChromeChannel: boolean, headed: boolean): {
+export function resolveBrowserLaunchOptions(
+	forceChromeChannel: boolean,
+	headed: boolean,
+): {
 	channel: "chrome" | "chromium";
 	headless: boolean;
 } {
@@ -855,9 +859,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	}
 
 	async closeAll(): Promise<void> {
-		const names = [...this.sessions.entries()]
-			.filter(([, entry]) => entry.state !== "closed")
-			.map(([name]) => name);
+		const names = [...this.sessions.entries()].filter(([, entry]) => entry.state !== "closed").map(([name]) => name);
 		await Promise.allSettled(names.map((name) => this.close(name)));
 	}
 }

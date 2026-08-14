@@ -65,7 +65,8 @@ describe("session lifecycle transition table", () => {
 		["close-failed", "open"],
 		["closed", "open"],
 	] as const) {
-		test(`rejects ${current} -> ${next}`, () => expect(() => transitionSessionLifecycle(current, next)).toThrow(/invalid session lifecycle/));
+		test(`rejects ${current} -> ${next}`, () =>
+			expect(() => transitionSessionLifecycle(current, next)).toThrow(/invalid session lifecycle/));
 	}
 });
 
@@ -1448,10 +1449,7 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 			expect(registry.get("real-history-version-session")?.snapshotVersion).toBe(6);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			const childEvents = frameNavigations.filter((event) => event.url.endsWith("/frame-one") || event.url.endsWith("/frame-two"));
-			expect(childEvents.map((event) => event.url)).toEqual([
-				`http://127.0.0.1:${port}/frame-one`,
-				`http://127.0.0.1:${port}/frame-two`,
-			]);
+			expect(childEvents.map((event) => event.url)).toEqual([`http://127.0.0.1:${port}/frame-one`, `http://127.0.0.1:${port}/frame-two`]);
 			expect(new Set(childEvents.map((event) => `${event.pageId}:${event.frameId}`)).size).toBe(1);
 
 			await page.click("#reload");
