@@ -34,12 +34,12 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; Node's bundled npm can be older.
       - run: npm install -g npm@latest && npm --version
 
-      - uses: oven-sh/setup-bun@v2 # web-spider-daemon is Bun-native (bun:sqlite, bun test) — Node alone cannot build/test/run it.
+      - uses: oven-sh/setup-bun@v2 # Bun drives build/lint/test for every package here, including web-spider-daemon's own bun:sqlite/bun test — Node is kept below only for the actual npm publish step.
         with:
           bun-version: latest
 
-      - run: npm ci
-      - run: npm run lint:ci
+      - run: bun install
+      - run: bun run lint:ci
 
       # Several tests (web-spider's lightpanda.test.ts, web-spider-daemon's
       # session/layout-check/contrast-check/service-playwright-lifecycle
@@ -47,14 +47,11 @@ jobs:
       # browser binary at all. --with-deps also installs the OS-level
       # libraries (fonts, libnss3, etc.) headless Chromium needs to run,
       # which a minimal Ubuntu image does not have preinstalled.
-      - run: npx playwright-core install --with-deps chromium
+      - run: bunx playwright-core install --with-deps chromium
 
-      - run: npm run build --workspace=packages/web-spider
-      - run: npm test --workspace=packages/web-spider --workspace=packages/pi-web-spider
-      - run: bun test
-        working-directory: packages/web-spider-daemon
-      - run: bun x tsc --noEmit
-        working-directory: packages/web-spider-daemon
+      - run: bun run --filter '*' build
+      - run: bun run --filter '*' check
+      - run: bun run --filter '*' test
 
       # Dependency order: web-spider-daemon depends on web-spider; the
       # extension depends on both.

@@ -44,7 +44,7 @@
 	"scripts": {
 		"test": "vitest --run",
 		"lint": "biome lint src/",
-		"check": "npm run lint && tsc --noEmit"
+		"check": "bun run lint && tsc --noEmit"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
