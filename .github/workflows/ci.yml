@@ -18,7 +18,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: bun run lint:ci
-      - run: bunx playwright-core install --with-deps chromium
+      # NOT bunx: it fetches whatever the latest playwright-core is from
+      # the registry, a different version (and Chromium revision) than the
+      # project's own pinned ^1.60.0 -- "Executable doesn't exist" at test
+      # time. Run the project's own locally-resolved binary instead.
+      - run: ./node_modules/.bin/playwright-core install --with-deps chromium
+        working-directory: packages/web-spider
       - run: bun run --filter '*' build
       - run: bun run --filter '*' check
       - run: bun run --filter '*' test

@@ -47,7 +47,12 @@ jobs:
       # browser binary at all. --with-deps also installs the OS-level
       # libraries (fonts, libnss3, etc.) headless Chromium needs to run,
       # which a minimal Ubuntu image does not have preinstalled.
-      - run: bunx playwright-core install --with-deps chromium
+      # NOT bunx: it fetches whatever the latest playwright-core is from
+      # the registry, a different version (and Chromium revision) than the
+      # project's own pinned ^1.60.0 -- "Executable doesn't exist" at test
+      # time. Run the project's own locally-resolved binary instead.
+      - run: ./node_modules/.bin/playwright-core install --with-deps chromium
+        working-directory: packages/web-spider
 
       - run: bun run --filter '*' build
       - run: bun run --filter '*' check
