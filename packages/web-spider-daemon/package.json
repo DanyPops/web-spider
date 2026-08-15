@@ -40,6 +40,8 @@
 	"scripts": {
 		"build:facade": "bun build src/client.ts src/state.ts --outdir dist/facade --target=node --format=esm",
 		"test": "bun test",
+		"test:unit": "bun test --path-ignore-patterns='**/playwright-session-registry.test.ts'",
+		"test:browser": "bun test test/playwright-session-registry.test.ts",
 		"cli": "bun src/cli.ts",
 		"serve": "bun src/cli.ts serve",
 		"service:install": "bun src/cli.ts service install",

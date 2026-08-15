@@ -70,6 +70,8 @@
 	"scripts": {
 		"build": "tsc",
 		"test": "vitest --run",
+		"test:unit": "vitest --run --project unit",
+		"test:browser": "vitest --run --project browser",
 		"check": "tsc --noEmit && tsc -p tsconfig.test.json"
 	},
 	"dependencies": {
