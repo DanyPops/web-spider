@@ -9,16 +9,16 @@ export { DefaultPageClassifier, HeuristicPageClassifier, renderLinkList } from "
 export { crawl } from "./crawl/crawl.js";
 export { HeuristicLinkScorer, InsertionOrderLinkScorer, orderFrontier } from "./crawl/frontier.js";
 export { PageGraph } from "./crawl/graph.js";
-export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
+export { FetchTransportError, isLikelyFetchTransportFailure, ResponseTooLargeError, SsrfBlockedError, toFetchTransportError, } from "./errors.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
 export { extractFetchedResource } from "./fetch/content-extractor.js";
 export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fetch/pdf-extractor.js";
 export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
-export { spider } from "./fetch/spider.js";
+export { createDefaultHttpClient, DEFAULT_MAX_RESPONSE_BYTES, spider } from "./fetch/spider.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
-export { buildRegisteredContentSources, detectMediaWiki, deriveMarkdownVariantUrl, extractWikiPageTitle, githubContentSource, listRegisteredContentSources, llmsTxtContentSource, markdownSuffixContentSource, mediaWikiContentSource, parseGitHubUrl, parseYouTubeVideoId, probeLlmsTxt, probeMarkdownVariant, queryGitHub, queryMediaWikiPage, queryYouTubeOembed, registerContentSource, resolveContentSources, youtubeContentSource, } from "./sources/index.js";
+export { buildRegisteredContentSources, deriveMarkdownVariantUrl, detectMediaWiki, extractWikiPageTitle, githubContentSource, listRegisteredContentSources, llmsTxtContentSource, markdownSuffixContentSource, mediaWikiContentSource, parseGitHubUrl, parseYouTubeVideoId, probeLlmsTxt, probeMarkdownVariant, queryGitHub, queryMediaWikiPage, queryYouTubeOembed, registerContentSource, resolveContentSources, youtubeContentSource, } from "./sources/index.js";
 export { braveLlmContextSearch, braveSearch, createDefaultKeyCooldownPolicy, envKeyForEngine, exaSearch, firecrawlKeylessSearch, isLikelyInvalidKeyError, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
 /**
  * Retrieve a single chunk from a cached page by URL and chunk index.
@@ -41,6 +41,7 @@ export function getChunk(cache, url, index) {
 export { DiskCache } from "./cache/disk-cache.js";
 export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
 export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
+export { createSsrfGuard, DefaultSsrfGuard, isBlockedAddress } from "./fetch/ssrf-guard.js";
 export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
 export { fetchSitemapUrls } from "./sources/sitemap.js";
 export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, FirecrawlKeylessSearchEngine, InMemorySiteAvailabilityTracker, RotatingKeySearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";

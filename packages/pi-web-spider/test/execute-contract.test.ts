@@ -62,10 +62,11 @@ describe("execute() result and failure channels", () => {
 		expect(failure).toBeInstanceOf(Error);
 		expect(failure.message).toContain("web_fetch failed");
 		expect(failure.message).toContain("fetch-transport-failed");
-		// Bun reports its stable ConnectionRefused code even for a reserved .invalid
-		// host; the safe transport classification must still survive Vehicle and Pi.
-		expect(failure.message).toContain("kind=connection");
-		expect(failure.message).toContain("diagnostic=Remote endpoint unavailable");
+		// The daemon's SSRF guard resolves DNS before attempting a connection, so a
+		// reserved .invalid host now fails at that earlier DNS step -- the safe
+		// transport classification must still survive Vehicle and Pi either way.
+		expect(failure.message).toContain("kind=dns");
+		expect(failure.message).toContain("diagnostic=DNS lookup failed");
 		expect(failure.message).not.toContain("top-secret");
 	});
 

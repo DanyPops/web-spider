@@ -13,7 +13,7 @@ export { HeuristicLinkScorer, InsertionOrderLinkScorer, orderFrontier } from "./
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./crawl/graph.js";
 export { PageGraph } from "./crawl/graph.js";
 export type { FetchTransportErrorOptions, FetchTransportFailureKind } from "./errors.js";
-export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
+export { FetchTransportError, isLikelyFetchTransportFailure, ResponseTooLargeError, SsrfBlockedError, toFetchTransportError, } from "./errors.js";
 export type { QueryTreeOptions } from "./extract/tree.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
@@ -24,12 +24,12 @@ export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fe
 export type { OcrEngine, OcrResult, PdfPageImage, PdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export type { SpiderOptions } from "./fetch/spider.js";
-export { spider } from "./fetch/spider.js";
+export { createDefaultHttpClient, DEFAULT_MAX_RESPONSE_BYTES, spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
 export type { ContentSourceFactory, ContentSourceRequest, ContentSourceResult, ContentSourceStrategy, GitHubQueryResult, GitHubResourceKind, GitHubStrategyOptions, LlmsTxtProbeResult, LlmsTxtVariant, MarkdownVariantProbeResult, MediaWikiPageResult, MediaWikiProbeOptions, MediaWikiSiteInfo, ProbeLlmsTxtOptions, ProbeMarkdownVariantOptions, YouTubeOembedResult, YouTubeProbeOptions, } from "./sources/index.js";
-export { buildRegisteredContentSources, detectMediaWiki, deriveMarkdownVariantUrl, extractWikiPageTitle, githubContentSource, listRegisteredContentSources, llmsTxtContentSource, markdownSuffixContentSource, mediaWikiContentSource, parseGitHubUrl, parseYouTubeVideoId, probeLlmsTxt, probeMarkdownVariant, queryGitHub, queryMediaWikiPage, queryYouTubeOembed, registerContentSource, resolveContentSources, youtubeContentSource, } from "./sources/index.js";
+export { buildRegisteredContentSources, deriveMarkdownVariantUrl, detectMediaWiki, extractWikiPageTitle, githubContentSource, listRegisteredContentSources, llmsTxtContentSource, markdownSuffixContentSource, mediaWikiContentSource, parseGitHubUrl, parseYouTubeVideoId, probeLlmsTxt, probeMarkdownVariant, queryGitHub, queryMediaWikiPage, queryYouTubeOembed, registerContentSource, resolveContentSources, youtubeContentSource, } from "./sources/index.js";
 export type { Chunk, ChunkType, ContentQualityWarning, DOMNode, ImageRef, LeanLink, LeanPage, Link, PageView, PdfPageInfo, SpideredPage, TreeHit, } from "./types.js";
 export type { BraveLlmContextSearchOptions, BraveSearchOptions, DefaultAnswerEngineOptions, DefaultSearchEngineOptions, EngineFailureReason, EngineUsage, ExaSearchOptions, FallbackSearchEngineOptions, FirecrawlKeylessSearchOptions, InMemorySiteAvailabilityTrackerOptions, KeyCooldownPolicy, KeyFailureKind, NamedSearchEngine, RateLimitPredicate, RotatingKeySearchEngineOptions, RoundRobinSearchEngineOptions, SearchEngine, SearchTransport, SerpApiSearchOptions, SerperSearchOptions, SiteRoutedSearchEngineOptions, TavilyAnswerSearchOptions, TavilySearchOptions, WebSearchOptions, WebSearchResult, YouComSearchOptions, } from "./web-search/index.js";
 export { braveLlmContextSearch, braveSearch, createDefaultKeyCooldownPolicy, envKeyForEngine, exaSearch, firecrawlKeylessSearch, isLikelyInvalidKeyError, isLikelyQuotaExceededError, isLikelyRateLimitError, listRegisteredSearchEngines, registerSearchEngine, resolveSearchEngine, serpApiSearch, serperSearch, tavilySearch, tavilySearchForAnswer, webSearch, youComSearch, } from "./web-search/index.js";
@@ -54,9 +54,11 @@ export { DiskCache } from "./cache/disk-cache.js";
 export type { PlaywrightClientOptions } from "./fetch/playwright.js";
 export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
 export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
+export type { SsrfGuardOptions } from "./fetch/ssrf-guard.js";
+export { createSsrfGuard, DefaultSsrfGuard, isBlockedAddress } from "./fetch/ssrf-guard.js";
 export type { ThrottleOptions } from "./fetch/throttle.js";
 export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
-export type { AnswerResult, HttpRequest, HttpResponse, IAnswerSearchEngine, ICache, IHttpClient, IRobotsChecker, ISearchEngine, IThrottle, RobotsResult, SearchQuery, SiteAvailabilityTracker, } from "./ports.js";
+export type { AnswerResult, HttpRequest, HttpResponse, IAnswerSearchEngine, ICache, IHttpClient, IRobotsChecker, ISearchEngine, ISsrfGuard, IThrottle, RobotsResult, SearchQuery, SiteAvailabilityTracker, } from "./ports.js";
 export { fetchSitemapUrls } from "./sources/sitemap.js";
 export { BraveLlmContextSearchEngine, BraveSearchEngine, CapabilityRoutedSearchEngine, defaultAnswerEngine, defaultSearchEngine, ExaSearchEngine, FallbackSearchEngine, FirecrawlKeylessSearchEngine, InMemorySiteAvailabilityTracker, RotatingKeySearchEngine, RoundRobinSearchEngine, SerpApiSearchEngine, SerperSearchEngine, SiteRoutedSearchEngine, TavilySearchEngine, YouComSearchEngine, } from "./web-search/index.js";
 export type { NDJSONRecord } from "./scribe-bridge.js";

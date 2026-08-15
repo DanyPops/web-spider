@@ -20,6 +20,19 @@ export declare class FetchTransportError extends Error {
     readonly retryable: boolean;
     constructor(options: FetchTransportErrorOptions);
 }
+/** Thrown by an ISsrfGuard on a blocked target -- a policy refusal, not a transport failure. */
+export declare class SsrfBlockedError extends Error {
+    readonly code = "ssrf-blocked";
+    readonly host: string;
+    readonly address?: string;
+    constructor(host: string, address?: string);
+}
+/** Thrown when a fetch target's response body exceeds the configured byte bound while streaming -- catches chunked/compressed bodies a Content-Length check alone would miss. */
+export declare class ResponseTooLargeError extends Error {
+    readonly code = "response-too-large";
+    readonly maxBytes: number;
+    constructor(maxBytes: number);
+}
 /** True only for reviewed native transport shapes; arbitrary adapter/programming failures remain distinct. */
 export declare function isLikelyFetchTransportFailure(error: unknown): boolean;
 /**

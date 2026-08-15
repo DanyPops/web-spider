@@ -66,6 +66,13 @@ export interface RobotsResult {
 export interface IRobotsChecker {
     check(url: string): Promise<RobotsResult>;
 }
+/**
+ * SSRF guard port. Default adapter: DefaultSsrfGuard.
+ * Swap for tests: a permissive stub whose assertAllowed() never throws.
+ */
+export interface ISsrfGuard {
+    assertAllowed(url: string): Promise<void>;
+}
 export interface SearchQuery {
     query: string;
     numResults?: number;

@@ -1,8 +1,12 @@
-import type { IHttpClient, IRobotsChecker, IThrottle } from "../ports.js";
+import type { IHttpClient, IRobotsChecker, ISsrfGuard, IThrottle } from "../ports.js";
 import type { ContentSourceStrategy } from "../sources/content-source.js";
 import type { LeanPage, SpideredPage } from "../types.js";
 import { type ContentExtractor, type TreePage } from "./content-extractor.js";
 export type { TreePage } from "./content-extractor.js";
+/** Default outbound response bound -- generous enough for real docs/PDFs, small enough to cap worst-case memory per fetch. */
+export declare const DEFAULT_MAX_RESPONSE_BYTES = 25000000;
+/** The real, network-touching IHttpClient -- every default fetch path shares one instance, so the ISsrfGuard/size-bound checks live here once instead of at each call site. */
+export declare function createDefaultHttpClient(guard?: ISsrfGuard, maxResponseBytes?: number): IHttpClient;
 export interface SpiderOptions {
     /**
      * ms before aborting the fetch (default 10 000).
@@ -48,10 +52,22 @@ export interface SpiderOptions {
      */
     robotsCache?: IRobotsChecker;
     /**
-     * HTTP client — defaults to a global fetch() adapter.
+     * HTTP client — defaults to a global fetch() adapter guarded by ssrfGuard.
      * Inject a stub for testing without real network access.
      */
     httpClient?: IHttpClient;
+    /**
+     * SSRF guard for the default HTTP client -- default-deny on loopback/
+     * private/link-local/reserved targets. No effect on a caller-supplied
+     * httpClient. Override to widen the blocklist or disable it.
+     */
+    ssrfGuard?: ISsrfGuard;
+    /**
+     * Byte bound on the default HTTP client's response body, enforced while
+     * streaming (not just via Content-Length). Default: DEFAULT_MAX_RESPONSE_BYTES.
+     * No effect on a caller-supplied httpClient.
+     */
+    maxResponseBytes?: number;
     /**
      * When true, fetch <img> src URLs found in the article content and attach
      * them as base64-encoded ImageRef objects to SpideredPage.images.

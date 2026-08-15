@@ -22,7 +22,16 @@ import {
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { DomainThrottle, type IHttpClient, PlaywrightHttpClient, RobotsCache, type SearchEngine } from "@danypops/web-spider";
+import {
+	createDefaultHttpClient,
+	createSsrfGuard,
+	DomainThrottle,
+	type IHttpClient,
+	type ISsrfGuard,
+	PlaywrightHttpClient,
+	RobotsCache,
+	type SearchEngine,
+} from "@danypops/web-spider";
 import type { CacheStore } from "./cache/cache-store.ts";
 import type {
 	CachedPageListFilter,
@@ -406,6 +415,8 @@ export interface WebSpiderServiceDependencies {
 	lifecycleLog?: DaemonLifecycleLog;
 	/** Lazily resolves this daemon's own current identity for daemon.diagnose. Defaults to one fixed identity minted at construction time -- real production wiring (daemon.ts) passes a getter reading a ref populated once the real daemon has actually bound (see vehicle-server daemon.ts's own onListen doc comment on why identity isn't known any earlier). May return undefined during that narrow pre-bind window; the handler fails safely rather than crashing when it does. */
 	getCurrentIdentity?: () => DaemonIdentity | undefined;
+	/** Overrides the default SSRF guard (see WEB_SPIDER_SSRF_ALLOW_RANGES below). Tests that monkey-patch globalThis.fetch directly, with no real DNS involved, pass a permissive stub here. */
+	ssrfGuard?: ISsrfGuard;
 }
 
 /** This-process-only default for callers who don't care about lifecycle history surviving a restart (most tests, and any daemon.ts that hasn't wired a real file-backed one yet) -- daemon.diagnose still works, it just always reports empty history. */
@@ -479,7 +490,16 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	// per-session instances with per-daemon ones, a more correct scope since the
 	// daemon is now the sole process performing fetches.
 	const throttle = new DomainThrottle({ minDelayMs: 500 });
-	const robotsCache = new RobotsCache();
+	// SSRF guard: default-deny in production. WEB_SPIDER_SSRF_ALLOW_RANGES (comma-
+	// separated CIDRs) is the audited opt-in escape hatch -- test daemons targeting a
+	// local fixture server set it; production wiring (daemon.ts) leaves it unset.
+	const env = deps.env ?? process.env;
+	const ssrfAllowRanges = env.WEB_SPIDER_SSRF_ALLOW_RANGES?.split(",")
+		.map((range) => range.trim())
+		.filter(Boolean);
+	const ssrfGuard = deps.ssrfGuard ?? (ssrfAllowRanges?.length ? createSsrfGuard({ allowRanges: ssrfAllowRanges }) : undefined);
+	const defaultHttpClient = ssrfGuard ? createDefaultHttpClient(ssrfGuard) : undefined;
+	const robotsCache = new RobotsCache(undefined, ssrfGuard);
 	// The composition root owns the enhanced client as a separate async-disposable
 	// capability; IHttpClient remains segregated for adapters that own no resource.
 	const enhancedClientFactory =
@@ -493,9 +513,9 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 		enhancedClient ??= enhancedClientFactory();
 		return enhancedClient;
 	};
-	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
-	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
-	const quotesService = new QuotesService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger });
+	const fetchService = new FetchService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger, defaultHttpClient });
+	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger, defaultHttpClient });
+	const quotesService = new QuotesService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger, defaultHttpClient });
 
 	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, logger });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);

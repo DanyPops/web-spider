@@ -14,9 +14,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ISsrfGuard } from "@danypops/web-spider";
 import { createApp, createWebSpiderService } from "../src/service.ts";
 
 const TOKEN = "test-token";
+// No real network in this file -- globalThis.fetch is mocked, so the real SSRF guard's
+// own DNS lookups (a second, unmocked network dependency) must be disabled too.
+const NO_SSRF_GUARD: ISsrfGuard = { assertAllowed: async () => {} };
 const FIXTURES_DIR = join(import.meta.dir, "../../web-spider/fixtures");
 const ARTICLE_URL = "https://example.com/article-with-images";
 const ARTICLE_HTML = readFileSync(join(FIXTURES_DIR, "article-with-images.html"), "utf8");
@@ -52,7 +56,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 	test("fetch markdown returns the real article body and caches it for a subsequent hit", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 
 			const first = await post(app, "fetch", { url: ARTICLE_URL });
@@ -81,7 +85,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 	test("fetch lean omits prose and reports the fixture's body links", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 			const { status, body } = await post(app, "fetch", { url: ARTICLE_URL, format: "lean" });
 			expect(status).toBe(200);
@@ -97,7 +101,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 	test("crawl lean discovers the single-page fixture site and reports it bounded", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 			const { status, body } = await post(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5 });
 			expect(status).toBe(200);
@@ -113,7 +117,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 	test("crawl discoverOnly/crawlUrls/maxTotalChars/deadlineMs round-trip through the real /api/v1/ops HTTP boundary", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 
 			const discover = await post(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5, discoverOnly: true });
@@ -141,7 +145,7 @@ describe("fetch/crawl operations — real fixture through the full HTTP surface"
 	test("fetching an unmapped URL surfaces as a native failure through the operation dispatch (404 route → HTTP error)", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 			const { status, body } = await post(app, "fetch", { url: "https://example.com/does-not-exist" });
 			expect(status).toBe(400);
@@ -180,7 +184,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 	test("fetch.markdown returns the same real article body /api/v1/ops already proved, and caches it", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 
 			const first = await invoke(app, "fetch", { url: ARTICLE_URL });
@@ -200,7 +204,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 	test("crawl discovers the single-page fixture site through /vehicle/invoke, matching the /api/v1/ops shape", async () => {
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 			const { status, body } = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5 });
 			expect(status).toBe(200);
@@ -215,7 +219,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 		const OTHER_URL = "https://example.com/another-fixture-page";
 		const restore = mockGlobalFetch({ [ARTICLE_URL]: ARTICLE_HTML, [OTHER_URL]: ARTICLE_HTML });
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 
 			const discover = await invoke(app, "crawl", { url: ARTICLE_URL, format: "lean", depth: 1, maxPages: 5, discoverOnly: true });
@@ -247,7 +251,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 			throw new TypeError("fetch failed", { cause });
 		}) as unknown as typeof fetch;
 		try {
-			const service = createWebSpiderService(":memory:");
+			const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 			const app = createApp({ service, token: TOKEN });
 			const { status, body } = await invoke(app, "fetch", { url: "https://example.test/private?api_key=top-secret" });
 
@@ -268,7 +272,7 @@ describe("fetch/crawl operations — the same real fixture, through the real Veh
 	});
 
 	test("fetch with a missing url fails with a real Vehicle validation error, not a crash", async () => {
-		const service = createWebSpiderService(":memory:");
+		const service = createWebSpiderService(":memory:", { ssrfGuard: NO_SSRF_GUARD });
 		const app = createApp({ service, token: TOKEN });
 		const { status, body } = await invoke(app, "fetch", {});
 		expect(status).toBe(400);

@@ -1,28 +1,68 @@
-import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
+import { isLikelyFetchTransportFailure, ResponseTooLargeError, toFetchTransportError } from "../errors.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";
 import { probeMarkdownVariant } from "../sources/markdown-suffix.js";
 import { detectMediaWiki, extractWikiPageTitle, queryMediaWikiPage } from "../sources/mediawiki.js";
 import { extractFetchedResource, } from "./content-extractor.js";
+import { DefaultSsrfGuard } from "./ssrf-guard.js";
 // ---------------------------------------------------------------------------
 // Default HTTP client adapter
 // ---------------------------------------------------------------------------
-const defaultHttpClient = {
-    async fetch(req) {
-        const res = await globalThis.fetch(req.url, {
-            signal: req.signal,
-            headers: req.headers,
-        });
-        return {
-            ok: res.ok,
-            status: res.status,
-            statusText: res.statusText,
-            headers: { get: (name) => res.headers.get(name) },
-            text: () => res.text(),
-            arrayBuffer: () => res.arrayBuffer(),
-        };
-    },
-};
+/** Default outbound response bound -- generous enough for real docs/PDFs, small enough to cap worst-case memory per fetch. */
+export const DEFAULT_MAX_RESPONSE_BYTES = 25_000_000;
+/** Reads res.body via its stream reader, throwing once the running total exceeds maxBytes -- catches a chunked/compressed body a Content-Length check alone would miss. */
+async function readBoundedBody(res, maxBytes) {
+    if (!res.body)
+        return new Uint8Array(0);
+    const reader = res.body.getReader();
+    const chunks = [];
+    let size = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done)
+            break;
+        size += value.byteLength;
+        if (size > maxBytes) {
+            await reader.cancel();
+            throw new ResponseTooLargeError(maxBytes);
+        }
+        chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return bytes;
+}
+/** The real, network-touching IHttpClient -- every default fetch path shares one instance, so the ISsrfGuard/size-bound checks live here once instead of at each call site. */
+export function createDefaultHttpClient(guard = new DefaultSsrfGuard(), maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES) {
+    return {
+        async fetch(req) {
+            await guard.assertAllowed(req.url);
+            const res = await globalThis.fetch(req.url, {
+                signal: req.signal,
+                headers: req.headers,
+            });
+            // Single-use, like the real Response body -- whichever accessor is called first wins.
+            let bodyRead;
+            const readOnce = () => (bodyRead ??= readBoundedBody(res, maxResponseBytes));
+            return {
+                ok: res.ok,
+                status: res.status,
+                statusText: res.statusText,
+                headers: { get: (name) => res.headers.get(name) },
+                text: async () => new TextDecoder().decode(await readOnce()),
+                arrayBuffer: async () => {
+                    const bytes = await readOnce();
+                    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+                },
+            };
+        },
+    };
+}
+const sharedDefaultHttpClient = createDefaultHttpClient();
 /**
  * Spider a single URL and return a fully structured SpideredPage.
  *
@@ -99,7 +139,12 @@ function escapeHtmlText(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 export async function spider(url, opts) {
-    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, pdfPageStart, pdfPageEnd, throttle, robotsCache, httpClient = defaultHttpClient, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, contentExtractors = [], contentSources = [], } = opts ?? {};
+    const { timeoutMs = 30_000, userAgent = "web-spider/0.1 (AI agent research tool; +https://github.com/DanyPops)", view = "full", rootSelector, excludeSelectors, tokenBudget, pdfPageStart, pdfPageEnd, throttle, robotsCache, httpClient, ssrfGuard, maxResponseBytes, captureImages = false, maxImages = 10, preferLlmsTxt = false, preferMarkdownVariant = false, preferMediaWiki = false, preferGitHub = false, githubToken, contentExtractors = [], contentSources = [], } = opts ?? {};
+    // ssrfGuard/maxResponseBytes only configure the default client -- a caller-supplied httpClient is used as given.
+    const client = httpClient ??
+        (ssrfGuard !== undefined || maxResponseBytes !== undefined
+            ? createDefaultHttpClient(ssrfGuard, maxResponseBytes)
+            : sharedDefaultHttpClient);
     // Poka-yoke: reject non-HTTP URLs immediately with a clear message.
     let parsedUrl;
     try {
@@ -138,7 +183,7 @@ export async function spider(url, opts) {
     for (const source of contentSources) {
         if (!source.matches(url))
             continue;
-        const result = await source.fetch({ url, httpClient, timeoutMs, userAgent });
+        const result = await source.fetch({ url, httpClient: client, timeoutMs, userAgent });
         if (!result)
             continue;
         const resultDomain = new URL(result.url).hostname.replace(/^www\./, "");
@@ -156,7 +201,7 @@ export async function spider(url, opts) {
     // host, so a site-wide Disallow still blocks this too. A miss falls
     // through to the normal path unchanged, as if preferLlmsTxt were never set.
     if (preferLlmsTxt) {
-        const probe = await probeLlmsTxt(url, httpClient, { timeoutMs, userAgent });
+        const probe = await probeLlmsTxt(url, client, { timeoutMs, userAgent });
         if (probe) {
             const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
             const { page } = await extract({
@@ -172,7 +217,7 @@ export async function spider(url, opts) {
     // .md URL-suffix strategy: same page, cleaner variant. Checked after
     // preferLlmsTxt above (a broader site-wide index) misses or is disabled.
     if (preferMarkdownVariant) {
-        const probe = await probeMarkdownVariant(url, httpClient, { timeoutMs, userAgent });
+        const probe = await probeMarkdownVariant(url, client, { timeoutMs, userAgent });
         if (probe) {
             const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
             const { page } = await extract({
@@ -189,7 +234,7 @@ export async function spider(url, opts) {
     // instead of scraping GitHub's JS-heavy rendered pages. Same resource,
     // different mechanism, so url stays the originally requested one.
     if (preferGitHub) {
-        const result = await queryGitHub(url, httpClient, { token: githubToken, timeoutMs, userAgent });
+        const result = await queryGitHub(url, client, { token: githubToken, timeoutMs, userAgent });
         if (result) {
             const { page } = await extract({
                 url,
@@ -214,9 +259,9 @@ export async function spider(url, opts) {
     if (preferMediaWiki) {
         const pageTitle = extractWikiPageTitle(url);
         if (pageTitle) {
-            const siteInfo = await detectMediaWiki(url, httpClient, { timeoutMs, userAgent });
+            const siteInfo = await detectMediaWiki(url, client, { timeoutMs, userAgent });
             if (siteInfo) {
-                const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
+                const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, client, { timeoutMs, userAgent });
                 if (page) {
                     responseText = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
                     contentTypeHeader = "text/html; charset=utf-8";
@@ -235,7 +280,7 @@ export async function spider(url, opts) {
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         let res;
         try {
-            res = await httpClient.fetch({
+            res = await client.fetch({
                 url,
                 signal: controller.signal,
                 headers: { "User-Agent": userAgent, Accept: "text/html, application/pdf;q=0.9" },
@@ -289,7 +334,7 @@ export async function spider(url, opts) {
         ...(responseBytes ? { bytes: responseBytes } : {}),
     };
     const { page, imageCandidates } = await extract(resource);
-    const images = imageCandidates ? await fetchImages(imageCandidates, httpClient, throttle) : undefined;
+    const images = imageCandidates ? await fetchImages(imageCandidates, client, throttle) : undefined;
     return {
         ...page,
         ...(images ? { images } : {}),

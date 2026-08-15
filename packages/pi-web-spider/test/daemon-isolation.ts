@@ -39,6 +39,10 @@ export function isolatedDaemonEnv(prefix = "pi-web-spider-test-"): IsolatedDaemo
 		XDG_STATE_HOME: join(root, "state"),
 		XDG_RUNTIME_DIR: join(root, "run"),
 		WEB_SPIDER_CACHE_PATH: join(root, "no-legacy-cache-here.json"),
+		// Tests fetch a real local fixture server (127.0.0.1) -- the daemon's default-
+		// deny SSRF guard would otherwise block that as it would any other private target.
+		WEB_SPIDER_SSRF_ALLOW_RANGES: "127.0.0.1/32,::1/128",
+
 		// Same class of bug as WEB_SPIDER_CACHE_PATH above, found via a real CI
 		// failure (never reproduced locally, only on a fresh runner): Playwright
 		// resolves its installed-browsers cache relative to $HOME by default when

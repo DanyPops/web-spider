@@ -47,11 +47,13 @@ function isAllowed(robots, path) {
     }
     return best?.allow ?? true; // default: allow
 }
+import { DefaultSsrfGuard } from "./ssrf-guard.js";
 const TTL_MS = 60 * 60 * 1_000; // 1 hour
 export class RobotsCache {
-    constructor(userAgent = "web-spider/0.1") {
+    constructor(userAgent = "web-spider/0.1", ssrfGuard = new DefaultSsrfGuard()) {
         this.cache = new Map();
         this.userAgent = userAgent;
+        this.ssrfGuard = ssrfGuard;
     }
     /**
      * Returns whether the URL is allowed and the crawl-delay if specified.
@@ -72,6 +74,7 @@ export class RobotsCache {
     }
     async fetchRobots(robotsUrl) {
         try {
+            await this.ssrfGuard.assertAllowed(robotsUrl);
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 5_000);
             let res;
@@ -98,7 +101,7 @@ export class RobotsCache {
  * accessed through a re-export chain can appear undefined at call site.
  * Use this in extension code instead of `new RobotsCache()`.
  */
-export function createRobotsCache(userAgent) {
-    return new RobotsCache(userAgent);
+export function createRobotsCache(userAgent, ssrfGuard) {
+    return new RobotsCache(userAgent, ssrfGuard);
 }
 //# sourceMappingURL=robots.js.map

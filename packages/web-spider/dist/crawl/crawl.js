@@ -1,6 +1,6 @@
 import { SpiderCache } from "../cache/cache.js";
 import { RobotsCache } from "../fetch/robots.js";
-import { spider } from "../fetch/spider.js";
+import { createDefaultHttpClient, spider } from "../fetch/spider.js";
 import { DomainThrottle } from "../fetch/throttle.js";
 import { fetchSitemapUrls } from "../sources/sitemap.js";
 import { DefaultCrawlBudget } from "./budget.js";
@@ -118,12 +118,7 @@ export async function crawl(startUrl, opts = {}) {
         seen.add(startUrl);
         if (useSitemap) {
             const origin = new URL(startUrl).origin;
-            // Use a minimal default httpClient if none was injected
-            const client = httpClient ?? {
-                async fetch(req) {
-                    return globalThis.fetch(req.url, { headers: req.headers });
-                },
-            };
+            const client = httpClient ?? createDefaultHttpClient(spiderOpts.ssrfGuard, spiderOpts.maxResponseBytes);
             const sitemapUrls = await fetchSitemapUrls(origin, client);
             for (const u of sitemapUrls) {
                 if (shouldVisit(u)) {

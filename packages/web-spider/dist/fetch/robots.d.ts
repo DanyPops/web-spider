@@ -3,11 +3,12 @@
  * Respects User-agent: * directives (Allow, Disallow, Crawl-delay).
  * Fails open — any fetch/parse error allows all URLs.
  */
-import type { IRobotsChecker, RobotsResult } from "../ports.js";
+import type { IRobotsChecker, ISsrfGuard, RobotsResult } from "../ports.js";
 export declare class RobotsCache implements IRobotsChecker {
     private readonly cache;
     private readonly userAgent;
-    constructor(userAgent?: string);
+    private readonly ssrfGuard;
+    constructor(userAgent?: string, ssrfGuard?: ISsrfGuard);
     /**
      * Returns whether the URL is allowed and the crawl-delay if specified.
      * Caches per origin for 1 hour. Fails open on any error.
@@ -20,5 +21,5 @@ export declare class RobotsCache implements IRobotsChecker {
  * accessed through a re-export chain can appear undefined at call site.
  * Use this in extension code instead of `new RobotsCache()`.
  */
-export declare function createRobotsCache(userAgent?: string): RobotsCache;
+export declare function createRobotsCache(userAgent?: string, ssrfGuard?: ISsrfGuard): RobotsCache;
 //# sourceMappingURL=robots.d.ts.map
