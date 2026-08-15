@@ -17,7 +17,13 @@ export { HeuristicLinkScorer, InsertionOrderLinkScorer, orderFrontier } from "./
 export type { PageEdge, PageGraphSnapshot, PageNode } from "./crawl/graph.js";
 export { PageGraph } from "./crawl/graph.js";
 export type { FetchTransportErrorOptions, FetchTransportFailureKind } from "./errors.js";
-export { FetchTransportError, isLikelyFetchTransportFailure, toFetchTransportError } from "./errors.js";
+export {
+	FetchTransportError,
+	isLikelyFetchTransportFailure,
+	ResponseTooLargeError,
+	SsrfBlockedError,
+	toFetchTransportError,
+} from "./errors.js";
 export type { QueryTreeOptions } from "./extract/tree.js";
 export { buildTree, navigateTree, queryTree } from "./extract/tree.js";
 export { toLean } from "./extract/views.js";
@@ -43,7 +49,7 @@ export { PdfContentExtractor, PdfExtractionError, UnpdfPdfExtractor } from "./fe
 export type { OcrEngine, OcrResult, PdfPageImage, PdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export { OcrFallbackPdfExtractor, TesseractOcrEngine, UnpdfPageRasterizer } from "./fetch/pdf-ocr.js";
 export type { SpiderOptions } from "./fetch/spider.js";
-export { spider } from "./fetch/spider.js";
+export { createDefaultHttpClient, DEFAULT_MAX_RESPONSE_BYTES, spider } from "./fetch/spider.js";
 export type { FuzzySearchOptions, SearchHit } from "./search.js";
 /** @deprecated Use {@link searchPages} — renamed in v0.4.0 to reflect BM25F ranking (not fuzzy-only). */
 export { searchPages, searchPages as fuzzySearch } from "./search.js";
@@ -185,6 +191,8 @@ export { DiskCache } from "./cache/disk-cache.js";
 export type { PlaywrightClientOptions } from "./fetch/playwright.js";
 export { createPlaywrightClient, PlaywrightHttpClient } from "./fetch/playwright.js";
 export { createRobotsCache, RobotsCache } from "./fetch/robots.js";
+export type { SsrfGuardOptions } from "./fetch/ssrf-guard.js";
+export { createSsrfGuard, DefaultSsrfGuard, isBlockedAddress } from "./fetch/ssrf-guard.js";
 export type { ThrottleOptions } from "./fetch/throttle.js";
 export { createThrottle, DomainThrottle } from "./fetch/throttle.js";
 export type {
@@ -196,6 +204,7 @@ export type {
 	IHttpClient,
 	IRobotsChecker,
 	ISearchEngine,
+	ISsrfGuard,
 	IThrottle,
 	RobotsResult,
 	SearchQuery,

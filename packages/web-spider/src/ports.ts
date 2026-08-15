@@ -89,6 +89,18 @@ export interface IRobotsChecker {
 }
 
 // ---------------------------------------------------------------------------
+// ISsrfGuard
+// ---------------------------------------------------------------------------
+
+/**
+ * SSRF guard port. Default adapter: DefaultSsrfGuard.
+ * Swap for tests: a permissive stub whose assertAllowed() never throws.
+ */
+export interface ISsrfGuard {
+	assertAllowed(url: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
 // ISearchEngine
 // ---------------------------------------------------------------------------
 

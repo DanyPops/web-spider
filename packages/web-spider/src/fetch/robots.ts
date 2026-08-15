@@ -58,16 +58,19 @@ function isAllowed(robots: ParsedRobots, path: string): boolean {
 	return best?.allow ?? true; // default: allow
 }
 
-import type { IRobotsChecker, RobotsResult } from "../ports.js";
+import type { IRobotsChecker, ISsrfGuard, RobotsResult } from "../ports.js";
+import { DefaultSsrfGuard } from "./ssrf-guard.js";
 
 const TTL_MS = 60 * 60 * 1_000; // 1 hour
 
 export class RobotsCache implements IRobotsChecker {
 	private readonly cache = new Map<string, { robots: ParsedRobots; expiresAt: number }>();
 	private readonly userAgent: string;
+	private readonly ssrfGuard: ISsrfGuard;
 
-	constructor(userAgent = "web-spider/0.1") {
+	constructor(userAgent = "web-spider/0.1", ssrfGuard: ISsrfGuard = new DefaultSsrfGuard()) {
 		this.userAgent = userAgent;
+		this.ssrfGuard = ssrfGuard;
 	}
 
 	/**
@@ -92,6 +95,7 @@ export class RobotsCache implements IRobotsChecker {
 
 	private async fetchRobots(robotsUrl: string): Promise<ParsedRobots> {
 		try {
+			await this.ssrfGuard.assertAllowed(robotsUrl);
 			const controller = new AbortController();
 			const timer = setTimeout(() => controller.abort(), 5_000);
 			let res: Response;
@@ -116,6 +120,6 @@ export class RobotsCache implements IRobotsChecker {
  * accessed through a re-export chain can appear undefined at call site.
  * Use this in extension code instead of `new RobotsCache()`.
  */
-export function createRobotsCache(userAgent?: string): RobotsCache {
-	return new RobotsCache(userAgent);
+export function createRobotsCache(userAgent?: string, ssrfGuard?: ISsrfGuard): RobotsCache {
+	return new RobotsCache(userAgent, ssrfGuard);
 }

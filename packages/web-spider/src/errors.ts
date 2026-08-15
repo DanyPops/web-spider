@@ -31,6 +31,34 @@ export class FetchTransportError extends Error {
 	}
 }
 
+/** Thrown by an ISsrfGuard on a blocked target -- a policy refusal, not a transport failure. */
+export class SsrfBlockedError extends Error {
+	readonly code = "ssrf-blocked";
+	readonly host: string;
+	readonly address?: string;
+
+	constructor(host: string, address?: string) {
+		super(
+			address ? `Refusing to fetch "${host}" -- resolves to blocked address ${address}` : `Refusing to fetch "${host}" -- blocked target`,
+		);
+		this.name = "SsrfBlockedError";
+		this.host = host;
+		this.address = address;
+	}
+}
+
+/** Thrown when a fetch target's response body exceeds the configured byte bound while streaming -- catches chunked/compressed bodies a Content-Length check alone would miss. */
+export class ResponseTooLargeError extends Error {
+	readonly code = "response-too-large";
+	readonly maxBytes: number;
+
+	constructor(maxBytes: number) {
+		super(`Response exceeds the ${maxBytes} byte limit`);
+		this.name = "ResponseTooLargeError";
+		this.maxBytes = maxBytes;
+	}
+}
+
 const DNS_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "EAI_NODATA", "ENODATA"]);
 const CONNECTION_CODES = new Set([
 	"CONNECTIONREFUSED",

@@ -1,5 +1,5 @@
-import { isLikelyFetchTransportFailure, toFetchTransportError } from "../errors.js";
-import type { IHttpClient, IRobotsChecker, IThrottle } from "../ports.js";
+import { isLikelyFetchTransportFailure, ResponseTooLargeError, toFetchTransportError } from "../errors.js";
+import type { IHttpClient, IRobotsChecker, ISsrfGuard, IThrottle } from "../ports.js";
 import type { ContentSourceStrategy } from "../sources/content-source.js";
 import { queryGitHub } from "../sources/github.js";
 import { probeLlmsTxt } from "../sources/llms-txt.js";
@@ -14,6 +14,7 @@ import {
 	type FetchedResource,
 	type TreePage,
 } from "./content-extractor.js";
+import { DefaultSsrfGuard } from "./ssrf-guard.js";
 
 export type { TreePage } from "./content-extractor.js";
 
@@ -21,22 +22,65 @@ export type { TreePage } from "./content-extractor.js";
 // Default HTTP client adapter
 // ---------------------------------------------------------------------------
 
-const defaultHttpClient: IHttpClient = {
-	async fetch(req) {
-		const res = await globalThis.fetch(req.url, {
-			signal: req.signal,
-			headers: req.headers,
-		});
-		return {
-			ok: res.ok,
-			status: res.status,
-			statusText: res.statusText,
-			headers: { get: (name: string) => res.headers.get(name) },
-			text: () => res.text(),
-			arrayBuffer: () => res.arrayBuffer(),
-		};
-	},
-};
+/** Default outbound response bound -- generous enough for real docs/PDFs, small enough to cap worst-case memory per fetch. */
+export const DEFAULT_MAX_RESPONSE_BYTES = 25_000_000;
+
+/** Reads res.body via its stream reader, throwing once the running total exceeds maxBytes -- catches a chunked/compressed body a Content-Length check alone would miss. */
+async function readBoundedBody(res: Response, maxBytes: number): Promise<Uint8Array> {
+	if (!res.body) return new Uint8Array(0);
+	const reader = res.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.byteLength;
+		if (size > maxBytes) {
+			await reader.cancel();
+			throw new ResponseTooLargeError(maxBytes);
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(size);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
+
+/** The real, network-touching IHttpClient -- every default fetch path shares one instance, so the ISsrfGuard/size-bound checks live here once instead of at each call site. */
+export function createDefaultHttpClient(
+	guard: ISsrfGuard = new DefaultSsrfGuard(),
+	maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
+): IHttpClient {
+	return {
+		async fetch(req) {
+			await guard.assertAllowed(req.url);
+			const res = await globalThis.fetch(req.url, {
+				signal: req.signal,
+				headers: req.headers,
+			});
+			// Single-use, like the real Response body -- whichever accessor is called first wins.
+			let bodyRead: Promise<Uint8Array> | undefined;
+			const readOnce = () => (bodyRead ??= readBoundedBody(res, maxResponseBytes));
+			return {
+				ok: res.ok,
+				status: res.status,
+				statusText: res.statusText,
+				headers: { get: (name: string) => res.headers.get(name) },
+				text: async () => new TextDecoder().decode(await readOnce()),
+				arrayBuffer: async () => {
+					const bytes = await readOnce();
+					return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+				},
+			};
+		},
+	};
+}
+
+const sharedDefaultHttpClient = createDefaultHttpClient();
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -87,10 +131,22 @@ export interface SpiderOptions {
 	 */
 	robotsCache?: IRobotsChecker;
 	/**
-	 * HTTP client — defaults to a global fetch() adapter.
+	 * HTTP client — defaults to a global fetch() adapter guarded by ssrfGuard.
 	 * Inject a stub for testing without real network access.
 	 */
 	httpClient?: IHttpClient;
+	/**
+	 * SSRF guard for the default HTTP client -- default-deny on loopback/
+	 * private/link-local/reserved targets. No effect on a caller-supplied
+	 * httpClient. Override to widen the blocklist or disable it.
+	 */
+	ssrfGuard?: ISsrfGuard;
+	/**
+	 * Byte bound on the default HTTP client's response body, enforced while
+	 * streaming (not just via Content-Length). Default: DEFAULT_MAX_RESPONSE_BYTES.
+	 * No effect on a caller-supplied httpClient.
+	 */
+	maxResponseBytes?: number;
 	/**
 	 * When true, fetch <img> src URLs found in the article content and attach
 	 * them as base64-encoded ImageRef objects to SpideredPage.images.
@@ -272,7 +328,9 @@ export async function spider(
 		pdfPageEnd,
 		throttle,
 		robotsCache,
-		httpClient = defaultHttpClient,
+		httpClient,
+		ssrfGuard,
+		maxResponseBytes,
 		captureImages = false,
 		maxImages = 10,
 		preferLlmsTxt = false,
@@ -283,6 +341,13 @@ export async function spider(
 		contentExtractors = [],
 		contentSources = [],
 	} = opts ?? {};
+
+	// ssrfGuard/maxResponseBytes only configure the default client -- a caller-supplied httpClient is used as given.
+	const client =
+		httpClient ??
+		(ssrfGuard !== undefined || maxResponseBytes !== undefined
+			? createDefaultHttpClient(ssrfGuard, maxResponseBytes)
+			: sharedDefaultHttpClient);
 
 	// Poka-yoke: reject non-HTTP URLs immediately with a clear message.
 	let parsedUrl: URL;
@@ -322,7 +387,7 @@ export async function spider(
 	// the robots.txt check above already passed for this host.
 	for (const source of contentSources) {
 		if (!source.matches(url)) continue;
-		const result = await source.fetch({ url, httpClient, timeoutMs, userAgent });
+		const result = await source.fetch({ url, httpClient: client, timeoutMs, userAgent });
 		if (!result) continue;
 		const resultDomain = new URL(result.url).hostname.replace(/^www\./, "");
 		const { page } = await extract({
@@ -340,7 +405,7 @@ export async function spider(
 	// host, so a site-wide Disallow still blocks this too. A miss falls
 	// through to the normal path unchanged, as if preferLlmsTxt were never set.
 	if (preferLlmsTxt) {
-		const probe = await probeLlmsTxt(url, httpClient, { timeoutMs, userAgent });
+		const probe = await probeLlmsTxt(url, client, { timeoutMs, userAgent });
 		if (probe) {
 			const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
 			const { page } = await extract({
@@ -357,7 +422,7 @@ export async function spider(
 	// .md URL-suffix strategy: same page, cleaner variant. Checked after
 	// preferLlmsTxt above (a broader site-wide index) misses or is disabled.
 	if (preferMarkdownVariant) {
-		const probe = await probeMarkdownVariant(url, httpClient, { timeoutMs, userAgent });
+		const probe = await probeMarkdownVariant(url, client, { timeoutMs, userAgent });
 		if (probe) {
 			const probeDomain = new URL(probe.url).hostname.replace(/^www\./, "");
 			const { page } = await extract({
@@ -375,7 +440,7 @@ export async function spider(
 	// instead of scraping GitHub's JS-heavy rendered pages. Same resource,
 	// different mechanism, so url stays the originally requested one.
 	if (preferGitHub) {
-		const result = await queryGitHub(url, httpClient, { token: githubToken, timeoutMs, userAgent });
+		const result = await queryGitHub(url, client, { token: githubToken, timeoutMs, userAgent });
 		if (result) {
 			const { page } = await extract({
 				url,
@@ -402,9 +467,9 @@ export async function spider(
 	if (preferMediaWiki) {
 		const pageTitle = extractWikiPageTitle(url);
 		if (pageTitle) {
-			const siteInfo = await detectMediaWiki(url, httpClient, { timeoutMs, userAgent });
+			const siteInfo = await detectMediaWiki(url, client, { timeoutMs, userAgent });
 			if (siteInfo) {
-				const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, httpClient, { timeoutMs, userAgent });
+				const page = await queryMediaWikiPage(siteInfo.apiUrl, pageTitle, client, { timeoutMs, userAgent });
 				if (page) {
 					responseText = `<html><head><title>${escapeHtmlText(page.title)}</title></head><body>${page.html}</body></html>`;
 					contentTypeHeader = "text/html; charset=utf-8";
@@ -425,7 +490,7 @@ export async function spider(
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
 		let res: Awaited<ReturnType<IHttpClient["fetch"]>>;
 		try {
-			res = await httpClient.fetch({
+			res = await client.fetch({
 				url,
 				signal: controller.signal,
 				headers: { "User-Agent": userAgent, Accept: "text/html, application/pdf;q=0.9" },
@@ -480,7 +545,7 @@ export async function spider(
 		...(responseBytes ? { bytes: responseBytes } : {}),
 	};
 	const { page, imageCandidates } = await extract(resource);
-	const images = imageCandidates ? await fetchImages(imageCandidates, httpClient, throttle) : undefined;
+	const images = imageCandidates ? await fetchImages(imageCandidates, client, throttle) : undefined;
 	return {
 		...page,
 		...(images ? { images } : {}),
