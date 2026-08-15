@@ -114,7 +114,7 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 	it("connects over CDP to a real running browser, navigates, and returns real rendered content", async () => {
 		fixture = await startFixtureServer("<html><body><h1>hello from CDP</h1></body></html>");
 		const { chromium } = await import("playwright-core");
-		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT}`] });
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT}`, "--disable-dev-shm-usage"] });
 
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT}` });
 		const response = await client.fetch({ url: fixture.url });
@@ -127,7 +127,7 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 
 	it("reuses the same underlying browser connection across multiple fetch() calls", async () => {
 		const { chromium } = await import("playwright-core");
-		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 1}`] });
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 1}`, "--disable-dev-shm-usage"] });
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 1}` });
 
 		const fixtureOne = await startFixtureServer("<p>one</p>");
@@ -145,7 +145,7 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 
 	it("still throws for a genuine navigation failure (DNS resolution failure, no response at all)", async () => {
 		const { chromium } = await import("playwright-core");
-		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 2}`] });
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 2}`, "--disable-dev-shm-usage"] });
 
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 2}` });
 		await expect(client.fetch({ url: "https://this-host-does-not-exist-lightpanda-test.invalid" })).rejects.toThrow();
@@ -154,7 +154,7 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 	it("resolves with ok:false for a real non-2xx HTTP response, rather than throwing (matches the default fetch()-based IHttpClient's contract)", async () => {
 		fixture = await startFixtureServer("<html><body><h1>not found</h1></body></html>", 404);
 		const { chromium } = await import("playwright-core");
-		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 3}`] });
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 3}`, "--disable-dev-shm-usage"] });
 
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 3}` });
 		const response = await client.fetch({ url: fixture.url });
@@ -167,7 +167,7 @@ describe("LightpandaHttpClient — real CDP connection (walking skeleton)", () =
 	it("end-to-end: probeMarkdownVariant gracefully falls back (returns null) against a real 404 .md variant through this adapter, rather than the whole probe throwing", async () => {
 		fixture = await startFixtureServer("<html><body><h1>not found</h1></body></html>", 404);
 		const { chromium } = await import("playwright-core");
-		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 4}`] });
+		realBrowser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${CDP_PORT + 4}`, "--disable-dev-shm-usage"] });
 
 		client = new LightpandaHttpClient({ endpoint: `http://127.0.0.1:${CDP_PORT + 4}` });
 		// fixture.url already ends in "/" (extensionless) so probeMarkdownVariant appends ".md" and probes that -- the fixture server 404s every path identically.

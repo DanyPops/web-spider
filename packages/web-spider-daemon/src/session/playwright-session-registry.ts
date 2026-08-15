@@ -626,8 +626,12 @@ export function resolveBrowserLaunchOptions(
 ): {
 	channel: "chrome" | "chromium";
 	headless: boolean;
+	args: string[];
 } {
-	return { channel: forceChromeChannel ? "chrome" : "chromium", headless: !headed };
+	// --disable-dev-shm-usage: Chromium's default /dev/shm is often too small in a
+	// container/CI sandbox, and exhausting it OOM-kills the renderer -- routes shared
+	// memory through /tmp instead, which uses the container's normal memory budget.
+	return { channel: forceChromeChannel ? "chrome" : "chromium", headless: !headed, args: ["--disable-dev-shm-usage"] };
 }
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */

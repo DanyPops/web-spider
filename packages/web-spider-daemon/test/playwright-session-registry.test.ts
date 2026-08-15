@@ -34,13 +34,13 @@ function fakeLogger(): Logger & { warnCalls: Array<{ msg: string; fields?: Recor
 
 describe("resolveBrowserLaunchOptions", () => {
 	test("headless remains the default and headed only changes window visibility", () => {
-		expect(resolveBrowserLaunchOptions(false, false)).toEqual({ channel: "chromium", headless: true });
-		expect(resolveBrowserLaunchOptions(false, true)).toEqual({ channel: "chromium", headless: false });
+		expect(resolveBrowserLaunchOptions(false, false)).toEqual({ channel: "chromium", headless: true, args: ["--disable-dev-shm-usage"] });
+		expect(resolveBrowserLaunchOptions(false, true)).toEqual({ channel: "chromium", headless: false, args: ["--disable-dev-shm-usage"] });
 	});
 
 	test("full Chrome remains an independent explicit choice", () => {
-		expect(resolveBrowserLaunchOptions(true, false)).toEqual({ channel: "chrome", headless: true });
-		expect(resolveBrowserLaunchOptions(true, true)).toEqual({ channel: "chrome", headless: false });
+		expect(resolveBrowserLaunchOptions(true, false)).toEqual({ channel: "chrome", headless: true, args: ["--disable-dev-shm-usage"] });
+		expect(resolveBrowserLaunchOptions(true, true)).toEqual({ channel: "chrome", headless: false, args: ["--disable-dev-shm-usage"] });
 	});
 });
 

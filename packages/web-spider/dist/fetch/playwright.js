@@ -52,9 +52,12 @@ export class PlaywrightHttpClient {
         if (this.browser?.isConnected())
             return this.browser;
         const chromium = await this.getChromium();
+        // --disable-dev-shm-usage: Chromium's default /dev/shm is often too small in a
+        // container/CI sandbox, and exhausting it OOM-kills the renderer -- routes shared
+        // memory through /tmp instead, which uses the container's normal memory budget.
         const launchOpts = this.executablePath
-            ? { executablePath: this.executablePath, headless: true }
-            : { channel: this.channel, headless: true };
+            ? { executablePath: this.executablePath, headless: true, args: ["--disable-dev-shm-usage"] }
+            : { channel: this.channel, headless: true, args: ["--disable-dev-shm-usage"] };
         this.browser = await chromium.launch(launchOpts);
         return this.browser;
     }
