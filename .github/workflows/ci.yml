@@ -24,6 +24,6 @@ jobs:
       # time. Run the project's own locally-resolved binary instead.
       - run: ./node_modules/.bin/playwright-core install --with-deps chromium
         working-directory: packages/web-spider
-      - run: bun run --filter '*' build
-      - run: bun run --filter '*' check
-      - run: bun run --filter '*' test
+      - run: bun run build
+      - run: bun run check
+      - run: bun run test
