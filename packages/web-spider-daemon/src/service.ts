@@ -188,12 +188,9 @@ export function optionalStringArray(input: OperationInput, key: string): string[
 }
 
 /**
- * Bug fix: the pre-Vehicle handler here used to build this object inline and
- * silently dropped siteFilter/wantFullContent -- both declared on
- * WebSearchInput and already sent by the pi-extension's handleSearch(), but
- * never reaching WebSearchService.search() through /api/v1/ops. Extracted so
- * both the legacy handler and the new search Vehicle operation share one
- * correct implementation.
+ * Builds the full WebSearchInput, including siteFilter/wantFullContent -- both declared on
+ * WebSearchInput and sent by the pi-extension's handleSearch(). Shared by the legacy
+ * /api/v1/ops handler and the search Vehicle operation so both stay identical by construction.
  */
 export function searchInput(input: OperationInput): WebSearchInput {
 	return {
