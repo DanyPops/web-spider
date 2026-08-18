@@ -285,11 +285,28 @@ function host(value: unknown): string {
 	}
 }
 
+/** web_fetch's own declared parameters never include any of these -- this is a defensive net for
+ * an unrecognized/malformed args shape reaching the no-url branch, not a real historical param.
+ * Without it, that shape silently rendered the same "Cache list" text a genuine cache-listing call
+ * shows, even when the caller clearly meant something else (an identity-shaped field was present).
+ * Never a vector for a real credential: only checked when none of url/searchQuery/query matched. */
+const GENERIC_IDENTITY_ARG_KEYS = ["name", "title", "id", "text"] as const;
+
+function genericIdentityFallback(args: Record<string, unknown>): string | undefined {
+	for (const key of GENERIC_IDENTITY_ARG_KEYS) {
+		const value = args[key];
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return undefined;
+}
+
 function callText(args: Record<string, unknown>): string {
 	const format = typeof args.format === "string" ? args.format : "markdown";
 	if (typeof args.searchQuery === "string" && args.searchQuery.trim()) return `Search · ${args.searchQuery.trim()}`;
 	if (!args.url) {
 		if (typeof args.query === "string" && args.query.trim()) return `Cache search · ${args.query.trim()}`;
+		const identity = genericIdentityFallback(args);
+		if (identity) return `Web Fetch · ${identity}`;
 		return `Cache list${typeof args.grep === "string" && args.grep.trim() ? ` · ${args.grep.trim()}` : ""}`;
 	}
 	const domain = host(args.url);
@@ -384,6 +401,127 @@ function markdownTheme(theme: Theme): MarkdownTheme {
 	};
 }
 
+function boundedLines(lines: string[], theme: Theme): string[] {
+	if (lines.length <= EXPANDED_PRIMARY_MAX_LINES) return lines;
+	return [
+		...lines.slice(0, EXPANDED_PRIMARY_MAX_LINES),
+		theme.fg("warning", `… ${lines.length - EXPANDED_PRIMARY_MAX_LINES} rendered lines omitted`),
+	];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Deliberately-labeled last resort for a sub-shape a format branch below doesn't recognize
+ * (e.g. cache-list's own {total,pages} shape arriving under format="lean") -- never the silent,
+ * unlabeled `JSON.stringify` dump every non-"markdown" format used to fall through to (see doc
+ * 4e9e08c1, Finding 1). The label makes this path visibly distinct from a deliberately-curated
+ * render, satisfying the declared-value coverage contract (vehicle-conformance's
+ * evaluateDeclaredValueCoverage) even for a shape variant this file's per-format polish hasn't
+ * reached yet.
+ */
+function renderLabeledPreview(label: string, payload: unknown, width: number, theme: Theme): string[] {
+	const pretty = JSON.stringify(payload, null, 2) ?? String(payload);
+	return boundedLines([theme.fg("dim", `(${label})`), ...new Text(pretty, 0, 0).render(width)], theme);
+}
+
+/** url/title(+optional description-shaped field) rows shared by search results and page listings. */
+function identityRowLines(
+	items: unknown[],
+	width: number,
+	theme: Theme,
+	describe?: (item: Record<string, unknown>) => string | undefined,
+): string[] {
+	const lines: string[] = [];
+	for (const raw of items) {
+		if (!isRecord(raw) || typeof raw.url !== "string") continue;
+		const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : raw.url;
+		lines.push(truncateToWidth(theme.fg("accent", title), width));
+		lines.push(truncateToWidth(theme.fg("dim", `  ${raw.url}`), width));
+		const description = describe?.(raw);
+		if (description?.trim()) lines.push(...new Text(`  ${description.trim()}`, 0, 0).render(width));
+		lines.push("");
+	}
+	return lines;
+}
+
+/** A highlights hit across all 3 real shapes this format carries (single fetch: {heading,score,text,citationUrl};
+ * cache-search/crawl: {url,heading,score,text}) -- every field is optional-checked, never assumed. */
+function highlightHitLines(hits: unknown[], width: number, theme: Theme): string[] {
+	const lines: string[] = [];
+	for (const raw of hits) {
+		if (!isRecord(raw)) continue;
+		const heading =
+			typeof raw.heading === "string" && raw.heading.trim() ? raw.heading.trim() : typeof raw.url === "string" ? raw.url : "Match";
+		const score = typeof raw.score === "number" ? ` (${raw.score.toFixed(2)})` : "";
+		lines.push(truncateToWidth(theme.fg("accent", `${heading}${score}`), width));
+		if (typeof raw.url === "string" && raw.url !== heading) lines.push(truncateToWidth(theme.fg("dim", `  ${raw.url}`), width));
+		if (typeof raw.text === "string" && raw.text.trim()) lines.push(...new Text(`  ${raw.text.trim()}`, 0, 0).render(width));
+		lines.push("");
+	}
+	return lines;
+}
+
+function linkListLines(links: unknown[], width: number, theme: Theme): string[] {
+	const lines: string[] = [];
+	for (const raw of links) {
+		if (!isRecord(raw) || typeof raw.href !== "string") continue;
+		const text = typeof raw.text === "string" && raw.text.trim() ? raw.text.trim() : raw.href;
+		lines.push(truncateToWidth(`${theme.fg("accent", text)} ${theme.fg("dim", raw.href)}`, width));
+	}
+	return lines;
+}
+
+function keyValueLines(record: Record<string, unknown>, width: number, theme: Theme): string[] {
+	return Object.entries(record)
+		.filter((entry): entry is [string, string] => typeof entry[1] === "string")
+		.map(([key, value]) => truncateToWidth(`${theme.fg("muted", key)}: ${value}`, width));
+}
+
+/** Bounded recursive outline of a DOMNode (or a navigated single node, which has the same tag/path/text/children shape). */
+function treeNodeOutlineLines(node: Record<string, unknown>, width: number, theme: Theme, depth = 0): string[] {
+	const tag = typeof node.tag === "string" ? node.tag : "node";
+	const path = typeof node.path === "string" ? node.path : undefined;
+	const text = typeof node.text === "string" && node.text.trim() ? ` "${node.text.trim().slice(0, 60)}"` : "";
+	const label = `${"  ".repeat(depth)}${theme.fg("accent", `<${tag}>`)}${path ? ` ${theme.fg("dim", path)}` : ""}${text}`;
+	const lines = [truncateToWidth(label, width)];
+	const children = Array.isArray(node.children) ? node.children : [];
+	const visibleChildren = children.slice(0, 20);
+	for (const child of visibleChildren) {
+		if (isRecord(child)) lines.push(...treeNodeOutlineLines(child, width, theme, depth + 1));
+	}
+	if (children.length > visibleChildren.length) {
+		lines.push(truncateToWidth(theme.fg("muted", `${"  ".repeat(depth + 1)}… ${children.length - visibleChildren.length} more`), width));
+	}
+	return lines;
+}
+
+function treeQueryHitLines(hits: unknown[], width: number, theme: Theme): string[] {
+	const lines: string[] = [];
+	for (const raw of hits) {
+		if (!isRecord(raw)) continue;
+		const tag = typeof raw.tag === "string" ? raw.tag : "node";
+		const path = typeof raw.path === "string" ? raw.path : "";
+		const score = typeof raw.score === "number" ? ` (${raw.score.toFixed(2)})` : "";
+		lines.push(truncateToWidth(`${theme.fg("accent", `<${tag}>`)} ${theme.fg("dim", path)}${score}`, width));
+		const snippet = typeof raw.snippet === "string" ? raw.snippet : typeof raw.text === "string" ? raw.text : undefined;
+		if (snippet?.trim()) lines.push(...new Text(`  ${snippet.trim()}`, 0, 0).render(width));
+	}
+	return lines;
+}
+
+/**
+ * Every declared WebFormat value gets its own deliberate branch -- the `const exhaustive: never`
+ * default (matching pi-lector's package-source/rendering.ts precedent) means a future new format
+ * fails the build instead of silently degrading to a raw JSON dump the way every non-"markdown"
+ * format used to (doc 4e9e08c1, Finding 1). A format's *own* payload shape still varies by which
+ * operation produced it (e.g. format="lean" is a LeanPage-shaped object for a single fetch, but
+ * {total,pages,...} for a cache listing) -- each branch checks its expected shape defensively and
+ * falls to the labeled (never silent) renderLabeledPreview when it doesn't match; full per-shape
+ * polish for every operation/format combination is a follow-up, not this fix's scope.
+ */
 function primaryLines(text: string, details: WebPresentationDetails, width: number, theme: Theme): string[] {
 	let payload: unknown;
 	try {
@@ -391,28 +529,98 @@ function primaryLines(text: string, details: WebPresentationDetails, width: numb
 	} catch {
 		return new Text(text, 0, 0).render(width);
 	}
-	if (
-		details.format === "markdown" &&
-		payload &&
-		typeof payload === "object" &&
-		"markdown" in payload &&
-		typeof payload.markdown === "string"
-	) {
-		const component = new Markdown(payload.markdown, 0, 0, markdownTheme(theme), { color: (value) => theme.fg("text", value) });
-		const lines = component.render(width);
-		if (lines.length <= EXPANDED_PRIMARY_MAX_LINES) return lines;
-		return [
-			...lines.slice(0, EXPANDED_PRIMARY_MAX_LINES),
-			theme.fg("warning", `… ${lines.length - EXPANDED_PRIMARY_MAX_LINES} rendered lines omitted`),
-		];
+	const record = isRecord(payload) ? payload : undefined;
+
+	switch (details.format) {
+		case "markdown": {
+			if (record && typeof record.markdown === "string") {
+				const component = new Markdown(record.markdown, 0, 0, markdownTheme(theme), { color: (value) => theme.fg("text", value) });
+				return boundedLines(component.render(width), theme);
+			}
+			return renderLabeledPreview("unexpected markdown payload shape", payload, width, theme);
+		}
+		case "search": {
+			const results = record && Array.isArray(record.results) ? record.results : undefined;
+			if (!results) return renderLabeledPreview("unexpected search payload shape", payload, width, theme);
+			if (results.length === 0) return [theme.fg("muted", "No results.")];
+			return boundedLines(
+				identityRowLines(results, width, theme, (item) => (typeof item.snippet === "string" ? item.snippet : undefined)),
+				theme,
+			);
+		}
+		case "lean": {
+			// Cache listing / crawl reuse format="lean" for a {pages:[...]} envelope, distinct from a
+			// single fetch's LeanPage-shaped {title,description,headings,...}.
+			if (record && Array.isArray(record.pages)) return boundedLines(identityRowLines(record.pages, width, theme), theme);
+			if (record && (typeof record.title === "string" || Array.isArray(record.headings))) {
+				const lines: string[] = [];
+				if (typeof record.title === "string" && record.title) lines.push(truncateToWidth(theme.bold(record.title), width));
+				if (typeof record.description === "string" && record.description) lines.push(...new Text(record.description, 0, 0).render(width));
+				if (Array.isArray(record.headings)) {
+					for (const heading of record.headings.slice(0, 30)) {
+						if (typeof heading === "string") lines.push(truncateToWidth(theme.fg("dim", heading), width));
+					}
+				}
+				return boundedLines(lines, theme);
+			}
+			return renderLabeledPreview("unexpected lean payload shape", payload, width, theme);
+		}
+		case "links": {
+			const links = record && Array.isArray(record.bodyLinks) ? record.bodyLinks : undefined;
+			if (!links) return renderLabeledPreview("unexpected links payload shape", payload, width, theme);
+			if (links.length === 0) return [theme.fg("muted", "No links found.")];
+			return boundedLines(linkListLines(links, width, theme), theme);
+		}
+		case "highlights": {
+			const hits = record && Array.isArray(record.hits) ? record.hits : undefined;
+			if (!hits) return renderLabeledPreview("unexpected highlights payload shape", payload, width, theme);
+			if (hits.length === 0) return [theme.fg("muted", "No matches.")];
+			return boundedLines(highlightHitLines(hits, width, theme), theme);
+		}
+		case "tree": {
+			if (record && Array.isArray(record.hits)) return boundedLines(treeQueryHitLines(record.hits, width, theme), theme);
+			if (record && record.found === false) {
+				return [theme.fg("warning", `Not found: ${typeof record.path === "string" ? record.path : "(path)"}`)];
+			}
+			if (record && typeof record.tag === "string") return boundedLines(treeNodeOutlineLines(record, width, theme), theme);
+			return renderLabeledPreview("unexpected tree payload shape", payload, width, theme);
+		}
+		case "source": {
+			if (record && typeof record.content === "string") {
+				const lines: string[] = [];
+				if (typeof record.contentType === "string")
+					lines.push(truncateToWidth(theme.fg("muted", `Content-Type: ${record.contentType}`), width));
+				lines.push(...new Text(record.content, 0, 0).render(width));
+				return boundedLines(lines, theme);
+			}
+			return renderLabeledPreview("unexpected source payload shape", payload, width, theme);
+		}
+		case "meta": {
+			if (record) {
+				const lines: string[] = [];
+				if (isRecord(record.openGraph)) {
+					lines.push(theme.fg("toolTitle", "Open Graph"));
+					lines.push(...keyValueLines(record.openGraph, width, theme));
+				}
+				if (isRecord(record.twitterCard)) {
+					lines.push(theme.fg("toolTitle", "Twitter Card"));
+					lines.push(...keyValueLines(record.twitterCard, width, theme));
+				}
+				if (Array.isArray(record.jsonLd) && record.jsonLd.length > 0) {
+					lines.push(theme.fg("toolTitle", `JSON-LD (${record.jsonLd.length} block${record.jsonLd.length === 1 ? "" : "s"})`));
+				}
+				if (lines.length === 0) {
+					return [theme.fg("muted", typeof record.hint === "string" ? record.hint : "No structured metadata found.")];
+				}
+				return boundedLines(lines, theme);
+			}
+			return renderLabeledPreview("unexpected meta payload shape", payload, width, theme);
+		}
+		default: {
+			const exhaustive: never = details.format;
+			return renderLabeledPreview(`unrecognized format ${String(exhaustive)}`, payload, width, theme);
+		}
 	}
-	const pretty = JSON.stringify(payload, null, 2);
-	const lines = new Text(pretty, 0, 0).render(width);
-	if (lines.length <= EXPANDED_PRIMARY_MAX_LINES) return lines;
-	return [
-		...lines.slice(0, EXPANDED_PRIMARY_MAX_LINES),
-		theme.fg("warning", `… ${lines.length - EXPANDED_PRIMARY_MAX_LINES} rendered lines omitted`),
-	];
 }
 
 function fallbackText(result: AgentToolResult<unknown>): string {

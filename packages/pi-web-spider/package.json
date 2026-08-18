@@ -42,15 +42,18 @@
 		"@earendil-works/pi-tui": "*"
 	},
 	"scripts": {
-		"test": "vitest --run",
+		"test": "vitest --run && bun test test/tool-shell-dual-channel.test.ts",
 		"test:unit": "vitest --run",
+		"test:conformance": "bun test test/tool-shell-dual-channel.test.ts",
 		"lint": "biome lint src/",
 		"check": "bun run lint && tsc --noEmit"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
 		"@danypops/pi-extension-harness": "^0.4.0",
+		"@danypops/vehicle-conformance": "^0.4.0",
 		"@earendil-works/pi-coding-agent": "^0.80.10",
+		"bun-types": "latest",
 		"@earendil-works/pi-tui": "^0.84.0",
 		"@types/node": "^22.19.19",
 		"jiti": "^2.0.0",

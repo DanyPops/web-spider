@@ -7,6 +7,7 @@ import {
 	parseWebDetails,
 	renderWebFetchCall,
 	renderWebFetchResult,
+	type WebFormat,
 	WebResultCard,
 } from "../src/presentation.js";
 
@@ -115,6 +116,43 @@ describe("web_fetch dual-channel presentation", () => {
 			expect(render(result).length).toBeGreaterThan(0);
 			expect(render(result, true)).not.toContain("[object Object]");
 		}
+	});
+
+	// Regression for doc 4e9e08c1 Finding 1: every non-"markdown" WebFormat's expanded view used
+	// to be indistinguishable from `JSON.stringify(payload, null, 2)` -- primaryLines() special-cased
+	// only "markdown". One representative real payload shape per declared WebFormat value, asserting
+	// the expanded render is never textually equal to a raw JSON dump of its own payload.
+	it("renders every declared WebFormat value's expanded view as more than a raw JSON dump", () => {
+		const cases: Array<{ format: WebFormat; payload: unknown }> = [
+			{ format: "markdown", payload: { url: "https://example.com", title: "Example", markdown: "# Heading\n\nBody text." } },
+			{
+				format: "search",
+				payload: { query: "q", results: [{ title: "Result", url: "https://r.test", snippet: "Evidence snippet" }] },
+			},
+			{
+				format: "lean",
+				payload: { title: "Example", description: "A page.", headings: ["## Intro", "## Details"], wordCount: 120 },
+			},
+			{ format: "links", payload: { bodyLinks: [{ text: "Docs", href: "https://docs.test" }] } },
+			{ format: "highlights", payload: { hits: [{ heading: "Install", score: 0.9, text: "npm install foo" }] } },
+			{ format: "tree", payload: { tag: "article", path: "article", text: "npm install", children: [] } },
+			{ format: "source", payload: { url: "https://example.com", contentType: "text/html", content: "Normalized text.", complete: true } },
+			{
+				format: "meta",
+				payload: { url: "https://example.com", openGraph: { "og:title": "Example" }, twitterCard: { "twitter:card": "summary" } },
+			},
+		];
+		const nonRaw: WebFormat[] = [];
+		for (const { format, payload } of cases) {
+			const result = createWebResult(payload, createWebDetails({ operation: "fetch", format }));
+			const expanded = render(result, true, 80);
+			const rawJson = JSON.stringify(payload, null, 2);
+			if (expanded.replace(/\s+/g, "") !== rawJson.replace(/\s+/g, "")) nonRaw.push(format);
+		}
+		expect(
+			nonRaw,
+			`formats that still collapse to a raw JSON dump: ${cases.map((c) => c.format).filter((f) => !nonRaw.includes(f))}`,
+		).toEqual(cases.map((c) => c.format));
 	});
 
 	it("represents robots denial without treating it as successful fetched content", () => {

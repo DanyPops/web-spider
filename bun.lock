@@ -19,7 +19,7 @@
     },
     "packages/pi-web-spider": {
       "name": "@danypops/pi-web-spider",
-      "version": "0.24.9",
+      "version": "0.24.10",
       "dependencies": {
         "@danypops/vehicle-client": "^0.10.3",
         "@danypops/vehicle-client-pi": "^0.43.0",
@@ -31,9 +31,11 @@
       "devDependencies": {
         "@biomejs/biome": "^2.4.15",
         "@danypops/pi-extension-harness": "^0.4.0",
+        "@danypops/vehicle-conformance": "^0.4.0",
         "@earendil-works/pi-coding-agent": "^0.80.10",
         "@earendil-works/pi-tui": "^0.84.0",
         "@types/node": "^22.19.19",
+        "bun-types": "latest",
         "jiti": "^2.0.0",
         "typescript": "^5.9.3",
         "vitest": "^4.1.10",
@@ -70,7 +72,7 @@
     },
     "packages/web-spider-daemon": {
       "name": "@danypops/web-spider-daemon",
-      "version": "0.25.3",
+      "version": "0.25.4",
       "bin": {
         "web-spider": "src/cli.ts",
       },
@@ -182,6 +184,8 @@
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.3", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.1", "@danypops/vehicle-server": "^0.25.1" } }, "sha512-lTB4aAP35Fhnp/UH/7ySXJYrtqD61Rj5VBJxE65sS87wnikzXwfQIiLnedJthIVGCJuTiE9Cl0JbebKG4oyLtQ=="],
 
     "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.43.0", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.2", "@danypops/vehicle-core": "^0.17.1", "@danypops/vehicle-server": "^0.25.0", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-8KEZyRZAxpuxXP60BrOjx59NMlNrgpWb9+euYMkwyoC+akhEwdhUa9XqGrjvoQjwZpo9kjvxyC39HDwZkfh7XQ=="],
+
+    "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.4.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.1", "@danypops/vehicle-server": "^0.25.2" } }, "sha512-Qvp0SZ1I1M758Cp2onSK3r7YWIK/hrqd8tUP1Fl1zG25eigjSjhgmEA9HHRNRYg+D8pZeUUNINwTLRfKlZ0rVg=="],
 
     "@danypops/vehicle-core": ["@danypops/vehicle-core@0.17.1", "", {}, "sha512-darDlkdnqItbLDzjt1NOhxtYoN/sGZo8m8QaBBV/8zvkw9wBB3hHCPZsOOJuIjShNkli80PcrXGUHStec1Qztg=="],
 
