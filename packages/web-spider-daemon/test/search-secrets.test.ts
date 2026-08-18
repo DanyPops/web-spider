@@ -11,6 +11,7 @@ describe("resolveSearchKeysDir", () => {
 			token: "/home/u/.local/state/web-spider/token",
 			handle: "/x/h",
 			systemdUnit: "/x/s",
+			metrics: "/x/m",
 		});
 		expect(dir).toBe("/home/u/.local/state/web-spider/search-keys");
 	});

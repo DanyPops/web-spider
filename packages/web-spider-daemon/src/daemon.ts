@@ -11,6 +11,9 @@
 import { readLaunchProvenance, runDaemonProcess } from "@danypops/vehicle-server/daemon";
 import type { DaemonIdentity } from "@danypops/vehicle-server/daemon-lifecycle";
 import { createLogger } from "@danypops/vehicle-server/logging";
+import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import { DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { createWebSpiderLifecycleLog, resolveDaemonLifecycleLogPath } from "./daemon-lifecycle.ts";
 import { resolveAdditionalSearchKeys, resolveSearchEnv } from "./search/search-env.ts";
@@ -53,6 +56,15 @@ export async function serveMain(): Promise<void> {
 	const service = createWebSpiderService(paths.database, { env, additionalSearchKeys, loadSearchKeys, lifecycleLog, getCurrentIdentity });
 	service.importLegacyCacheIfEmpty(resolveLegacyCachePath());
 
+	// Records how often each real operation is invoked (server-side, every caller) plus, via
+	// metrics.recordClientEvent, client-observed Vehicle Shell meta-tool calls -- see
+	// @danypops/vehicle-server's own metrics README section. Wired directly onto the same registry
+	// every real web-spider operation is already registered on, so it's discoverable through the
+	// exact same tools_list/tools_man path as any other operation.
+	const vehicleMetrics = openVehicleMetricsStore(paths.metrics);
+	service.vehicleRegistry.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "web-spider"));
+	registerVehicleMetricsOperations(service.vehicleRegistry, vehicleMetrics, "web-spider");
+
 	runDaemonProcess({
 		daemonLabel: "Web Spider",
 		handlePath: paths.handle,
@@ -63,13 +75,14 @@ export async function serveMain(): Promise<void> {
 			{ name: "optimize", intervalMs: DB_OPTIMIZE_INTERVAL_MS, run: () => service.optimize() },
 		],
 		lifecycleLog,
-		onShutdown: () => {
+		onShutdown: async () => {
 			try {
 				clearSharedVehicleHandle();
 			} catch (error) {
 				logger.error("shared_vehicle_handle_remove_failed", { message: error instanceof Error ? error.message : String(error) });
 			}
-			return service.close();
+			await service.close();
+			vehicleMetrics.close();
 		},
 		onListen: ({ host, port, instanceId }) => {
 			currentIdentity = {

@@ -68,7 +68,17 @@ export function isolatedDaemonEnv(prefix = "pi-web-spider-test-"): IsolatedDaemo
 					/* already gone */
 				}
 			}
-			rmSync(root, { recursive: true, force: true });
+			// SIGTERM above doesn't wait for the daemon to actually exit -- a real, narrow race against
+			// its own graceful shutdown (which closes the metrics/database SQLite handles, flushing
+			// their WAL/SHM files) can still be mid-flight here. force:true only suppresses a
+			// path-doesn't-exist error, not ENOTEMPTY from a file the daemon re-creates a moment after
+			// this directory looked empty -- a stray leftover under $TMPDIR is harmless, so this is
+			// best-effort, not retried.
+			try {
+				rmSync(root, { recursive: true, force: true });
+			} catch {
+				/* best-effort -- see comment above */
+			}
 		},
 	};
 }

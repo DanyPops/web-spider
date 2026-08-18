@@ -30,8 +30,8 @@
 		"image": "https://raw.githubusercontent.com/DanyPops/web-spider/main/packages/pi-web-spider/assets/architecture.png"
 	},
 	"dependencies": {
-		"@danypops/vehicle-client": "^0.10.1",
-		"@danypops/vehicle-client-pi": "^0.42.1",
+		"@danypops/vehicle-client": "^0.10.3",
+		"@danypops/vehicle-client-pi": "^0.43.0",
 		"@danypops/vehicle-core": "^0.17.1",
 		"@danypops/web-spider": "^0.20.0",
 		"@danypops/web-spider-daemon": "^0.25.0",

@@ -12,6 +12,7 @@ describe("resolveDaemonLifecycleLogPath", () => {
 			token: "/home/u/.local/state/web-spider/auth-token",
 			handle: "/x/h",
 			systemdUnit: "/x/s",
+			metrics: "/x/m",
 		});
 		expect(path).toBe("/home/u/.local/state/web-spider/lifecycle.json");
 	});

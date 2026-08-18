@@ -217,6 +217,7 @@ describe("legacy service environment migration", () => {
 				token: join(dir, "state", "auth-token"),
 				handle: join(dir, "runtime", "daemon.json"),
 				systemdUnit: join(dir, "config", "web-spider.service"),
+				metrics: join(dir, "data", "metrics.sqlite"),
 			};
 			migrateLegacyServiceEnvironment(
 				"BRAVE_SEARCH_API_KEY=provider-secret WEB_SPIDER_USE_ENIGMA=1 ENIGMA_CLIENT_TOKEN=must-not-persist",

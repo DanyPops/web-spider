@@ -33,6 +33,8 @@ export interface WebSpiderPaths {
 	token: string;
 	handle: string;
 	systemdUnit: string;
+	/** vehicle-server's own tool/operation usage metrics store path -- see @danypops/vehicle-server's own metrics README section. */
+	metrics: string;
 }
 
 // vehicle-server's DaemonHandle is structurally { host: "127.0.0.1"; port; pid },
@@ -60,7 +62,13 @@ export function resolveWebSpiderPaths(options: PathEnvironment = {}): WebSpiderP
 		},
 		options,
 	);
-	return { database: resolved.database, token: resolved.token, handle: resolved.handle, systemdUnit: resolved.serviceDescriptor };
+	return {
+		database: resolved.database,
+		token: resolved.token,
+		handle: resolved.handle,
+		systemdUnit: resolved.serviceDescriptor,
+		metrics: resolved.metrics,
+	};
 }
 
 export function ensureAuthToken(paths: WebSpiderPaths = resolveWebSpiderPaths()): string {

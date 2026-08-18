@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import type { SpideredPage } from "@danypops/web-spider";
 import { SQLiteCacheStore } from "../src/cache/sqlite-cache-store.ts";
 import { openWebSpiderDb } from "../src/db.ts";
@@ -225,6 +228,29 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 				"session.act",
 			]),
 		);
+	});
+
+	test("metrics.query/metrics.recordClientEvent -- mirrors daemon.ts's own wiring -- observe a real /vehicle/invoke call", async () => {
+		const { service, app: server } = app();
+		const vehicleMetrics = openVehicleMetricsStore(":memory:");
+		service.vehicleRegistry.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "web-spider"));
+		registerVehicleMetricsOperations(service.vehicleRegistry, vehicleMetrics, "web-spider");
+
+		const manifestResponse = await server.fetch(
+			new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }),
+		);
+		const manifestBody = (await manifestResponse.json()) as { operations: Array<{ name: string }> };
+		expect(manifestBody.operations.map((operation) => operation.name)).toEqual(
+			expect.arrayContaining(["metrics.query", "metrics.recordClientEvent"]),
+		);
+
+		await invoke(server, "cache.list", {});
+
+		const queryResponse = await invoke(server, "metrics.query", { toolName: "cache.list" });
+		const { output } = (await queryResponse.json()) as { output: Array<{ count: number }> };
+		expect(output[0]).toMatchObject({ count: 1 });
+
+		vehicleMetrics.close();
 	});
 
 	test("fetch manifest advertises the normalized source format", async () => {
