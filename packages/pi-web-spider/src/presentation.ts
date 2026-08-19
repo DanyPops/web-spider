@@ -1,6 +1,6 @@
 import { expandHint, shouldShowExpandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import { type AgentToolResult, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, Markdown, type MarkdownTheme, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, hyperlink, Markdown, type MarkdownTheme, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	COLLAPSED_ITEM_PREVIEW,
 	DETAILS_MAX_FIELD_CHARACTERS,
@@ -439,7 +439,9 @@ function identityRowLines(
 		if (!isRecord(raw) || typeof raw.url !== "string") continue;
 		const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : raw.url;
 		lines.push(truncateToWidth(theme.fg("accent", title), width));
-		lines.push(truncateToWidth(theme.fg("dim", `  ${raw.url}`), width));
+		// A clickable OSC 8 hyperlink (falls back to plain text automatically on a terminal
+		// without OSC 8 support) so an end user can actually reach the page, not just read its url.
+		lines.push(truncateToWidth(theme.fg("dim", `  ${hyperlink(raw.url, raw.url)}`), width));
 		const description = describe?.(raw);
 		if (description?.trim()) lines.push(...new Text(`  ${description.trim()}`, 0, 0).render(width));
 		lines.push("");
@@ -457,7 +459,9 @@ function highlightHitLines(hits: unknown[], width: number, theme: Theme): string
 			typeof raw.heading === "string" && raw.heading.trim() ? raw.heading.trim() : typeof raw.url === "string" ? raw.url : "Match";
 		const score = typeof raw.score === "number" ? ` (${raw.score.toFixed(2)})` : "";
 		lines.push(truncateToWidth(theme.fg("accent", `${heading}${score}`), width));
-		if (typeof raw.url === "string" && raw.url !== heading) lines.push(truncateToWidth(theme.fg("dim", `  ${raw.url}`), width));
+		if (typeof raw.url === "string" && raw.url !== heading) {
+			lines.push(truncateToWidth(theme.fg("dim", `  ${hyperlink(raw.url, raw.url)}`), width));
+		}
 		if (typeof raw.text === "string" && raw.text.trim()) lines.push(...new Text(`  ${raw.text.trim()}`, 0, 0).render(width));
 		lines.push("");
 	}
@@ -469,7 +473,7 @@ function linkListLines(links: unknown[], width: number, theme: Theme): string[] 
 	for (const raw of links) {
 		if (!isRecord(raw) || typeof raw.href !== "string") continue;
 		const text = typeof raw.text === "string" && raw.text.trim() ? raw.text.trim() : raw.href;
-		lines.push(truncateToWidth(`${theme.fg("accent", text)} ${theme.fg("dim", raw.href)}`, width));
+		lines.push(truncateToWidth(`${theme.fg("accent", text)} ${theme.fg("dim", hyperlink(raw.href, raw.href))}`, width));
 	}
 	return lines;
 }

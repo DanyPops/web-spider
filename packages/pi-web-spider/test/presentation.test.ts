@@ -118,6 +118,31 @@ describe("web_fetch dual-channel presentation", () => {
 		}
 	});
 
+	// QoL: a real, live incident -- every url/href in an identity/highlight/link row was plain dim
+	// text, unreachable from the TUI. hyperlink() wraps it in an OSC 8 escape sequence (falls back
+	// to plain text automatically on a terminal without OSC 8 support) so an end user can actually
+	// open it, matching the same fix applied to Tickets' Ref column and detail-view footer.
+	it("QoL: wraps every identity/highlight/link row's own url/href in a clickable OSC 8 hyperlink", () => {
+		const search = createWebResult(
+			{ query: "q", results: [{ title: "Result", url: "https://r.test", snippet: "Evidence" }] },
+			createWebDetails({ operation: "search", format: "search", query: "q", hits: 1, items: [{ title: "Result", url: "https://r.test" }] }),
+		);
+		const expanded = render(search, true);
+		expect(expanded).toContain("\x1b]8;;https://r.test\x1b\\https://r.test\x1b]8;;\x1b\\");
+
+		const links = createWebResult(
+			{ bodyLinks: [{ text: "Docs", href: "https://docs.test" }] },
+			createWebDetails({ operation: "fetch", format: "links", links: 1, items: [{ title: "Docs", url: "https://docs.test" }] }),
+		);
+		expect(render(links, true)).toContain("\x1b]8;;https://docs.test\x1b\\https://docs.test\x1b]8;;\x1b\\");
+
+		const highlights = createWebResult(
+			{ hits: [{ heading: "Install", score: 1, text: "Evidence", url: "https://install.test" }] },
+			createWebDetails({ operation: "fetch", format: "highlights", hits: 1, query: "install" }),
+		);
+		expect(render(highlights, true)).toContain("\x1b]8;;https://install.test\x1b\\https://install.test\x1b]8;;\x1b\\");
+	});
+
 	// Regression for doc 4e9e08c1 Finding 1: every non-"markdown" WebFormat's expanded view used
 	// to be indistinguishable from `JSON.stringify(payload, null, 2)` -- primaryLines() special-cased
 	// only "markdown". One representative real payload shape per declared WebFormat value, asserting
