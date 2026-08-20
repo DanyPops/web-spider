@@ -31,13 +31,13 @@
 	},
 	"dependencies": {
 		"@danypops/vehicle-client": "^0.10.3",
-		"@danypops/vehicle-client-pi": "^0.43.0",
 		"@danypops/vehicle-core": "^0.17.1",
 		"@danypops/web-spider": "^0.20.0",
 		"@danypops/web-spider-daemon": "^0.25.0",
 		"malevich-tui-components": "0.28.0"
 	},
 	"peerDependencies": {
+		"@danypops/vehicle-client-pi": "^0.44.0",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
 	},
@@ -51,6 +51,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
 		"@danypops/pi-extension-harness": "^0.4.0",
+		"@danypops/vehicle-client-pi": "^0.44.0",
 		"@danypops/vehicle-conformance": "^0.4.0",
 		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"bun-types": "latest",
