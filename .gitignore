@@ -3,3 +3,4 @@ node_modules/
 *.js.map
 .npmrc
 package-lock.json
+.artifacts/benchmarks/

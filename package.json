@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
+    "benchmark:web-spider": "bun packages/web-spider-daemon/benchmarks/baseline.ts",
     "test": "bun run --sequential --filter '*' test",
     "test:unit": "bun run --sequential --filter '*' test:unit",
     "check": "bun run --filter '*' check",
