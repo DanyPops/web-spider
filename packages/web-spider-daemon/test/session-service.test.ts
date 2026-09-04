@@ -558,12 +558,27 @@ describe("SessionService — act: handleDialog (does not bump snapshotVersion)",
 
 describe("SessionService — act: downloads (does not bump snapshotVersion)", () => {
 	test("returns already-captured download metadata and journals a fixed placeholder", async () => {
-		const record = { filename: "spec.pdf", path: "/tmp/x/spec.pdf", url: "https://x.test/spec.pdf", failure: null };
-		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { downloadsResult: [record] } : {}));
+		const record = {
+			filename: "id-spec.pdf",
+			suggestedFilename: "spec.pdf",
+			path: "/tmp/x/id-spec.pdf",
+			url: "https://x.test/spec.pdf",
+			bytes: 10,
+			status: "saved" as const,
+			truncated: false,
+			failure: null,
+		};
+		const listing = {
+			downloads: [record],
+			usage: { fileMaxBytes: 50, sessionBytes: 10, sessionMaxBytes: 100, daemonBytes: 10, daemonMaxBytes: 1000 },
+			evictedCount: 0,
+			failureCount: 0,
+		};
+		const { service, journal, pages } = makeHarness((i) => (i === 0 ? { downloadsResult: listing } : {}));
 		await service.create({ name: "a" });
 		const out = await service.act({ name: "a", snapshotVersion: 0, action: "downloads" });
 		expect(out.snapshotVersion).toBe(0);
-		expect(out.result).toEqual([record]);
+		expect(out.result).toEqual(listing);
 		expect(pages[0]!.listDownloadsCallCount).toBe(1);
 		expect(journal.entries[0]).toMatchObject({ action: "downloads", outcome: "ok", target: "<downloads>" });
 	});

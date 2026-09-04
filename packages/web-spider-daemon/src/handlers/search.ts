@@ -45,6 +45,7 @@ export function registerSearchVehicleOperations(
 		output: passthroughVehicleSchema,
 		permissions: ["web-spider:read"],
 		effect: "open-world",
+		requiresApproval: false,
 		idempotency: { mode: "safe" },
 		limits: LIMITS,
 	});
@@ -89,6 +90,7 @@ export function registerSearchVehicleOperations(
 		output: passthroughVehicleSchema,
 		permissions: ["web-spider:read"],
 		effect: "open-world",
+		requiresApproval: false,
 		idempotency: { mode: "safe" },
 		limits: { ...LIMITS, defaultTimeoutMs: 30_000, maxTimeoutMs: 60_000 },
 	});

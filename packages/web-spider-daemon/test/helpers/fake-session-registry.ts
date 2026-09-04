@@ -1,3 +1,4 @@
+import type { SessionDownloadListing } from "../../src/session/download-store.ts";
 import type { BrowserLauncher, BrowserSessionRuntime } from "../../src/session/playwright-session-registry.ts";
 import type { SessionPage } from "../../src/session/session-registry.ts";
 
@@ -23,7 +24,7 @@ export interface FakePageOptions {
 	queryTextResult?: string[];
 	readTableResult?: string[][];
 	snapshotResult?: string;
-	downloadsResult?: Array<{ filename: string; path: string; url: string; failure: string | null }>;
+	downloadsResult?: SessionDownloadListing;
 	consoleMessagesResult?: Array<{ type: string; text: string; timestamp: number }>;
 	networkRequestsResult?: Array<{ url: string; method: string; status: number; resourceType: string }>;
 }
@@ -143,7 +144,14 @@ export function createFakePage(opts: FakePageOptions = {}, onNavigationCommitted
 		async listDownloads() {
 			listDownloadsCallCount++;
 			if (opts.failListDownloads) throw new Error("simulated listDownloads failure");
-			return opts.downloadsResult ?? [];
+			return (
+				opts.downloadsResult ?? {
+					downloads: [],
+					usage: { fileMaxBytes: 1, sessionBytes: 0, sessionMaxBytes: 1, daemonBytes: 0, daemonMaxBytes: 1 },
+					evictedCount: 0,
+					failureCount: 0,
+				}
+			);
 		},
 		async listConsoleMessages() {
 			listConsoleMessagesCallCount++;

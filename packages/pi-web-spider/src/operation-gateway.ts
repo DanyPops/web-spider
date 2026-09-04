@@ -29,6 +29,39 @@ export interface OperationGateway {
 	log(level: DiagLevel, msg: string, extra?: unknown): void;
 }
 
+const INSPECTION_ACTIONS = new Set([
+	"waitFor",
+	"queryText",
+	"readTable",
+	"snapshot",
+	"downloads",
+	"consoleMessages",
+	"networkRequests",
+	"screenshot",
+]);
+
+/** Resolves a broad public tool call to the risk-homogeneous daemon operation that enforces it. */
+export function classifyOperationRisk(
+	operation: string,
+	input: Record<string, unknown>,
+): { operation: string; input: Record<string, unknown> } {
+	if ((operation === "fetch" || operation === "crawl" || operation === "quotes") && input.ignoreRobots === true) {
+		const { ignoreRobots: _ignored, ...safeInput } = input;
+		return { operation: `${operation}.ignoreRobots`, input: safeInput };
+	}
+	if (operation === "session.act") {
+		if (input.action === "eval") return { operation: "session.eval", input };
+		if (input.action === "tabs") {
+			return { operation: input.tabOperation === "list" ? "session.inspect" : "session.interact", input };
+		}
+		return {
+			operation: typeof input.action === "string" && INSPECTION_ACTIONS.has(input.action) ? "session.inspect" : "session.interact",
+			input,
+		};
+	}
+	return { operation, input };
+}
+
 export function createOperationGateway(
 	diagPath: string = process.env.WEB_SPIDER_DIAG_PATH ?? join(homedir(), ".cache", "web-spider", "diag.log"),
 ): OperationGateway {
@@ -48,12 +81,13 @@ export function createOperationGateway(
 	return {
 		log,
 		async invoke<T = unknown>(operation: string, input: Record<string, unknown>, callMeta: CallMeta): Promise<T> {
+			const classified = classifyOperationRisk(operation, input);
 			try {
-				const result = await invokeWebSpiderVehicleOperation(operation, input, callMeta);
+				const result = await invokeWebSpiderVehicleOperation(classified.operation, classified.input, callMeta);
 				return result.details.output as T;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				log("error", "daemon operation failed", { operation, error: message });
+				log("error", "daemon operation failed", { operation: classified.operation, error: message });
 				throw error;
 			}
 		},

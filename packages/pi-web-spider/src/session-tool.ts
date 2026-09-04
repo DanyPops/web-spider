@@ -72,11 +72,11 @@ const sessionParamsSchema = Type.Object({
 			],
 			{
 				description:
-					"act, required. navigate/click/hover/pressKey/type/select act on the page (track snapshotVersion). " +
+					"act, required. navigate/click/hover/pressKey/type/select are approval-gated interactions (track snapshotVersion). " +
 					"waitFor blocks for a condition instead of guessing a delay. queryText/readTable return structured " +
 					"data. snapshot returns a YAML a11y tree -- prefer it over screenshot for page structure. " +
 					"handleDialog arms accept/dismiss for the next dialog. downloads/consoleMessages/networkRequests read " +
-					"captured session activity. tabs manages multiple tabs. eval runs arbitrary JavaScript -- prefer the " +
+					"captured session activity. tabs manages multiple tabs. eval is approval-gated arbitrary JavaScript -- prefer the " +
 					"structured actions above when they fit. screenshot returns a PNG.",
 			},
 		),

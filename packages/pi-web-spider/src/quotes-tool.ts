@@ -26,7 +26,7 @@ const quotesParamsSchema = Type.Object({
 	timeoutMs: Type.Optional(Type.Number({ description: "Per-request timeout in milliseconds" })),
 	enhanced: Type.Optional(Type.Boolean({ description: "Force headless-browser rendering for SPAs/JS-heavy/bot-gated pages" })),
 	ignoreRobots: Type.Optional(
-		Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
+		Type.Boolean({ description: "Explicit, audited, approval-gated bypass of robots.txt for this one human-directed request" }),
 	),
 	sources: Type.Optional(
 		Type.Array(Type.String(), {

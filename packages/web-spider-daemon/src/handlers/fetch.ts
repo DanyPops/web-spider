@@ -1,14 +1,8 @@
 /**
- * fetch/crawl projected as real VehicleOperations -- the fifth slice of
- * web-spider's own Vehicle protocol migration. Both fetch arbitrary
- * external content nobody vetted -- effect: "open-world", same reasoning
- * as search. Re-fetching/re-crawling the same URL upserts the same cached
- * row rather than creating a duplicate, so idempotency is "safe".
- *
- * Kept as plain synchronous operations for this slice, not Vehicle Jobs --
- * a deep/enhanced crawl can be slow, but wiring VehicleBackgroundCapability
- * is a separate follow-up (see task 4057390d), not required to reach parity
- * with today's /api/v1/ops behavior.
+ * Projects ordinary fetch/crawl work and explicit robots-policy bypasses as
+ * separate Vehicle operations. The operation name, manifest approval flag,
+ * and handler behavior all agree, so a caller cannot smuggle a bypass flag
+ * through an ordinary fetch descriptor.
  */
 import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
@@ -33,78 +27,89 @@ const FETCH_PROPERTIES = {
 	query: { type: "string" },
 	path: { type: "string" },
 	topN: { type: "number" },
-	ignoreRobots: { type: "boolean" },
 	sources: { type: "array" },
 	maxCacheAgeMs: { type: "number" },
 } as const;
 
 export function registerFetchVehicleOperations(registry: VehicleRegistry, fetchService: FetchService, crawlService: CrawlService): void {
-	const fetchOperation = defineVehicleOperation({
-		name: "fetch",
-		version: 1,
-		description: "Fetches one URL and returns clean content in the requested format (markdown/lean/links/highlights/tree/source).",
-		input: defineLooseObjectSchema(FETCH_PROPERTIES, ["url"]),
-		output: passthroughVehicleSchema,
-		permissions: ["web-spider:read"],
-		effect: "open-world",
-		idempotency: { mode: "safe" },
-		limits: LIMITS,
-	});
-	registry.register(
-		OWNER,
-		bindVehicleOperation(
-			fetchOperation,
-			() => async (context) => withVehicleErrorParity(() => fetchService.fetch(fetchInput(context.input as Record<string, unknown>))),
-		),
-	);
+	for (const bypassRobots of [false, true]) {
+		const fetchOperation = defineVehicleOperation({
+			name: bypassRobots ? "fetch.ignoreRobots" : "fetch",
+			version: 1,
+			description: bypassRobots
+				? "Fetches one URL while explicitly bypassing robots.txt for this approved request."
+				: "Fetches one URL and returns clean content in the requested format.",
+			input: defineLooseObjectSchema(FETCH_PROPERTIES, ["url"]),
+			output: passthroughVehicleSchema,
+			permissions: ["web-spider:read"],
+			effect: "open-world",
+			requiresApproval: bypassRobots,
+			idempotency: { mode: "safe" },
+			limits: LIMITS,
+		});
+		registry.register(
+			OWNER,
+			bindVehicleOperation(
+				fetchOperation,
+				() => async (context) =>
+					withVehicleErrorParity(() =>
+						fetchService.fetch({ ...fetchInput(context.input as Record<string, unknown>), ignoreRobots: bypassRobots }),
+					),
+			),
+		);
+	}
 
-	const crawlOperation = defineVehicleOperation({
-		name: "crawl",
-		version: 1,
-		description: "Crawls from a URL to the given depth, returning content in the requested format across every visited page.",
-		input: defineLooseObjectSchema(
-			{
-				...FETCH_PROPERTIES,
-				format: { type: "string", enum: ["markdown", "lean", "highlights"] },
-				depth: { type: "number" },
-				maxPages: { type: "number" },
-				sameDomain: { type: "boolean" },
-				discoverOnly: { type: "boolean" },
-				crawlUrls: { type: "array" },
-				maxTotalChars: { type: "number" },
-				deadlineMs: { type: "number" },
-				excludeDomains: { type: "array" },
-				includeDomains: { type: "array" },
-			},
-			["url"],
-		),
-		output: passthroughVehicleSchema,
-		permissions: ["web-spider:read"],
-		effect: "open-world",
-		idempotency: { mode: "safe" },
-		limits: LIMITS,
-	});
-	registry.register(
-		OWNER,
-		bindVehicleOperation(
-			crawlOperation,
-			() => async (context) =>
-				withVehicleErrorParity(() => {
-					const input = context.input as Record<string, unknown>;
-					return crawlService.crawl({
-						...fetchInput(input),
-						format: optionalString(input, "format") as "markdown" | "lean" | "highlights" | undefined,
-						depth: optionalNumber(input, "depth"),
-						maxPages: optionalNumber(input, "maxPages"),
-						sameDomain: optionalBoolean(input, "sameDomain"),
-						discoverOnly: optionalBoolean(input, "discoverOnly"),
-						crawlUrls: optionalStringArray(input, "crawlUrls"),
-						maxTotalChars: optionalNumber(input, "maxTotalChars"),
-						deadlineMs: optionalNumber(input, "deadlineMs"),
-						excludeDomains: optionalStringArray(input, "excludeDomains"),
-						includeDomains: optionalStringArray(input, "includeDomains"),
-					});
-				}),
-		),
-	);
+	const crawlProperties = {
+		...FETCH_PROPERTIES,
+		format: { type: "string", enum: ["markdown", "lean", "highlights"] },
+		depth: { type: "number" },
+		maxPages: { type: "number" },
+		sameDomain: { type: "boolean" },
+		discoverOnly: { type: "boolean" },
+		crawlUrls: { type: "array" },
+		maxTotalChars: { type: "number" },
+		deadlineMs: { type: "number" },
+		excludeDomains: { type: "array" },
+		includeDomains: { type: "array" },
+	} as const;
+	for (const bypassRobots of [false, true]) {
+		const crawlOperation = defineVehicleOperation({
+			name: bypassRobots ? "crawl.ignoreRobots" : "crawl",
+			version: 1,
+			description: bypassRobots
+				? "Crawls from a URL while explicitly bypassing robots.txt for this approved request."
+				: "Crawls from a URL to the given depth, returning content across every visited page.",
+			input: defineLooseObjectSchema(crawlProperties, ["url"]),
+			output: passthroughVehicleSchema,
+			permissions: ["web-spider:read"],
+			effect: "open-world",
+			requiresApproval: bypassRobots,
+			idempotency: { mode: "safe" },
+			limits: LIMITS,
+		});
+		registry.register(
+			OWNER,
+			bindVehicleOperation(
+				crawlOperation,
+				() => async (context) =>
+					withVehicleErrorParity(() => {
+						const input = context.input as Record<string, unknown>;
+						return crawlService.crawl({
+							...fetchInput(input),
+							format: optionalString(input, "format") as "markdown" | "lean" | "highlights" | undefined,
+							depth: optionalNumber(input, "depth"),
+							maxPages: optionalNumber(input, "maxPages"),
+							sameDomain: optionalBoolean(input, "sameDomain"),
+							discoverOnly: optionalBoolean(input, "discoverOnly"),
+							crawlUrls: optionalStringArray(input, "crawlUrls"),
+							maxTotalChars: optionalNumber(input, "maxTotalChars"),
+							deadlineMs: optionalNumber(input, "deadlineMs"),
+							excludeDomains: optionalStringArray(input, "excludeDomains"),
+							includeDomains: optionalStringArray(input, "includeDomains"),
+							ignoreRobots: bypassRobots,
+						});
+					}),
+			),
+		);
+	}
 }

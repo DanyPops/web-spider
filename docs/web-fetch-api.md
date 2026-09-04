@@ -122,7 +122,7 @@ A crawl best-first orders discovered URLs (content-likely paths like `/docs/`, `
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `timeoutMs` | `number` | `10000` | Per-request fetch timeout in milliseconds. Increase for slow sites; decrease to fail fast. |
-| `ignoreRobots` | `boolean` | `false` | Explicit, audited bypass of the robots.txt check for this one request. See [Throttling & robots.txt](#throttling--robotstxt). |
+| `ignoreRobots` | `boolean` | `false` | Explicit, audited, approval-gated bypass of the robots.txt check for this one request. See [Throttling & robots.txt](#throttling--robotstxt). |
 | `maxCacheAgeMs` | `number` | -- (cache's own TTL) | Reject an already-cached hit older than this many ms, treating it as a miss for this one request -- the fresh fetch is still written back to the shared cache normally, unlike `rootSelector`/`excludeSelectors`/`tokenBudget`/`enhanced`/`sources`, which bypass the cache entirely in both directions. `0` always refetches while still caching the result for later callers. Also applies to `depth > 0` crawls and `web_quotes`. See [Cache](#cache). |
 
 ---
@@ -440,7 +440,7 @@ Fetched markdown, tree nodes, snippets, highlights, and provider responses are n
 - Requests are automatically rate-limited **per domain** (500 ms minimum delay).
 - On `429` / `503`, backs off exponentially and respects `Retry-After` headers (up to 3 retries).
 - `robots.txt` is fetched, parsed, and respected before each page fetch. Blocked URLs return a normal typed `{ "blocked": true, "reason": "robots.txt" }` outcome; they are not reported as successful fetches.
-- `ignoreRobots: true` explicitly bypasses this check for one request (fetch or crawl). Never a default — use only for a human-directed one-off fetch of a specific page you already know is fine to retrieve (e.g. a blanket `Disallow: /` that guards against bandwidth/scraping abuse rather than genuinely private content), not for autonomous bulk crawling. Every use is logged by the daemon (structured, not silent) since it's a deliberate policy override.
+- `ignoreRobots: true` explicitly bypasses this check for one approved request (fetch or crawl). Never a default — use only for a human-directed one-off fetch of a specific page you already know is fine to retrieve (e.g. a blanket `Disallow: /` that guards against bandwidth/scraping abuse rather than genuinely private content), not for autonomous bulk crawling. Every use is logged by the daemon (structured, not silent) since it's a deliberate policy override.
 
 ---
 

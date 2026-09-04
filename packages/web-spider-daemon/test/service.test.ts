@@ -204,30 +204,88 @@ describe("createApp — /vehicle/* (category.* Vehicle protocol migration)", () 
 		expect(body.version).toBe(VERSION);
 	});
 
-	test("GET /vehicle/manifest lists every operation migrated onto the real Vehicle protocol", async () => {
+	test("GET /vehicle/manifest exposes risk-homogeneous operations", async () => {
 		const { app: server } = app();
 		const response = await server.fetch(new Request("http://x/vehicle/manifest", { headers: { authorization: `Bearer ${TOKEN}` } }));
 		expect(response.status).toBe(200);
-		const body = (await response.json()) as { operations: Array<{ name: string }> };
-		const names = body.operations.map((operation) => operation.name);
-		expect(names).toEqual(
-			expect.arrayContaining([
-				"category.assign",
-				"category.remove",
-				"category.rename",
-				"category.list",
-				"cache.list",
-				"cache.search",
-				"search",
-				"search.usage",
-				"fetch",
-				"crawl",
-				"session.create",
-				"session.list",
-				"session.close",
-				"session.act",
-			]),
-		);
+		const body = (await response.json()) as {
+			operations: Array<{
+				name: string;
+				effect: string;
+				approvalRequired?: boolean;
+				inputSchema: { properties?: Record<string, unknown> };
+			}>;
+		};
+		const operations = new Map(body.operations.map((operation) => [operation.name, operation]));
+		for (const name of [
+			"category.assign",
+			"category.remove",
+			"category.rename",
+			"category.list",
+			"cache.list",
+			"cache.search",
+			"search",
+			"search.usage",
+			"fetch",
+			"crawl",
+			"quotes",
+			"session.create",
+			"session.list",
+			"session.close",
+			"session.inspect",
+		]) {
+			expect(operations.has(name), name).toBe(true);
+		}
+		for (const name of ["fetch.ignoreRobots", "crawl.ignoreRobots", "quotes.ignoreRobots", "session.interact", "session.eval"]) {
+			expect(operations.get(name), name).toMatchObject({ approvalRequired: true });
+		}
+		expect(operations.get("session.inspect")).toMatchObject({ effect: "read", approvalRequired: false });
+		expect(operations.get("fetch")).toMatchObject({ approvalRequired: false });
+		expect(operations.get("fetch")?.inputSchema.properties).not.toHaveProperty("ignoreRobots");
+		expect(operations.has("session.act")).toBe(false);
+		expect(operations.has("vehicle.approval.resolve")).toBe(true);
+		expect(operations.has("vehicle.approval.status")).toBe(true);
+	});
+
+	test("dangerous operations require approval before dispatch", async () => {
+		const { service } = app();
+		const attempts = [
+			{
+				name: "session.eval",
+				input: { name: "missing", snapshotVersion: 0, action: "eval", script: "42" },
+			},
+			{
+				name: "fetch.ignoreRobots",
+				input: { url: "https://example.invalid" },
+			},
+		] as const;
+
+		for (const attempt of attempts) {
+			let requestId = "";
+			try {
+				await service.vehicleRegistry.invoke(attempt.name, 1, attempt.input, {
+					permissions: ["web-spider:read", "web-spider:write"],
+				});
+			} catch (error) {
+				const details = (error as { details?: { requestId?: string } }).details;
+				requestId = details?.requestId ?? "";
+				expect((error as { code?: string }).code, attempt.name).toBe("approval-required");
+			}
+			expect(requestId, attempt.name).not.toBe("");
+			expect(await service.vehicleRegistry.invoke("vehicle.approval.status", 1, { requestId }, {})).toMatchObject({
+				status: "pending",
+			});
+			await service.vehicleRegistry.invoke(
+				"vehicle.approval.resolve",
+				1,
+				{ requestId, decision: "denied", decidedBy: "test" },
+				{ permissions: ["vehicle:approvals:resolve"] },
+			);
+			expect(await service.vehicleRegistry.invoke("vehicle.approval.status", 1, { requestId }, {})).toMatchObject({
+				status: "resolved",
+				outcome: { decision: "denied", decidedBy: "test" },
+			});
+		}
 	});
 
 	test("metrics.query/metrics.recordClientEvent -- mirrors daemon.ts's own wiring -- observe a real /vehicle/invoke call", async () => {

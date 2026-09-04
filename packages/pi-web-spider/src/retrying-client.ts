@@ -60,7 +60,7 @@ type VehicleClientConnector = () => Promise<RemoteVehicleClient>;
 let vehicleConnector: VehicleClientConnector = () => connectOrStartWebSpiderVehicleClient();
 let vehicleClient: VehicleClient = createReconnectingVehicleClient(() => vehicleConnector(), { connectRetry: true });
 
-const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write"];
+const VEHICLE_PERMISSIONS = ["web-spider:read", "web-spider:write", "vehicle:approvals:resolve"];
 
 // Test-only reset helpers deliberately omit connectRetry -- a test double's connector failure
 // should surface immediately, not spend real wall-clock time retrying a budget that only matters

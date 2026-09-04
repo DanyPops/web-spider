@@ -72,6 +72,7 @@ import {
 import type { SearchEngineUsageEntry } from "./search/search-usage.ts";
 import type { SearchUsageJournal } from "./search/search-usage-journal.ts";
 import { SQLiteSearchUsageJournal } from "./search/sqlite-search-usage-journal.ts";
+import type { DownloadStoragePolicy } from "./session/download-store.ts";
 import { PlaywrightSessionRegistry } from "./session/playwright-session-registry.ts";
 import type { SessionInfo } from "./session/session.ts";
 import { isSessionAction, SESSION_ACTIONS, type SessionAction } from "./session/session-audit.ts";
@@ -414,6 +415,8 @@ export interface WebSpiderServiceDependencies {
 	getCurrentIdentity?: () => DaemonIdentity | undefined;
 	/** Overrides the default SSRF guard (see WEB_SPIDER_SSRF_ALLOW_RANGES below). Tests that monkey-patch globalThis.fetch directly, with no real DNS involved, pass a permissive stub here. */
 	ssrfGuard?: ISsrfGuard;
+	/** Finite browser-download ceilings. Omitted fields retain the secure per-file, per-session, and daemon-wide defaults. */
+	downloadPolicy?: Partial<DownloadStoragePolicy>;
 }
 
 /** This-process-only default for callers who don't care about lifecycle history surviving a restart (most tests, and any daemon.ts that hasn't wired a real file-backed one yet) -- daemon.diagnose still works, it just always reports empty history. */
@@ -514,7 +517,7 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 	const crawlService = new CrawlService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger, defaultHttpClient });
 	const quotesService = new QuotesService({ cache: store, throttle, robotsCache, getPlaywrightClient, logger, defaultHttpClient });
 
-	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, logger });
+	const sessionRegistry = new PlaywrightSessionRegistry({ downloadsBaseDir, downloadPolicy: deps.downloadPolicy, logger });
 	const sessionAuditJournal = new SQLiteSessionAuditJournal(db);
 	const sessionService = new SessionService(sessionRegistry, sessionAuditJournal, Date.now, logger);
 
@@ -543,6 +546,9 @@ export function createWebSpiderService(path: string, deps: WebSpiderServiceDepen
 		packageJsonUrl: new URL("../package.json", import.meta.url),
 		description: "Web fetch/search/crawl, curated page categories, and a disk-backed cache, behind a supervised daemon.",
 	});
+	// The default open-world policy protects future operations. Reviewed common web reads
+	// opt out individually; explicit robots bypass and browser mutation descriptors opt in.
+	vehicleRegistry.configureApprovals();
 	// withVehicleErrorParity() already converts every real handler error into a well-formed
 	// VehicleError, so this only affects a genuine registration/binding bug.
 	vehicleRegistry.setExposeHandlerFailureDetails(true);

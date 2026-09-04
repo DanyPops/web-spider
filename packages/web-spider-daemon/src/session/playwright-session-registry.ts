@@ -26,12 +26,17 @@ import { join } from "node:path";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import {
 	SESSION_MAX_CONSOLE_MESSAGES_TRACKED,
-	SESSION_MAX_DOWNLOADS_TRACKED,
 	SESSION_MAX_NETWORK_REQUESTS_TRACKED,
 	SESSION_MAX_TABS,
 	SESSION_NAME_MAX_LENGTH,
 	SESSION_REGISTRY_MAX_CONCURRENT,
 } from "../constants.ts";
+import {
+	type BrowserDownloadSource,
+	DownloadStorageCoordinator,
+	type DownloadStoragePolicy,
+	type SessionDownloadStore,
+} from "./download-store.ts";
 import { createSessionInfo, isValidSessionName, type SessionInfo, withClosed } from "./session.ts";
 import type {
 	CreateSessionOptions,
@@ -118,6 +123,7 @@ export type BrowserLauncher = (opts: {
 	forceChromeChannel: boolean;
 	headed: boolean;
 	downloadsDir: string;
+	downloadStore: SessionDownloadStore;
 	sessionName: string;
 	emitEvent: (event: BrowserSessionEvent) => void;
 }) => Promise<BrowserSessionRuntime>;
@@ -145,6 +151,7 @@ export async function createBrowserSessionRuntime(
 	downloadsDir: string,
 	logger?: Logger,
 	events?: { sessionName: string; emit: (event: BrowserSessionEvent) => void },
+	downloadStore: SessionDownloadStore = new DownloadStorageCoordinator().createSession(downloadsDir, logger),
 ): Promise<BrowserSessionRuntime> {
 	let context: PlaywrightBrowserContextLike;
 	try {
@@ -190,7 +197,7 @@ export async function createBrowserSessionRuntime(
 		const tab = {
 			pageId: `page-${nextPageNumber++}`,
 			playwrightPage,
-			sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger),
+			sessionPage: wrapPlaywrightPage(playwrightPage, downloadsDir, logger, downloadStore),
 			version: 0,
 		};
 		tabByPage.set(playwrightPage, tab);
@@ -411,12 +418,7 @@ export interface PlaywrightDialogLike {
 	dismiss(): Promise<void>;
 }
 
-export interface PlaywrightDownloadLike {
-	suggestedFilename(): string;
-	saveAs(path: string): Promise<void>;
-	url(): string;
-	failure(): Promise<string | null>;
-}
+export interface PlaywrightDownloadLike extends BrowserDownloadSource {}
 
 interface PlaywrightConsoleMessageLike {
 	type(): string;
@@ -463,7 +465,12 @@ export interface PlaywrightPageLike {
 	keyboard: { press(key: string): Promise<void> };
 }
 
-export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: string, logger?: Logger): SessionPage {
+export function wrapPlaywrightPage(
+	page: PlaywrightPageLike,
+	downloadsDir: string,
+	logger?: Logger,
+	downloadStore: SessionDownloadStore = new DownloadStorageCoordinator().createSession(downloadsDir, logger),
+): SessionPage {
 	// Registered once, at page creation, so no dialog triggered by any
 	// future action can ever occur before this exists (solves the real
 	// ordering problem: a dialog can appear as a side effect of the very
@@ -497,21 +504,8 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 	// against the click rather than checking after, precisely because the
 	// click resolving does not reliably mean the download has already
 	// fired).
-	const downloads: Array<{ filename: string; path: string; url: string; failure: string | null }> = [];
 	page.on("download", async (download) => {
-		const filename = download.suggestedFilename();
-		const path = join(downloadsDir, filename);
-		try {
-			await download.saveAs(path);
-			downloads.push({ filename, path, url: download.url(), failure: await download.failure() });
-			if (downloads.length > SESSION_MAX_DOWNLOADS_TRACKED) downloads.shift();
-		} catch (error) {
-			// Same rationale as the dialog handler above: nothing awaits this
-			// handler, so an uncaught rejection here (e.g. disk full, permission
-			// denied, invalid downloadsDir) would be unhandled, not catchable by
-			// any caller. Swallow it, but make the failure observable.
-			logger?.warn("session_download_handler_failed", { error: String(error), filename });
-		}
+		await downloadStore.capture(download);
 	});
 
 	// Same bounded-buffer pattern — registered once at page creation so
@@ -609,7 +603,7 @@ export function wrapPlaywrightPage(page: PlaywrightPageLike, downloadsDir: strin
 		armDialogPolicy: async (policy) => {
 			armedPolicy = policy;
 		},
-		listDownloads: async () => [...downloads],
+		listDownloads: async () => downloadStore.list(),
 		listConsoleMessages: async () => [...consoleMessages],
 		listNetworkRequests: async () => [...networkRequests],
 		evaluate: <T>(script: string) => page.evaluate(script) as Promise<T>,
@@ -636,11 +630,11 @@ export function resolveBrowserLaunchOptions(
 
 /** Real launcher — lazily imports playwright-core so importing this module never requires the browser binary to be installed. */
 export function defaultBrowserLauncher(logger?: Logger): BrowserLauncher {
-	return async ({ forceChromeChannel, headed, downloadsDir, sessionName, emitEvent }) => {
+	return async ({ forceChromeChannel, headed, downloadsDir, downloadStore, sessionName, emitEvent }) => {
 		const { chromium } = await import("playwright-core");
 		const browser = await chromium.launch(resolveBrowserLaunchOptions(forceChromeChannel, headed));
 		mkdirSync(downloadsDir, { recursive: true });
-		return await createBrowserSessionRuntime(browser, downloadsDir, logger, { sessionName, emit: emitEvent });
+		return await createBrowserSessionRuntime(browser, downloadsDir, logger, { sessionName, emit: emitEvent }, downloadStore);
 	};
 }
 
@@ -651,6 +645,8 @@ export interface PlaywrightSessionRegistryOptions {
 	now?: () => number;
 	/** Base directory downloaded files are saved under, one subdirectory per session name. Defaults to a directory under the OS temp dir if omitted — callers wiring the real daemon should pass the real XDG-based path (see service.ts). */
 	downloadsBaseDir?: string;
+	/** Explicit finite ceilings for persistent archives; omitted fields retain secure bounded defaults. */
+	downloadPolicy?: Partial<DownloadStoragePolicy>;
 	/** Structured logger for otherwise-unobservable failures (dialog/download event handlers that nothing awaits). Optional so existing tests/wiring that don't care about it keep working unchanged. */
 	logger?: Logger;
 	/** Bounded, failure-isolated mechanical lifecycle/page/navigation seam. It receives metadata only and never writes to the audit journal. */
@@ -676,6 +672,7 @@ export function transitionSessionLifecycle(current: SessionLifecycleState, next:
 interface SessionEntry {
 	info: SessionInfo;
 	browser: BrowserSessionRuntime;
+	downloadStore: SessionDownloadStore;
 	state: SessionLifecycleState;
 	emitEvent: (event: BrowserSessionEvent) => void;
 	closePromise?: Promise<SessionFinalizationReport>;
@@ -691,6 +688,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 	private readonly maxNameLength: number;
 	private readonly now: () => number;
 	private readonly downloadsBaseDir: string;
+	private readonly downloadCoordinator: DownloadStorageCoordinator;
 	private readonly logger?: Logger;
 	private readonly observer?: BrowserSessionObserver;
 	private readonly observerMaxQueued: number;
@@ -702,6 +700,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		this.maxNameLength = opts.maxNameLength ?? SESSION_NAME_MAX_LENGTH;
 		this.now = opts.now ?? Date.now;
 		this.downloadsBaseDir = opts.downloadsBaseDir ?? join(tmpdir(), "web-spider-downloads");
+		this.downloadCoordinator = new DownloadStorageCoordinator(opts.downloadPolicy);
 		this.logger = opts.logger;
 		this.observer = opts.observer;
 		this.observerMaxQueued = opts.observerMaxQueued ?? 100;
@@ -725,11 +724,14 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 		this.pending.add(name);
 		const emitEvent = boundedObserverEmitter(this.observer, this.logger, this.observerMaxQueued);
 		emitEvent({ kind: "lifecycle", sessionName: name, state: "starting" });
+		const downloadsDir = join(this.downloadsBaseDir, name);
+		const downloadStore = this.downloadCoordinator.createSession(downloadsDir, this.logger);
 		try {
 			const browser = await this.launcher({
 				forceChromeChannel: opts.forceChromeChannel ?? false,
 				headed: opts.headed ?? false,
-				downloadsDir: join(this.downloadsBaseDir, name),
+				downloadsDir,
+				downloadStore,
 				sessionName: name,
 				emitEvent,
 			});
@@ -744,12 +746,16 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 				} catch (closeError) {
 					this.logger?.warn("session_browser_cleanup_failed", { error: String(closeError), stage: "initial-page" });
 				}
+				await downloadStore.close();
 				throw error;
 			}
 			const info = createSessionInfo(name, this.now());
-			this.sessions.set(name, { info, browser, state: "open", emitEvent });
+			this.sessions.set(name, { info, browser, downloadStore, state: "open", emitEvent });
 			emitEvent({ kind: "lifecycle", sessionName: name, state: "open" });
 			return info;
+		} catch (error) {
+			await downloadStore.close();
+			throw error;
 		} finally {
 			this.pending.delete(name);
 		}
@@ -768,7 +774,7 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 
 	private openEntry(name: string): SessionEntry {
 		const entry = this.sessions.get(name);
-		if (!entry || entry.state !== "open") throw new Error(`no such open session: "${name}"`);
+		if (entry?.state !== "open") throw new Error(`no such open session: "${name}"`);
 		return entry;
 	}
 
@@ -840,20 +846,21 @@ export class PlaywrightSessionRegistry implements SessionRegistry {
 
 		entry.state = transitionSessionLifecycle(entry.state, "closing");
 		entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closing" });
-		const closePromise = entry.browser.close({ timeoutMs: this.finalizationTimeoutMs }).then(
-			(report) => {
+		const closePromise = (async () => {
+			try {
+				const report = await entry.browser.close({ timeoutMs: this.finalizationTimeoutMs });
+				await entry.downloadStore.close();
 				entry.state = transitionSessionLifecycle(entry.state, "closed");
 				entry.info = withClosed(entry.info);
 				entry.finalizationReport = report;
 				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "closed" });
 				return report;
-			},
-			(error) => {
+			} catch (error) {
 				entry.state = transitionSessionLifecycle(entry.state, "close-failed");
 				entry.emitEvent({ kind: "lifecycle", sessionName: name, state: "close-failed" });
 				throw error;
-			},
-		);
+			}
+		})();
 		entry.closePromise = closePromise;
 		try {
 			return await closePromise;

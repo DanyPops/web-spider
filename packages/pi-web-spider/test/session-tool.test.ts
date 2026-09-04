@@ -44,8 +44,13 @@ beforeAll(async () => {
 			"</body></html>",
 		"text/html",
 	);
-	h = createExtensionHarness(piFactory, { cwd: "/tmp", env: isolated.env });
+	h = createExtensionHarness(piFactory, { cwd: "/tmp", env: isolated.env, confirm: true });
 	await h.boot();
+	const definition = h.tools.get("web_session")?.definition;
+	if (!definition) throw new Error("web_session is not registered");
+	const execute = definition.execute.bind(definition);
+	definition.execute = (toolCallId, params, signal, onUpdate, context) =>
+		execute(toolCallId, params, signal, onUpdate, { ...context, hasUI: true });
 }, 30_000);
 
 afterAll(async () => {
@@ -78,7 +83,7 @@ describe("web_session — tool registration", () => {
 			});
 			await h.invokeTool("web_session", { operation: "close", name: "broker-check" });
 
-			for (const operation of ["session.create", "session.act", "session.close"]) {
+			for (const operation of ["session.create", "session.interact", "session.close"]) {
 				const opEvents = events.filter((e) => e.refs.operation === operation);
 				expect(opEvents.map((e) => e.type)).toEqual(["vehicle.operation.started", "vehicle.operation.completed"]);
 			}
@@ -267,19 +272,22 @@ describe("web_session — the seven newer actions, end to end through the tool b
 			action: "click",
 			selector: "#dl",
 		});
-		let downloads: any[] = [];
-		for (let i = 0; i < 50 && downloads.length === 0; i++) {
+		let listing: { downloads: Array<{ filename: string; suggestedFilename: string; status: string }>; usage?: { sessionBytes: number } } = {
+			downloads: [],
+		};
+		for (let i = 0; i < 50 && listing.downloads.length === 0; i++) {
 			const result = (await h.invokeTool("web_session", {
 				operation: "act",
 				name: "downloads-tool-session",
 				snapshotVersion: 1,
 				action: "downloads",
-			})) as any;
-			downloads = JSON.parse(result.content[0].text).result;
-			if (downloads.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+			})) as { content: Array<{ text: string }> };
+			listing = (JSON.parse(result.content[0]!.text) as { result: typeof listing }).result;
+			if (listing.downloads.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		}
-		expect(downloads).toHaveLength(1);
-		expect(downloads[0]).toMatchObject({ filename: "spec.txt" });
+		expect(listing.downloads).toHaveLength(1);
+		expect(listing.downloads[0]).toMatchObject({ suggestedFilename: "spec.txt", status: "saved" });
+		expect(listing.usage?.sessionBytes).toBeGreaterThan(0);
 
 		await h.invokeTool("web_session", { operation: "close", name: "downloads-tool-session" });
 	}, 30_000);

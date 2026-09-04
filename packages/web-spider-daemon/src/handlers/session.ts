@@ -7,17 +7,21 @@
  * "unsafe" (create fails on a duplicate name; close fails on an
  * already-closed one -- neither is safe to blindly retry).
  *
- * session.act is classified "open-world" like fetch/crawl/search: its
- * navigate/eval actions reach arbitrary external content and can run
- * arbitrary script, not just the daemon's own bounded state. Its own
- * snapshotVersion field stays a plain input (not re-expressed as Vehicle's
- * expectedRevision) -- see task 4057390d's own notes: expectedRevision is
- * plumbed end to end but not auto-enforced, so re-expressing it would only
- * add risk without adding safety over the handler's own existing check.
+ * Session actions use risk-homogeneous operations: session.inspect is a
+ * read, session.interact covers structured consequential browser actions,
+ * and session.eval covers arbitrary script execution. The latter two require
+ * exact-input approval before their handlers can dispatch. snapshotVersion
+ * remains the session service's fail-closed concurrency guard.
  *
  * session.list is a pure read of the same registry.
  */
-import { bindVehicleOperation, defineLooseObjectSchema, defineVehicleOperation, passthroughVehicleSchema } from "@danypops/vehicle-core";
+import {
+	bindVehicleOperation,
+	defineLooseObjectSchema,
+	defineVehicleOperation,
+	passthroughVehicleSchema,
+	VehicleError,
+} from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { optionalBoolean, requireString, sessionActInput } from "../service.ts";
 import { SESSION_ACTIONS } from "../session/session-audit.ts";
@@ -90,51 +94,100 @@ export function registerSessionVehicleOperations(registry: VehicleRegistry, sess
 		}),
 	);
 
-	const actOperation = defineVehicleOperation({
-		name: "session.act",
-		version: 1,
-		description:
-			"Acts on an existing session (navigate, click, type, eval, screenshot, tabs, ...), fails closed on a stale snapshotVersion.",
-		input: defineLooseObjectSchema(
-			{
-				name: { type: "string" },
-				snapshotVersion: { type: "number" },
-				action: { type: "string", enum: [...SESSION_ACTIONS] },
-				url: { type: "string" },
-				selector: { type: "string" },
-				script: { type: "string" },
-				timeoutMs: { type: "number" },
-				text: { type: "string" },
-				clear: { type: "boolean" },
-				value: { type: "string" },
-				label: { type: "string" },
-				loadState: { type: "string", enum: ["load", "domcontentloaded", "networkidle"] },
-				state: { type: "string", enum: ["visible", "hidden", "attached", "detached"] },
-				fullPage: { type: "boolean" },
-				scale: { type: "string", enum: ["css", "device"] },
-				depth: { type: "number" },
-				boxes: { type: "boolean" },
-				mode: { type: "string", enum: ["ai", "default"] },
-				accept: { type: "boolean" },
-				promptText: { type: "string" },
-				key: { type: "string" },
-				includeStatic: { type: "boolean" },
-				tabOperation: { type: "string", enum: ["list", "new", "close", "select"] },
-				tabIndex: { type: "number" },
-			},
-			["name", "snapshotVersion", "action"],
-		),
-		output: passthroughVehicleSchema,
-		permissions: ["web-spider:read", "web-spider:write"],
-		effect: "open-world",
-		idempotency: { mode: "unsafe" },
-		limits: LIMITS,
-	});
-	registry.register(
-		OWNER,
-		bindVehicleOperation(
-			actOperation,
-			() => async (context) => withVehicleErrorParity(() => sessionService.act(sessionActInput(context.input as Record<string, unknown>))),
-		),
-	);
+	const inspectionActions = [
+		"waitFor",
+		"queryText",
+		"readTable",
+		"snapshot",
+		"downloads",
+		"consoleMessages",
+		"networkRequests",
+		"tabs",
+		"screenshot",
+	] as const;
+	const interactionActions = ["navigate", "click", "hover", "pressKey", "type", "select", "handleDialog", "tabs"] as const;
+	const properties = {
+		name: { type: "string" },
+		snapshotVersion: { type: "number" },
+		url: { type: "string" },
+		selector: { type: "string" },
+		script: { type: "string" },
+		timeoutMs: { type: "number" },
+		text: { type: "string" },
+		clear: { type: "boolean" },
+		value: { type: "string" },
+		label: { type: "string" },
+		loadState: { type: "string", enum: ["load", "domcontentloaded", "networkidle"] },
+		state: { type: "string", enum: ["visible", "hidden", "attached", "detached"] },
+		fullPage: { type: "boolean" },
+		scale: { type: "string", enum: ["css", "device"] },
+		depth: { type: "number" },
+		boxes: { type: "boolean" },
+		mode: { type: "string", enum: ["ai", "default"] },
+		accept: { type: "boolean" },
+		promptText: { type: "string" },
+		key: { type: "string" },
+		includeStatic: { type: "boolean" },
+		tabOperation: { type: "string", enum: ["list", "new", "close", "select"] },
+		tabIndex: { type: "number" },
+	} as const;
+
+	const specs = [
+		{
+			name: "session.inspect",
+			description: "Reads or waits for bounded state from an existing browser session.",
+			actions: inspectionActions,
+			effect: "read" as const,
+			requiresApproval: false,
+			accepts: (input: ReturnType<typeof sessionActInput>) =>
+				input.action !== "tabs" || input.tabOperation === undefined || input.tabOperation === "list",
+		},
+		{
+			name: "session.interact",
+			description: "Performs a consequential structured interaction in an existing browser session.",
+			actions: interactionActions,
+			effect: "open-world" as const,
+			requiresApproval: true,
+			accepts: (input: ReturnType<typeof sessionActInput>) => input.action !== "tabs" || input.tabOperation !== "list",
+		},
+		{
+			name: "session.eval",
+			description: "Runs arbitrary JavaScript in an existing browser session.",
+			actions: ["eval"] as const,
+			effect: "open-world" as const,
+			requiresApproval: true,
+			accepts: () => true,
+		},
+	];
+
+	for (const spec of specs) {
+		const operation = defineVehicleOperation({
+			name: spec.name,
+			version: 1,
+			description: `${spec.description} Fails closed on a stale snapshotVersion.`,
+			input: defineLooseObjectSchema({ ...properties, action: { type: "string", enum: [...spec.actions] } }, [
+				"name",
+				"snapshotVersion",
+				"action",
+			]),
+			output: passthroughVehicleSchema,
+			permissions: ["web-spider:read", "web-spider:write"],
+			effect: spec.effect,
+			requiresApproval: spec.requiresApproval,
+			idempotency: { mode: spec.effect === "read" ? "safe" : "unsafe" },
+			limits: LIMITS,
+		});
+		registry.register(
+			OWNER,
+			bindVehicleOperation(operation, () => async (context) => {
+				const input = sessionActInput(context.input as Record<string, unknown>);
+				if (!SESSION_ACTIONS.has(input.action) || !spec.accepts(input)) {
+					throw new VehicleError("risk-class-mismatch", `${input.action} is not valid for ${spec.name}`, {
+						category: "validation",
+					});
+				}
+				return withVehicleErrorParity(() => sessionService.act(input));
+			}),
+		);
+	}
 }

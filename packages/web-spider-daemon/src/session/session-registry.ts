@@ -1,3 +1,4 @@
+import type { SessionDownloadListing } from "./download-store.ts";
 import type { SessionInfo } from "./session.ts";
 
 export type FinalizationStageOutcome = "ok" | "error" | "timeout";
@@ -68,15 +69,11 @@ export interface SessionPage {
 	 */
 	armDialogPolicy(policy: { accept: boolean; promptText?: string }): Promise<void>;
 	/**
-	 * Every download captured on this page since creation, most recent
-	 * last, bounded to SESSION_MAX_DOWNLOADS_TRACKED entries (oldest
-	 * evicted first). Each one has already been saved to disk (via a
-	 * persistent page.on('download') listener registered at page creation,
-	 * the same ordering-safe pattern used for dialogs) by the time it
-	 * appears here — this is a read of already-captured metadata, not a
-	 * new page interaction.
+	 * Reports bounded download records plus current session/daemon byte usage.
+	 * Saved files use confined collision-resistant names; rejected and failed
+	 * records expose their terminal state with no retained partial path.
 	 */
-	listDownloads(): Promise<Array<{ filename: string; path: string; url: string; failure: string | null }>>;
+	listDownloads(): Promise<SessionDownloadListing>;
 	/** Every console message logged on this page since creation, most recent last, bounded (oldest evicted first) — buffered by a persistent listener, not queryable retroactively. */
 	listConsoleMessages(): Promise<Array<{ type: string; text: string; timestamp: number }>>;
 	/** Every network request/response observed on this page since creation, most recent last, bounded — same buffering approach as console messages. */

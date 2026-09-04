@@ -120,15 +120,47 @@ describe("session.* operations — real end-to-end through createWebSpiderServic
 });
 
 describe("session.* operations — the same real end-to-end lifecycle, through the real Vehicle wire protocol", () => {
-	async function invoke(app: { fetch(request: Request): Promise<Response> }, name: string, input: Record<string, unknown>) {
+	async function invoke(
+		app: { fetch(request: Request): Promise<Response> },
+		name: string,
+		input: Record<string, unknown>,
+		options: { permissions?: string[]; approvalCapability?: string } = {},
+	) {
 		const response = await app.fetch(
 			new Request("http://x/vehicle/invoke", {
 				method: "POST",
 				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-				body: JSON.stringify({ name, version: 1, input, permissions: ["web-spider:read", "web-spider:write"] }),
+				body: JSON.stringify({
+					name,
+					version: 1,
+					input,
+					permissions: options.permissions ?? ["web-spider:read", "web-spider:write"],
+					approvalCapability: options.approvalCapability,
+				}),
 			}),
 		);
-		return { status: response.status, body: (await response.json()) as { output?: Record<string, unknown>; error?: { category: string } } };
+		return {
+			status: response.status,
+			body: (await response.json()) as {
+				output?: Record<string, unknown>;
+				error?: { category: string; details?: { requestId?: string } };
+			},
+		};
+	}
+
+	async function invokeApproved(app: { fetch(request: Request): Promise<Response> }, name: string, input: Record<string, unknown>) {
+		const pending = await invoke(app, name, input);
+		expect(pending.status).toBe(403);
+		const requestId = pending.body.error?.details?.requestId;
+		expect(typeof requestId).toBe("string");
+		const resolution = await invoke(
+			app,
+			"vehicle.approval.resolve",
+			{ requestId, decision: "granted" },
+			{ permissions: ["vehicle:approvals:resolve"] },
+		);
+		expect(resolution.status).toBe(200);
+		return invoke(app, name, input, { approvalCapability: resolution.body.output?.capability as string });
 	}
 
 	test("create → act(navigate) → act(click, stale then fresh) → list → close, with the same 409/404 status parity /api/v1/ops already has", async () => {
@@ -139,7 +171,7 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 			expect(created.status).toBe(200);
 			expect(created.body.output).toMatchObject({ name: "vehicle-e2e", snapshotVersion: 0 });
 
-			const navigate = await invoke(app, "session.act", {
+			const navigate = await invokeApproved(app, "session.interact", {
 				name: "vehicle-e2e",
 				snapshotVersion: 0,
 				action: "navigate",
@@ -149,11 +181,21 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 			expect(navigate.body.output?.snapshotVersion).toBe(1);
 
 			// Stale snapshot -> Vehicle's "conflict" category -> HTTP 409, same as /api/v1/ops's own StaleSnapshotError mapping.
-			const stale = await invoke(app, "session.act", { name: "vehicle-e2e", snapshotVersion: 0, action: "click", selector: "#b" });
+			const stale = await invokeApproved(app, "session.interact", {
+				name: "vehicle-e2e",
+				snapshotVersion: 0,
+				action: "click",
+				selector: "#b",
+			});
 			expect(stale.status).toBe(409);
 			expect(stale.body.error?.category).toBe("conflict");
 
-			const click = await invoke(app, "session.act", { name: "vehicle-e2e", snapshotVersion: 1, action: "click", selector: "#b" });
+			const click = await invokeApproved(app, "session.interact", {
+				name: "vehicle-e2e",
+				snapshotVersion: 1,
+				action: "click",
+				selector: "#b",
+			});
 			expect(click.status).toBe(200);
 
 			const list = await invoke(app, "session.list", {});
@@ -177,7 +219,7 @@ describe("session.* operations — the same real end-to-end lifecycle, through t
 		const service = createWebSpiderService(":memory:");
 		const app = createApp({ service, token: TOKEN });
 		try {
-			const result = await invoke(app, "session.act", { name: "ghost", snapshotVersion: 0, action: "screenshot" });
+			const result = await invoke(app, "session.inspect", { name: "ghost", snapshotVersion: 0, action: "screenshot" });
 			expect(result.status).toBe(404);
 			expect(result.body.error?.category).toBe("not_found");
 		} finally {

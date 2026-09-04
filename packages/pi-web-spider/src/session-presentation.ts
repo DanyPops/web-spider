@@ -123,13 +123,24 @@ export function createSessionActDetails(input: {
 			return { ...base, summary: `${total} row${total === 1 ? "" : "s"}`, items, total, truncated };
 		}
 		case "downloads": {
-			const rows = Array.isArray(input.result)
-				? input.result.map(
-						(d) => bounded(typeof d === "object" && d && "filename" in d ? String((d as { filename: unknown }).filename) : String(d)) ?? "",
-					)
-				: [];
+			const listing = typeof input.result === "object" && input.result !== null ? (input.result as Record<string, unknown>) : {};
+			const downloads = Array.isArray(listing.downloads) ? listing.downloads : [];
+			const rows = downloads.map((entry) => {
+				const download = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>) : {};
+				const name = bounded(String(download.suggestedFilename ?? download.filename ?? "download"), 160) ?? "download";
+				return download.status === "saved" ? name : `${name} (${String(download.status ?? "failed")})`;
+			});
 			const { items, total, truncated } = boundedItems(rows);
-			return { ...base, summary: `${total} download${total === 1 ? "" : "s"}`, items, total, truncated };
+			const usage = typeof listing.usage === "object" && listing.usage !== null ? (listing.usage as Record<string, unknown>) : {};
+			const sessionBytes = typeof usage.sessionBytes === "number" ? usage.sessionBytes : 0;
+			const failures = typeof listing.failureCount === "number" ? listing.failureCount : 0;
+			return {
+				...base,
+				summary: `${total} download${total === 1 ? "" : "s"}, ${sessionBytes} bytes retained${failures > 0 ? `, ${failures} failed/rejected` : ""}`,
+				items,
+				total,
+				truncated,
+			};
 		}
 		case "consoleMessages": {
 			const rows = Array.isArray(input.result)

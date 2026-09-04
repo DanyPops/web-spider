@@ -75,7 +75,7 @@ const contentShapingParamsSchema = Type.Object({
 	),
 	timeoutMs: Type.Optional(Type.Number({ description: "Per-request timeout ms (default 30000)" })),
 	ignoreRobots: Type.Optional(
-		Type.Boolean({ description: "Explicit, audited bypass of robots.txt for this one request -- human-directed only" }),
+		Type.Boolean({ description: "Explicit, audited, approval-gated bypass of robots.txt for this one human-directed request" }),
 	),
 	sources: Type.Optional(
 		Type.Array(Type.String(), {
@@ -691,7 +691,7 @@ export function registerFetchTool(pi: ExtensionAPI, gateway: OperationGateway): 
 			"",
 			"maxCacheAgeMs rejects an already-cached hit older than this many ms without disqualifying the request from the cache entirely -- the fresh fetch is still cached normally for later callers, unlike rootSelector/enhanced/sources which bypass the cache in both directions.",
 			"",
-			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, human-directed bypass for one request -- never a default.",
+			"Requests are rate-limited per domain and back off on 429/503. robots.txt is checked before every fetch; ignoreRobots is an explicit, audited, approval-gated bypass for one human-directed request -- never a default.",
 		].join("\n"),
 		promptSnippet: "Fetch URL: format=markdown/lean/links/highlights/tree/source, depth, rootSelector, tokenBudget, PDF page range",
 		parameters: paramsSchema,

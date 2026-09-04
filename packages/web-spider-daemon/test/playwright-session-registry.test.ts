@@ -263,6 +263,28 @@ describe("PlaywrightSessionRegistry — close / closeAll", () => {
 		expect(attempts).toBe(2);
 	});
 
+	test("download cleanup failure retains the session for retry", async () => {
+		const base = fakeLauncher();
+		let cleanupAttempts = 0;
+		const launcher: BrowserLauncher = async (options) => {
+			const closeDownloads = options.downloadStore.close.bind(options.downloadStore);
+			options.downloadStore.close = async () => {
+				cleanupAttempts++;
+				if (cleanupAttempts === 1) throw new Error("simulated download cleanup failure");
+				await closeDownloads();
+			};
+			return base.launcher(options);
+		};
+		const registry = new PlaywrightSessionRegistry({ launcher });
+		await registry.create("a");
+
+		await expect(registry.close("a")).rejects.toThrow(/simulated download cleanup failure/);
+		expect(registry.list()).toHaveLength(1);
+		await expect(registry.close("a")).resolves.toMatchObject({ completed: true });
+		expect(registry.list()).toHaveLength(0);
+		expect(cleanupAttempts).toBe(2);
+	});
+
 	test("concurrent close callers share one finalization attempt", async () => {
 		const { launcher, launched } = fakeLauncher();
 		const registry = new PlaywrightSessionRegistry({ launcher });
@@ -425,22 +447,23 @@ describe("wrapPlaywrightPage — dialog/download error boundaries", () => {
 		expect(logger.warnCalls).toEqual([{ msg: "session_dialog_handler_failed", fields: { error: "Error: simulated accept failure" } }]);
 	});
 
-	test("a rejecting download.saveAs() is caught and logged, never an unhandled rejection", async () => {
+	test("a rejecting download stream is caught and logged", async () => {
 		const { page, handlers } = fakePage();
 		const logger = fakeLogger();
 		wrapPlaywrightPage(page, "/tmp/unused", logger);
 		const download: PlaywrightDownloadLike = {
 			suggestedFilename: () => "report.pdf",
-			saveAs: async () => {
-				throw new Error("simulated saveAs failure");
+			createReadStream: async () => {
+				throw new Error("simulated stream failure");
 			},
+			cancel: async () => {},
 			url: () => "https://example.com/report.pdf",
 			failure: async () => null,
 		};
 
 		await expect((handlers.download as (d: PlaywrightDownloadLike) => Promise<void>)(download)).resolves.toBeUndefined();
 		expect(logger.warnCalls).toEqual([
-			{ msg: "session_download_handler_failed", fields: { error: "Error: simulated saveAs failure", filename: "report.pdf" } },
+			{ msg: "session_download_handler_failed", fields: { error: "Error: simulated stream failure", filename: "report.pdf" } },
 		]);
 	});
 });
@@ -1036,21 +1059,25 @@ describe("defaultBrowserLauncher — real Playwright integration (walking skelet
 		// The download event may not have finished by the time click() resolves
 		// (verified empirically before designing this) — poll briefly rather
 		// than assume it's already present.
-		let downloads: Awaited<ReturnType<typeof page.listDownloads>> = [];
-		for (let i = 0; i < 50 && downloads.length === 0; i++) {
-			downloads = await page.listDownloads();
-			if (downloads.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+		let listing = await page.listDownloads();
+		for (let i = 0; i < 50 && listing.downloads.length === 0; i++) {
+			listing = await page.listDownloads();
+			if (listing.downloads.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		}
 
-		expect(downloads).toHaveLength(1);
-		expect(downloads[0]!.filename).toBe("spec.txt");
-		expect(downloads[0]!.failure).toBeNull();
-		// Real file, saved for real, under the real per-session directory —
-		// not just an in-memory claim.
-		expect(downloads[0]!.path).toContain(join(downloadsBaseDir, "real-download-session"));
-		expect(readFileSync(downloads[0]!.path, "utf8")).toBe("O-RAN.WG3.TS.E2AP-R004-v08.00");
+		expect(listing.downloads).toHaveLength(1);
+		const saved = listing.downloads[0]!;
+		expect(saved.suggestedFilename).toBe("spec.txt");
+		expect(saved.filename).toEndWith("-spec.txt");
+		expect(saved.failure).toBeNull();
+		expect(saved.status).toBe("saved");
+		expect(listing.usage.sessionBytes).toBe(saved.bytes);
+		// Real file, saved for real, under the real per-session directory.
+		expect(saved.path).toContain(join(downloadsBaseDir, "real-download-session"));
+		expect(readFileSync(saved.path as string, "utf8")).toBe("O-RAN.WG3.TS.E2AP-R004-v08.00");
 
 		await registry.close("real-download-session");
+		expect(() => readFileSync(saved.path as string, "utf8")).toThrow();
 		rmSync(downloadsBaseDir, { recursive: true, force: true });
 	}, 30_000);
 

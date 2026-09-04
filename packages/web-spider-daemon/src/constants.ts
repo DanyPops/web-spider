@@ -107,8 +107,14 @@ export const SESSION_ACT_EXTRACT_ITEM_MAX_LENGTH = 2_000;
 export const SESSION_ACT_SNAPSHOT_MAX_LENGTH = 20_000;
 /** Subdirectory name (sibling of the SQLite database, under the same XDG_DATA_HOME) that downloaded files are saved under, one subdirectory per session. */
 export const SESSION_DOWNLOADS_DIRECTORY_NAME = "downloads";
-/** Max downloads tracked per session — oldest evicted first. Bounds memory, not disk (a real limitation: a single huge file is not size-bounded by this). */
+/** Max downloads tracked per session — oldest metadata and its owned file are evicted together. */
 export const SESSION_MAX_DOWNLOADS_TRACKED = 20;
+/** Maximum bytes retained for one browser download. */
+export const SESSION_DOWNLOAD_FILE_MAX_BYTES = 64 * 1024 * 1024;
+/** Maximum bytes retained across one browser session's tabs. */
+export const SESSION_DOWNLOAD_SESSION_MAX_BYTES = 256 * 1024 * 1024;
+/** Maximum bytes retained across every browser session in one daemon. */
+export const SESSION_DOWNLOAD_DAEMON_MAX_BYTES = 1024 * 1024 * 1024;
 /** Max console messages / network requests tracked per session — oldest evicted first. Larger than downloads since these fire far more frequently per page. */
 export const SESSION_MAX_CONSOLE_MESSAGES_TRACKED = 100;
 export const SESSION_MAX_NETWORK_REQUESTS_TRACKED = 100;

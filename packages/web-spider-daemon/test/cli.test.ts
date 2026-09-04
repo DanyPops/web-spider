@@ -703,9 +703,28 @@ describe("runCli session act", () => {
 	});
 
 	test("downloads requires no extra flags; human output prints the result", async () => {
-		const record = { filename: "spec.pdf", path: "/tmp/spec.pdf", url: "https://x.test/spec.pdf", failure: null };
+		const record = {
+			filename: "id-spec.pdf",
+			suggestedFilename: "spec.pdf",
+			path: "/tmp/id-spec.pdf",
+			url: "https://x.test/spec.pdf",
+			bytes: 10,
+			status: "saved",
+			truncated: false,
+			failure: null,
+		};
 		const { deps, operations, calls } = fakeDeps({
-			call: () => ({ name: "a", action: "downloads", snapshotVersion: 0, result: [record] }),
+			call: () => ({
+				name: "a",
+				action: "downloads",
+				snapshotVersion: 0,
+				result: {
+					downloads: [record],
+					usage: { fileMaxBytes: 50, sessionBytes: 10, sessionMaxBytes: 100, daemonBytes: 10, daemonMaxBytes: 1000 },
+					evictedCount: 0,
+					failureCount: 0,
+				},
+			}),
 		});
 		await runCli(["session", "act", "a", "--action", "downloads", "--snapshot-version", "0"], deps);
 		expect(operations).toHaveLength(1);
