@@ -37,7 +37,7 @@
 		"malevich-tui-components": "0.28.0"
 	},
 	"peerDependencies": {
-		"@danypops/vehicle-client-pi": "^0.45.0",
+		"@danypops/vehicle-client-pi": "^0.48.3",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
 	},
@@ -51,7 +51,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
 		"@danypops/pi-extension-harness": "^0.4.0",
-		"@danypops/vehicle-client-pi": "^0.45.0",
+		"@danypops/vehicle-client-pi": "^0.48.3",
 		"@danypops/vehicle-conformance": "^0.4.0",
 		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"bun-types": "latest",
