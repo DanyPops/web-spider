@@ -1,6 +1,6 @@
 {
 	"name": "@danypops/web-spider-daemon",
-	"version": "0.25.4",
+	"version": "0.25.5",
 	"license": "MIT",
 	"author": "Daniel Popsuevich",
 	"homepage": "https://github.com/DanyPops/web-spider/tree/main/packages/web-spider-daemon#readme",
@@ -39,9 +39,9 @@
 	},
 	"scripts": {
 		"build:facade": "bun build src/client.ts src/state.ts --outdir dist/facade --target=node --format=esm",
-		"test": "bun test",
+		"test": "bun run test:unit && bun run test:browser",
 		"test:unit": "bun test --path-ignore-patterns='**/playwright-session-registry.test.ts'",
-		"test:browser": "bun test test/playwright-session-registry.test.ts",
+		"test:browser": "bun test test/playwright-session-registry.test.ts --test-name-pattern '^(?!defaultBrowserLauncher — real Playwright integration)' && bun test test/playwright-session-registry.test.ts --test-name-pattern 'actually launches|registry.page|real type|real select|real waitFor' && bun test test/playwright-session-registry.test.ts --test-name-pattern 'real queryText|real readTable|real screenshot|real snapshot' && bun test test/playwright-session-registry.test.ts --test-name-pattern 'real dialogs|real armDialog|real download|real hover|real pressKey' && bun test test/playwright-session-registry.test.ts --test-name-pattern 'real listConsoleMessages|real listNetworkRequests|real multi-tab|real tabs share|real named sessions|real user-created popup' && bun test test/playwright-session-registry.test.ts --test-name-pattern 'real page IDs|real popup closed|real per-page|real human-style|real same-document|real tab limit'",
 		"cli": "bun src/cli.ts",
 		"serve": "bun src/cli.ts serve",
 		"service:install": "bun src/cli.ts service install",
@@ -52,6 +52,7 @@
 			"name": "web-spider",
 			"displayName": "Web Spider search, query, and scraping daemon",
 			"binPath": "src/cli.ts",
+			"runtime": "bun",
 			"args": ["serve"],
 			"handleFilename": "daemon.json",
 			"restartOnFailure": true,
@@ -59,9 +60,9 @@
 		}
 	},
 	"dependencies": {
-		"@danypops/vehicle-core": "^0.17.1",
-		"@danypops/vehicle-server": "^0.25.2",
-		"@danypops/vehicle-client": "^0.10.1",
+		"@danypops/vehicle-core": "^0.19.1",
+		"@danypops/vehicle-server": "^0.27.1",
+		"@danypops/vehicle-client": "^0.10.8",
 		"@danypops/enigma-client": "^0.6.1",
 		"@danypops/web-spider": "^0.20.0"
 	},
